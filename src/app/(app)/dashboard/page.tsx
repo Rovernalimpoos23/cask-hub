@@ -10,7 +10,7 @@ import {
   SectionLabel,
 } from '@/components/ui'
 
-export const dynamic = 'force-dynamic'
+export const dynamic = 'force-static'
 
 // ── Stat card icons ───────────────────────────────────────────────────
 function IconSessions() {
