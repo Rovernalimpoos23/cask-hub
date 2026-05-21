@@ -1,0 +1,127 @@
+/* src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --white: #ffffff;
+  --bg: #f9f8f7;
+  --surface: #ffffff;
+  --surface2: #f4f3f1;
+  --border: #e8e5e1;
+  --border2: #d4d0ca;
+  --text: #1a1917;
+  --text2: #3a3834;
+  --text3: #a8a29e;
+  --red: #c8311a;
+  --red-soft: #fdf2f0;
+  --red-border: #f5c9c2;
+  --charcoal: #1a1917;
+  --sidebar: #1c1c1e;
+  --sidebar-text: rgba(255, 255, 255, 0.65);
+  --sidebar-active: rgba(255, 255, 255, 0.08);
+  --green: #166534;
+  --green-bg: #f0fdf4;
+  --amber: #92400e;
+  --amber-bg: #fffbeb;
+  --purple: #6d28d9;
+  --purple-bg: #faf5ff;
+  --purple-border: #e9d5ff;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: var(--font-geist), sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 4px;
+}
+
+/* App shell — 3-column layout */
+.app-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr 300px;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Page animation */
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes thinking {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.animate-page-in {
+  animation: pageIn 0.18s ease both;
+}
+
+.animate-card-in-1 { animation: cardIn 0.3s ease 0.05s both; }
+.animate-card-in-2 { animation: cardIn 0.3s ease 0.1s both; }
+.animate-card-in-3 { animation: cardIn 0.3s ease 0.15s both; }
+.animate-card-in-4 { animation: cardIn 0.3s ease 0.2s both; }
+
+.status-blink {
+  animation: blink 2s infinite;
+}
+
+/* Meeting type left borders */
+.border-l-leadership { border-left-color: var(--red) !important; }
+.border-l-planning { border-left-color: #059669 !important; }
+.border-l-coaching { border-left-color: #d97706 !important; }
+.border-l-education { border-left-color: var(--purple) !important; }
+
+/* Shimmer loading */
+.shimmer {
+  background: linear-gradient(90deg, var(--border), var(--charcoal), var(--border));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* AI thinking dots */
+.thinking-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text3);
+  animation: thinking 1.2s ease infinite;
+}
+.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
