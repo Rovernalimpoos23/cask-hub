@@ -238,7 +238,6 @@ function AttendeeInput({ attendees, onChange }: AttendeeInputProps) {
 export default function AddMeetingModal() {
   const [open, setOpen] = useState(false)
   const [exiting, setExiting] = useState(false)
-  const [transcriptOpen, setTranscriptOpen] = useState(false)
 
   // Form state
   const [title, setTitle]               = useState('')
@@ -256,8 +255,10 @@ export default function AddMeetingModal() {
   const [actionItems, setActionItems]   = useState<ActionItemForm[]>([newItem()])
 
   // UI state
-  const [saving, setSaving]     = useState(false)
-  const [toast, setToast]       = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [saving, setSaving]         = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  const [aiSuccess, setAiSuccess]   = useState(false)
+  const [toast, setToast]           = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   // ── Open/close logic ──────────────────────────────────────────────────────
 
@@ -305,7 +306,58 @@ export default function AddMeetingModal() {
     setTitle(''); setMeetingType('coaching'); setModule('ActionCOACH')
     setDate(''); setOwner('Calin'); setTimeStart(''); setTimeEnd('')
     setAttendees([]); setTranscript(''); setSummary1(''); setSummary2(''); setSummary3('')
-    setActionItems([newItem()]); setTranscriptOpen(false)
+    setActionItems([newItem()]); setAiSuccess(false)
+  }
+
+  // ── Auto-fill from transcript ──────────────────────────────────────────────
+
+  async function handleAutoFill() {
+    if (!transcript.trim()) {
+      setToast({ message: 'Paste a transcript first.', type: 'error' })
+      return
+    }
+    setExtracting(true)
+    setAiSuccess(false)
+    try {
+      const res = await fetch('/api/extract-meeting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json.success) throw new Error(json.error ?? 'Extraction failed')
+
+      const d = json.data
+      if (d.title)        setTitle(d.title)
+      if (d.date)         setDate(d.date)
+      if (d.time_start)   setTimeStart(d.time_start)
+      if (d.time_end)     setTimeEnd(d.time_end)
+      if (d.meeting_type && ['leadership','planning','coaching','education'].includes(d.meeting_type))
+        setMeetingType(d.meeting_type as MeetingType)
+      if (d.module && MODULES.includes(d.module)) setModule(d.module)
+      if (Array.isArray(d.attendees) && d.attendees.length > 0) setAttendees(d.attendees)
+      if (d.owner && OWNERS.includes(d.owner)) setOwner(d.owner)
+      if (Array.isArray(d.summary)) {
+        setSummary1(d.summary[0] ?? '')
+        setSummary2(d.summary[1] ?? '')
+        setSummary3(d.summary[2] ?? '')
+      }
+      if (Array.isArray(d.action_items) && d.action_items.length > 0) {
+        setActionItems(d.action_items.map((item: { task?: string; owner?: string; due_date?: string; done?: boolean }) => ({
+          id: crypto.randomUUID(),
+          task: item.task ?? '',
+          owner: item.owner ?? '',
+          due_date: item.due_date ?? '',
+          done: item.done ?? false,
+        })))
+      }
+      setAiSuccess(true)
+    } catch (err) {
+      console.error('Auto-fill error:', err)
+      setToast({ message: 'AI extraction failed. Please try again or fill manually.', type: 'error' })
+    } finally {
+      setExtracting(false)
+    }
   }
 
   // ── Save ───────────────────────────────────────────────────────────────────
@@ -526,6 +578,118 @@ export default function AddMeetingModal() {
                 gap: 14,
               }}
             >
+              {/* ── AI Auto-fill section ──────────────────────────────── */}
+              <div
+                style={{
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  padding: '14px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                <div style={fieldStyle}>
+                  <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: 'var(--red)', fontSize: 13 }}>✦</span>
+                    Paste Fireflies Transcript
+                  </label>
+                  <textarea
+                    value={transcript}
+                    onChange={e => { setTranscript(e.target.value); setAiSuccess(false) }}
+                    placeholder="Paste your raw Fireflies transcript here and let AI fill the form automatically..."
+                    rows={6}
+                    style={{
+                      ...inputStyle,
+                      fontFamily: 'var(--font-geist-mono, monospace)',
+                      fontSize: 12,
+                      lineHeight: 1.7,
+                      resize: 'vertical',
+                    }}
+                    onFocus={focusInput}
+                    onBlur={blurInput}
+                  />
+                </div>
+
+                {/* Auto-fill button */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleAutoFill}
+                    disabled={extracting || !transcript.trim()}
+                    style={{
+                      width: '100%',
+                      padding: '10px 16px',
+                      background: extracting ? 'var(--text3)' : 'var(--charcoal)',
+                      border: 'none',
+                      borderRadius: 8,
+                      color: 'white',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: extracting || !transcript.trim() ? 'not-allowed' : 'pointer',
+                      opacity: !transcript.trim() ? 0.45 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 7,
+                      transition: 'opacity 150ms ease',
+                      fontFamily: 'inherit',
+                    }}
+                    onMouseEnter={e => { if (!extracting && transcript.trim()) e.currentTarget.style.opacity = '0.85' }}
+                    onMouseLeave={e => { if (!extracting && transcript.trim()) e.currentTarget.style.opacity = '1' }}
+                  >
+                    {extracting ? (
+                      <>
+                        <span>✦ Analyzing transcript</span>
+                        <span style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+                          <span className="thinking-dot" />
+                          <span className="thinking-dot" />
+                          <span className="thinking-dot" />
+                        </span>
+                      </>
+                    ) : (
+                      '✦ Auto-fill with Groq AI'
+                    )}
+                  </button>
+                  <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>
+                    AI will extract title, attendees, summary and action items automatically
+                  </p>
+                </div>
+
+                {/* Success banner */}
+                {aiSuccess && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '9px 12px',
+                      background: 'var(--green-bg)',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: 'var(--green)',
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    ✦ AI extracted the details — please review before saving
+                  </div>
+                )}
+              </div>
+
+              {/* Divider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                <span style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  or fill in manually
+                </span>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+
               {/* Title — full width */}
               <div style={fieldStyle}>
                 <label style={labelStyle}>
@@ -746,66 +910,6 @@ export default function AddMeetingModal() {
                 </button>
               </div>
 
-              {/* Transcript — collapsible */}
-              <div style={fieldStyle}>
-                <button
-                  type="button"
-                  onClick={() => setTranscriptOpen(p => !p)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--text3)',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    padding: 0,
-                    fontFamily: 'inherit',
-                    transition: 'color 120ms ease',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--text2)' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)' }}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{
-                      transform: transcriptOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-                      transition: 'transform 180ms ease',
-                    }}
-                  >
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                  {transcriptOpen ? 'Hide transcript' : 'Add full transcript (optional)'}
-                </button>
-                {transcriptOpen && (
-                  <textarea
-                    value={transcript}
-                    onChange={e => setTranscript(e.target.value)}
-                    placeholder="Paste the raw Fireflies transcript here..."
-                    rows={8}
-                    style={{
-                      ...inputStyle,
-                      fontFamily: 'var(--font-geist-mono, monospace)',
-                      fontSize: 12,
-                      lineHeight: 1.75,
-                      resize: 'vertical',
-                      minHeight: 160,
-                      marginTop: 8,
-                    }}
-                    onFocus={focusInput}
-                    onBlur={blurInput}
-                  />
-                )}
-              </div>
             </div>
 
             {/* Footer — fixed */}
