@@ -1,8 +1,7 @@
 'use client'
 // src/app/(app)/actions/page.tsx
 
-import { useState, useEffect } from 'react'
-import Loading from '../loading'
+import { useState } from 'react'
 import { MEETINGS } from '@/lib/seed-data'
 import { TopBar, ActionItemRow, SectionLabel } from '@/components/ui'
 import type { ActionItem } from '@/types'
@@ -12,11 +11,7 @@ const OWNER_FILTERS = ['All', 'Calin', 'Kai', 'Chad', 'Rovern', 'All Leaders', '
 export default function ActionsPage() {
   const allActions: ActionItem[] = MEETINGS.flatMap(m => m.action_items)
 
-  const [mounted, setMounted] = useState(false)
   const [ownerFilter, setOwnerFilter] = useState('All')
-
-  useEffect(() => { setMounted(true) }, [])
-  if (!mounted) return <Loading />
   const [items, setItems] = useState(allActions)
 
   const filtered = ownerFilter === 'All'

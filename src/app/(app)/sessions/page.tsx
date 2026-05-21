@@ -1,8 +1,7 @@
 'use client'
 // src/app/(app)/sessions/page.tsx
 
-import { useState, useEffect } from 'react'
-import Loading from '../loading'
+import { useState } from 'react'
 import { MEETINGS } from '@/lib/seed-data'
 import {
   TopBar,
@@ -22,11 +21,7 @@ const FILTER_TABS = [
 ]
 
 export default function SessionsPage() {
-  const [mounted, setMounted] = useState(false)
   const [filter, setFilter] = useState('all')
-
-  useEffect(() => { setMounted(true) }, [])
-  if (!mounted) return <Loading />
 
   const meetings = [...MEETINGS].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
