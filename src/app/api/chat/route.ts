@@ -1,5 +1,9 @@
 // src/app/api/chat/route.ts
+// Requires GROQ_API_KEY in environment (set in Vercel dashboard + .env.local)
+import Groq from 'groq-sdk'
 import { NextRequest, NextResponse } from 'next/server'
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 
 const SYSTEM_PROMPT = `You are CASK Hub AI for CASK Construction's ActionCOACH program. You have access to all 6 coaching sessions from February through April 2026. Be concise and helpful.
 
@@ -17,7 +21,7 @@ SESSION HISTORY:
 
 KEY PEOPLE:
 - Calin Noonan = President + Co-Founder
-- Chad Holman = VP Operations + Co-Founder  
+- Chad Holman = VP Operations + Co-Founder
 - Lamont Gilyot = VP Finance
 - Jeff Azcona = VP Sales & Marketing
 - Kaitlyn Grunenberg = VP Human Resources
@@ -45,31 +49,22 @@ export async function POST(req: NextRequest) {
   try {
     const { messages } = await req.json()
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 500,
-        system: SYSTEM_PROMPT,
-        messages: messages.slice(-10), // Last 10 messages for context window
-      }),
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...messages.slice(-10), // Last 10 messages for context window
+      ],
+      max_tokens: 500,
+      temperature: 0.7,
     })
 
-    if (!response.ok) {
-      throw new Error(`Anthropic API error: ${response.status}`)
-    }
-
-    const data = await response.json()
-    return NextResponse.json({ content: data.content[0].text })
+    const content = completion.choices[0].message.content || ''
+    return NextResponse.json({ content })
   } catch (error) {
     console.error('Chat API error:', error)
     return NextResponse.json(
-      { error: 'Failed to get response from Claude' },
+      { error: 'Failed to get response' },
       { status: 500 }
     )
   }
