@@ -16,6 +16,7 @@ const NAV_SECTIONS = [
       { href: '/sessions', icon: '◈', label: 'Sessions', locked: false },
       { href: '/generate', icon: '✦', label: 'Generate Agenda', locked: false },
       { href: '/actions', icon: '◎', label: 'Action Items', locked: false },
+      { href: '/sessions/new', icon: '➕', label: 'Add Meeting', locked: false },
     ],
   },
   {

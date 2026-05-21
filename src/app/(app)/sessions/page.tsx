@@ -2,6 +2,7 @@
 // src/app/(app)/sessions/page.tsx
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { MEETINGS } from '@/lib/seed-data'
 import {
   TopBar,
@@ -36,6 +37,28 @@ export default function SessionsPage() {
       <TopBar title="Sessions" subtitle="ActionCOACH">
         <PillGreen>Claude AI Active</PillGreen>
         <PillRed>6 Sessions</PillRed>
+        <Link
+          href="/sessions/new"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            background: 'var(--charcoal)',
+            color: 'white',
+            fontSize: '12px',
+            fontWeight: 600,
+            padding: '6px 12px',
+            borderRadius: '7px',
+            textDecoration: 'none',
+            fontFamily: 'inherit',
+            transition: 'opacity 150ms ease',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.82' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1' }}
+        >
+          <span style={{ fontSize: '14px', lineHeight: 1 }}>+</span>
+          Add Meeting
+        </Link>
       </TopBar>
 
       <div className="flex-1 overflow-y-auto p-7 animate-page-in">
