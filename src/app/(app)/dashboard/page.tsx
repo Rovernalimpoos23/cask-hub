@@ -80,7 +80,7 @@ export default async function DashboardPage() {
 
       <div
         className="flex-1 overflow-y-auto p-7 animate-page-in"
-        style={{ background: 'linear-gradient(to bottom, #f9f8f7 0%, #f5f4f2 100%)' }}
+        style={{ background: 'var(--bg)' }}
       >
         {/* Page Header */}
         <div className="mb-7">

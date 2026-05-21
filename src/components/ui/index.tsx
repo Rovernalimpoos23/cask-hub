@@ -4,7 +4,70 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
+import { useTheme } from '@/lib/theme-context'
 import type { Meeting, ActionItem } from '@/types'
+
+// ── Theme Toggle Button ──────────────────────────────────────────────
+function ThemeToggle() {
+  const { theme, toggleTheme, mounted } = useTheme()
+  const isDark = theme === 'dark'
+
+  const btnStyle: React.CSSProperties = {
+    width: 30,
+    height: 30,
+    borderRadius: 7,
+    border: '1px solid var(--border)',
+    background: 'var(--surface2)',
+    color: 'var(--text3)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    fontFamily: 'inherit',
+    opacity: mounted ? 1 : 0,
+  }
+
+  return (
+    <button
+      onClick={toggleTheme}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      style={btnStyle}
+      onMouseEnter={e => {
+        e.currentTarget.style.background = 'var(--border)'
+        e.currentTarget.style.color = 'var(--text2)'
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.background = 'var(--surface2)'
+        e.currentTarget.style.color = 'var(--text3)'
+      }}
+    >
+      {/* Always render both icons, show correct one via opacity — avoids DOM structure mismatch */}
+      <svg
+        width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        style={{ position: 'absolute', opacity: mounted && isDark ? 1 : 0 }}
+      >
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/>
+        <line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+      <svg
+        width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        style={{ position: 'absolute', opacity: mounted && !isDark ? 1 : 0 }}
+      >
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  )
+}
 
 // ── TopBar ──────────────────────────────────────────────────────────
 export function TopBar({
@@ -41,9 +104,10 @@ export function TopBar({
           </span>
         </>
       )}
-      {children && (
-        <div className="ml-auto flex items-center gap-2">{children}</div>
-      )}
+      <div className="ml-auto flex items-center gap-2">
+        {children}
+        <ThemeToggle />
+      </div>
     </div>
   )
 }
@@ -92,7 +156,7 @@ const TYPE_STYLES: Record<string, { bg: string; color: string; border: string; l
     label: 'Leadership',
   },
   planning: {
-    bg: '#f0fdf4',
+    bg: 'var(--green-bg)',
     color: '#166534',
     border: '#bbf7d0',
     label: 'Planning',
@@ -104,9 +168,9 @@ const TYPE_STYLES: Record<string, { bg: string; color: string; border: string; l
     label: 'Coaching',
   },
   education: {
-    bg: '#faf5ff',
-    color: '#6d28d9',
-    border: '#e9d5ff',
+    bg: 'var(--purple-bg)',
+    color: 'var(--purple)',
+    border: 'var(--purple-border)',
     label: 'Education',
   },
 }
@@ -155,7 +219,7 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
       onMouseLeave={() => setHovered(false)}
       className="group no-underline flex items-center gap-5 pl-6 pr-5 py-[18px] rounded-[10px] cursor-pointer relative overflow-hidden"
       style={{
-        background: hovered ? '#fafaf9' : 'var(--white)',
+        background: hovered ? 'var(--surface-hover)' : 'var(--white)',
         border: hovered ? '1px solid var(--border2)' : '1px solid var(--border)',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
         boxShadow: hovered
@@ -345,7 +409,7 @@ export function StatCard({
       iconColor: 'var(--red)',
     },
     success: {
-      background: 'linear-gradient(135deg, var(--white) 0%, #f0fdf4 100%)',
+      background: 'linear-gradient(135deg, var(--white) 0%, var(--green-bg) 100%)',
       border: hovered ? '1px solid #86efac' : '1px solid #bbf7d0',
       topAccent: '#059669',
       valueColor: '#166534',

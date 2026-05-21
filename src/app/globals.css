@@ -8,6 +8,7 @@
   --bg: #f9f8f7;
   --surface: #ffffff;
   --surface2: #f4f3f1;
+  --surface-hover: #fafaf9;
   --border: #e8e5e1;
   --border2: #d4d0ca;
   --text: #1a1917;
@@ -29,10 +30,32 @@
   --purple-border: #e9d5ff;
 }
 
+.dark {
+  --white: #1a1917;
+  --bg: #111110;
+  --surface: #1a1917;
+  --surface2: #1c1c1e;
+  --surface-hover: #222220;
+  --border: rgba(255, 255, 255, 0.08);
+  --border2: rgba(255, 255, 255, 0.12);
+  --text: rgba(255, 255, 255, 0.92);
+  --text2: rgba(255, 255, 255, 0.65);
+  --text3: rgba(255, 255, 255, 0.3);
+  --red-soft: rgba(200, 49, 26, 0.12);
+  --red-border: rgba(200, 49, 26, 0.25);
+  --green-bg: rgba(22, 101, 52, 0.15);
+  --amber-bg: rgba(146, 64, 14, 0.15);
+  --sidebar: #0d0d0c;
+  --charcoal: #3a3835;
+  --purple-bg: rgba(109, 40, 217, 0.12);
+  --purple-border: rgba(109, 40, 217, 0.25);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
 }
 
 html,

@@ -9,14 +9,6 @@ import { createClient } from '@/lib/supabase'
 
 type View = 'login' | 'forgot' | 'forgot-sent'
 
-export default function LoginPage() {
-  return (
-    <Suspense>
-      <LoginForm />
-    </Suspense>
-  )
-}
-
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -602,5 +594,13 @@ function LoginForm() {
         }
       `}</style>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   )
 }
