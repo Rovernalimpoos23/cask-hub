@@ -1,8 +1,7 @@
 'use client'
 // src/app/(app)/sessions/page.tsx
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
+import { useState, useEffect, useCallback } from 'react'
 import {
   TopBar,
   PillGreen,
@@ -26,12 +25,19 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
 
-  useEffect(() => {
+  const loadMeetings = useCallback(() => {
+    setLoading(true)
     fetchAllMeetings().then(data => {
       setMeetings(data)
       setLoading(false)
     })
   }, [])
+
+  useEffect(() => {
+    loadMeetings()
+    window.addEventListener('cask-meeting-saved', loadMeetings)
+    return () => window.removeEventListener('cask-meeting-saved', loadMeetings)
+  }, [loadMeetings])
 
   const filtered = filter === 'all'
     ? meetings
@@ -42,8 +48,8 @@ export default function SessionsPage() {
       <TopBar title="Sessions" subtitle="ActionCOACH">
         <PillGreen>Claude AI Active</PillGreen>
         <PillRed>{meetings.length} Sessions</PillRed>
-        <Link
-          href="/sessions/new"
+        <button
+          onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -54,16 +60,17 @@ export default function SessionsPage() {
             fontWeight: 600,
             padding: '6px 12px',
             borderRadius: '7px',
-            textDecoration: 'none',
+            border: 'none',
+            cursor: 'pointer',
             fontFamily: 'inherit',
             transition: 'opacity 150ms ease',
           }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.82' }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1' }}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.82' }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
         >
           <span style={{ fontSize: '14px', lineHeight: 1 }}>+</span>
           Add Meeting
-        </Link>
+        </button>
       </TopBar>
 
       <div className="flex-1 overflow-y-auto p-7 animate-page-in">

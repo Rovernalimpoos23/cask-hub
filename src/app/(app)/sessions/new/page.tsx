@@ -23,6 +23,17 @@ const MEETING_TYPES: { value: MeetingType; label: string }[] = [
   { value: 'education', label: 'Education' },
 ]
 
+const MODULES = [
+  'ActionCOACH',
+  'President Workflow — Daily Meetings',
+  'President Workflow — Coaching Sessions',
+  'President Workflow — Department Alignment',
+  'President Workflow — PIT Goals',
+  'Customer Journey — Active Clients',
+  'Customer Journey — Client Templates',
+  'Design Center',
+]
+
 const OWNERS = ['Calin', 'Chad', 'Kai', 'Rovern', 'Lamont', 'Jeff', 'Kait', 'Matteo']
 
 function newItem(): ActionItemForm {
@@ -35,6 +46,7 @@ export default function AddMeetingPage() {
   // Form fields
   const [title, setTitle]           = useState('')
   const [meetingType, setMeetingType] = useState<MeetingType>('leadership')
+  const [module, setModule]         = useState('ActionCOACH')
   const [date, setDate]             = useState('')
   const [owner, setOwner]           = useState('Calin')
   const [timeStart, setTimeStart]   = useState('')
@@ -86,7 +98,7 @@ export default function AddMeetingPage() {
       action_items: actionItems
         .filter(i => i.task.trim())
         .map(i => ({ id: i.id, task: i.task.trim(), owner: i.owner, due_date: i.due_date, done: i.done })),
-      module: '',
+      module,
     }
 
     let saved = false
@@ -124,11 +136,32 @@ export default function AddMeetingPage() {
 
       <div className="flex-1 overflow-y-auto p-7 animate-page-in">
         <h1
-          className="font-serif text-[28px] font-normal tracking-[-0.01em] mb-6"
+          className="font-serif text-[28px] font-normal tracking-[-0.01em] mb-3"
           style={{ color: 'var(--text)' }}
         >
           Add New Session
         </h1>
+        <p className="text-[12px] mb-6" style={{ color: 'var(--text3)' }}>
+          Tip: You can also add meetings using the{' '}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              color: 'var(--red)',
+              fontSize: 'inherit',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              textDecoration: 'underline',
+            }}
+          >
+            + button
+          </button>{' '}
+          on any page.
+        </p>
 
         <form onSubmit={handleSave} noValidate>
           <div className="max-w-3xl flex flex-col gap-4">
@@ -164,6 +197,22 @@ export default function AddMeetingPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Row 1b — Module */}
+              <div className="field mb-4">
+                <label className="field-label">
+                  Module <span style={{ color: 'var(--red)' }}>*</span>
+                </label>
+                <select
+                  value={module}
+                  onChange={e => setModule(e.target.value)}
+                  className="field-input"
+                >
+                  {MODULES.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Row 2 — Date + Owner */}

@@ -38,6 +38,21 @@ export async function fetchMeetingById(id: string): Promise<Meeting | null> {
   }
 }
 
+export async function fetchMeetingsByModule(module: string): Promise<Meeting[]> {
+  try {
+    const { data, error } = await createClient()
+      .from('meetings')
+      .select('*')
+      .eq('module', module)
+      .order('date', { ascending: false })
+
+    if (error || !data) return []
+    return data as Meeting[]
+  } catch {
+    return []
+  }
+}
+
 export async function updateActionItemDone(
   meetingId: string,
   actionId: string,

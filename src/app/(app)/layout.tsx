@@ -1,6 +1,7 @@
 // src/app/(app)/layout.tsx
 import Sidebar from '@/components/sidebar/Sidebar'
 import AIPanel from '@/components/ai-panel/AIPanel'
+import AddMeetingModal from '@/components/add-meeting-modal/AddMeetingModal'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,6 +11,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
       <AIPanel />
+      <AddMeetingModal />
     </div>
   )
 }
