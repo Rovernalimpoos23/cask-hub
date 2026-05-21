@@ -85,16 +85,19 @@ export default function AIPanel() {
   }
 
   async function speakText(text: string, msgIndex: number) {
+    console.log('Voice enabled:', voiceEnabled)
     if (!voiceEnabled) return
     stopSpeech()
     try {
       setIsSpeaking(true)
       setSpeakingIndex(msgIndex)
+      console.log('Calling speak API with text length:', text.length)
       const res = await fetch('/api/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       })
+      console.log('Speak API response status:', res.status)
       if (!res.ok) throw new Error('Speech failed')
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
@@ -136,8 +139,8 @@ export default function AIPanel() {
       const aiMsg: AIMessage = { role: 'assistant', content: data.content }
       setMessages(prev => {
         const updated = [...prev, aiMsg]
-        // speak using the new index after state update
         const newIndex = updated.length - 1
+        console.log('AI response received, attempting to speak...')
         speakText(data.content, newIndex)
         return updated
       })

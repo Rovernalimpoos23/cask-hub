@@ -6,6 +6,10 @@ export async function POST(req: NextRequest) {
   try {
     const { text } = await req.json()
 
+    console.log('ElevenLabs API Key exists:', !!process.env.ELEVENLABS_API_KEY)
+    console.log('Voice ID:', process.env.ELEVENLABS_VOICE_ID)
+    console.log('Text to speak:', text?.substring(0, 50))
+
     const voiceId = 'hIssydxXZ1WuDorjx6Ic'
 
     const response = await fetch(
