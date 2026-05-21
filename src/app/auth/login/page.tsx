@@ -2,7 +2,7 @@
 // src/app/auth/login/page.tsx
 export const dynamic = 'force-dynamic'
 
-import { useState, type FormEvent } from 'react'
+import { useState, Suspense, type FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase'
@@ -10,6 +10,14 @@ import { createClient } from '@/lib/supabase'
 type View = 'login' | 'forgot' | 'forgot-sent'
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const linkExpired = searchParams.get('error') === 'link_expired'
