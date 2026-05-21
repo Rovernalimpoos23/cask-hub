@@ -1,6 +1,4 @@
 // src/app/(app)/layout.tsx
-export const dynamic = 'force-static'
-
 import Sidebar from '@/components/sidebar/Sidebar'
 import AIPanel from '@/components/ai-panel/AIPanel'
 

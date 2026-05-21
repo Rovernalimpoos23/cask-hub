@@ -1,5 +1,7 @@
+'use client'
 // src/app/(app)/dashboard/page.tsx
-import { MEETINGS } from '@/lib/seed-data'
+
+import { useState, useEffect } from 'react'
 import {
   TopBar,
   PillGreen,
@@ -9,10 +11,9 @@ import {
   ActionItemRow,
   SectionLabel,
 } from '@/components/ui'
+import { fetchAllMeetings } from '@/lib/meetings-client'
+import type { Meeting } from '@/types'
 
-export const dynamic = 'force-static'
-
-// ── Stat card icons ───────────────────────────────────────────────────
 function IconSessions() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -56,10 +57,17 @@ function IconCheck() {
   )
 }
 
-export default async function DashboardPage() {
-  const meetings = [...MEETINGS].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  )
+export default function DashboardPage() {
+  const [meetings, setMeetings] = useState<Meeting[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchAllMeetings().then(data => {
+      setMeetings(data)
+      setLoading(false)
+    })
+  }, [])
+
   const allActions = meetings.flatMap(m => m.action_items)
   const openActions = allActions.filter(a => !a.done)
   const completedActions = allActions.filter(a => a.done)
@@ -75,13 +83,10 @@ export default async function DashboardPage() {
     <>
       <TopBar title="Dashboard" subtitle="ActionCOACH Intelligence">
         <PillGreen>Claude AI Active</PillGreen>
-        <PillRed>6 Sessions</PillRed>
+        <PillRed>{loading ? '…' : `${meetings.length} Sessions`}</PillRed>
       </TopBar>
 
-      <div
-        className="flex-1 overflow-y-auto p-7 animate-page-in"
-        style={{ background: 'var(--bg)' }}
-      >
+      <div className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ background: 'var(--bg)' }}>
         {/* Page Header */}
         <div className="mb-7">
           <div className="flex items-start justify-between">
@@ -96,10 +101,7 @@ export default async function DashboardPage() {
                 Here&apos;s your ActionCOACH intelligence overview — May 2026.
               </p>
             </div>
-            <div
-              className="text-[12px] font-medium shrink-0 mt-1"
-              style={{ color: 'var(--text3)' }}
-            >
+            <div className="text-[12px] font-medium shrink-0 mt-1" style={{ color: 'var(--text3)' }}>
               {todayLabel}
             </div>
           </div>
@@ -109,9 +111,9 @@ export default async function DashboardPage() {
         {/* Stats */}
         <div className="grid grid-cols-4 gap-3 mb-8">
           <StatCard
-            value={meetings.length}
+            value={loading ? '…' : meetings.length}
             label="Total Sessions"
-            hint="Feb – Apr 2026"
+            hint="All time"
             variant="default"
             index={0}
             icon={<IconSessions />}
@@ -125,7 +127,7 @@ export default async function DashboardPage() {
             icon={<IconCalendar />}
           />
           <StatCard
-            value={openActions.length}
+            value={loading ? '…' : openActions.length}
             label="Open Action Items"
             hint="Across all sessions"
             variant="default"
@@ -133,7 +135,7 @@ export default async function DashboardPage() {
             icon={<IconList />}
           />
           <StatCard
-            value={completedActions.length}
+            value={loading ? '…' : completedActions.length}
             label="Completed"
             hint="All time"
             variant="success"
@@ -147,11 +149,19 @@ export default async function DashboardPage() {
           <SectionLabel action="View all →" href="/sessions">
             Recent Sessions
           </SectionLabel>
-          <div className="flex flex-col gap-2">
-            {recentMeetings.map(m => (
-              <MeetingCard key={m.id} meeting={m} />
-            ))}
-          </div>
+          {loading ? (
+            <div className="flex flex-col gap-2">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="rounded-[10px] h-[82px] shimmer" style={{ border: '1px solid var(--border)' }} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {recentMeetings.map(m => (
+                <MeetingCard key={m.id} meeting={m} />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Open Action Items */}
@@ -159,14 +169,22 @@ export default async function DashboardPage() {
           <SectionLabel action="View all →" href="/actions">
             Open Action Items
           </SectionLabel>
-          <div className="flex flex-col gap-[5px]">
-            {recentOpenActions.map(item => (
-              <ActionItemRow key={item.id} item={item} />
-            ))}
-            {recentCompletedActions.map(item => (
-              <ActionItemRow key={item.id} item={item} />
-            ))}
-          </div>
+          {loading ? (
+            <div className="flex flex-col gap-[5px]">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="rounded-[6px] h-[56px] shimmer" style={{ border: '1px solid var(--border)' }} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-[5px]">
+              {recentOpenActions.map(item => (
+                <ActionItemRow key={item.id} item={item} />
+              ))}
+              {recentCompletedActions.map(item => (
+                <ActionItemRow key={item.id} item={item} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </>

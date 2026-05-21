@@ -2,10 +2,10 @@
 // src/app/(app)/sessions/[id]/page.tsx
 
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
-import { MEETINGS } from '@/lib/seed-data'
 import { MeetingTypeTag, ActionItemRow, TopBar } from '@/components/ui'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { fetchMeetingById } from '@/lib/meetings-client'
+import type { Meeting } from '@/types'
 
 function BackLink() {
   return (
@@ -20,10 +20,43 @@ function BackLink() {
 }
 
 export default function SessionDetailPage({ params }: { params: { id: string } }) {
-  const meeting = MEETINGS.find(m => m.id === params.id)
+  const [meeting, setMeeting] = useState<Meeting | null>(null)
+  const [loading, setLoading] = useState(true)
   const [transcriptExpanded, setTranscriptExpanded] = useState(false)
 
-  if (!meeting) notFound()
+  useEffect(() => {
+    fetchMeetingById(params.id).then(data => {
+      setMeeting(data)
+      setLoading(false)
+    })
+  }, [params.id])
+
+  if (loading) {
+    return (
+      <>
+        <TopBar title="Session Detail" subtitle="Loading…" />
+        <div className="flex-1 overflow-y-auto p-7">
+          <div className="rounded-[10px] h-[120px] shimmer mb-3" style={{ border: '1px solid var(--border)' }} />
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="rounded-lg h-[140px] shimmer" style={{ border: '1px solid var(--border)' }} />
+            <div className="rounded-lg h-[140px] shimmer" style={{ border: '1px solid var(--border)' }} />
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  if (!meeting) {
+    return (
+      <>
+        <TopBar title="Not Found" subtitle="Session Detail" />
+        <div className="flex-1 overflow-y-auto p-7">
+          <BackLink />
+          <p style={{ color: 'var(--text3)', fontSize: 14 }}>Session not found.</p>
+        </div>
+      </>
+    )
+  }
 
   const date = new Date(meeting.date + 'T00:00:00')
   const formattedDate = date.toLocaleDateString('en-US', {
@@ -34,7 +67,6 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   })
 
   const openActions = meeting.action_items.filter(a => !a.done)
-  const completedActions = meeting.action_items.filter(a => a.done)
 
   return (
     <>
@@ -48,105 +80,75 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
           className="rounded-[10px] p-7 mb-3.5 relative overflow-hidden"
           style={{ background: 'var(--charcoal)' }}
         >
-          {/* Decorative circle */}
           <div
             className="absolute -bottom-[60px] -right-[60px] w-[200px] h-[200px] rounded-full"
             style={{ background: 'rgba(255,255,255,0.02)' }}
           />
-
           <div
             className="text-[10px] font-semibold tracking-[2px] uppercase mb-2.5"
             style={{ color: 'rgba(255,255,255,0.35)' }}
           >
             ActionCOACH · CASK Construction
           </div>
-
-          <h1
-            className="font-serif text-[24px] text-white mb-3 leading-[1.2] tracking-[-0.3px]"
-          >
+          <h1 className="font-serif text-[24px] text-white mb-3 leading-[1.2] tracking-[-0.3px]">
             {meeting.title}
           </h1>
-
           <div className="flex gap-2 flex-wrap">
             <MeetingTypeTag type={meeting.meeting_type} />
             <span
               className="text-[11px] px-3 py-1 rounded-full"
-              style={{
-                color: 'rgba(255,255,255,0.5)',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.08)',
-              }}
+              style={{ color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
             >
               {formattedDate}
             </span>
             {meeting.time_start && (
               <span
                 className="text-[11px] px-3 py-1 rounded-full"
-                style={{
-                  color: 'rgba(255,255,255,0.5)',
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                }}
+                style={{ color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
               >
                 {meeting.time_start} – {meeting.time_end}
               </span>
             )}
-            <span
-              className="text-[11px] px-3 py-1 rounded-full"
-              style={{
-                color: 'rgba(255,255,255,0.5)',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.08)',
-              }}
-            >
-              {meeting.attendees.join(', ')}
-            </span>
+            {meeting.attendees.length > 0 && (
+              <span
+                className="text-[11px] px-3 py-1 rounded-full"
+                style={{ color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                {meeting.attendees.join(', ')}
+              </span>
+            )}
           </div>
         </div>
 
         {/* Content Grid */}
         <div className="grid grid-cols-2 gap-3 mb-3">
           {/* Summary */}
-          <div
-            className="rounded-lg p-5"
-            style={{
-              background: 'var(--white)',
-              border: '1px solid var(--border)',
-            }}
-          >
+          <div className="rounded-lg p-5" style={{ background: 'var(--white)', border: '1px solid var(--border)' }}>
             <div
               className="text-[10px] font-semibold tracking-[1.5px] uppercase mb-3.5 pb-2.5"
-              style={{
-                color: 'var(--text3)',
-                borderBottom: '1px solid var(--border)',
-              }}
+              style={{ color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
             >
               Session Summary
             </div>
-            <ul className="flex flex-col gap-3">
-              {meeting.summary.map((point, i) => (
-                <li key={i} className="flex gap-2.5 text-[12px] leading-relaxed" style={{ color: 'var(--text2)' }}>
-                  <span className="shrink-0 mt-1 text-[8px]" style={{ color: 'var(--text3)' }}>●</span>
-                  <span>{point}</span>
-                </li>
-              ))}
-            </ul>
+            {meeting.summary.length > 0 ? (
+              <ul className="flex flex-col gap-3">
+                {meeting.summary.map((point, i) => (
+                  <li key={i} className="flex gap-2.5 text-[12px] leading-relaxed" style={{ color: 'var(--text2)' }}>
+                    <span className="shrink-0 mt-1 text-[8px]" style={{ color: 'var(--text3)' }}>●</span>
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[12px]" style={{ color: 'var(--text3)' }}>No summary recorded.</p>
+            )}
           </div>
 
           {/* Key Decisions */}
-          <div
-            className="rounded-lg p-5"
-            style={{
-              background: 'var(--white)',
-              border: '1px solid var(--border)',
-            }}
-          >
+          <div className="rounded-lg p-5" style={{ background: 'var(--white)', border: '1px solid var(--border)' }}>
             <div
               className="text-[10px] font-semibold tracking-[1.5px] uppercase mb-3.5 pb-2.5"
-              style={{
-                color: 'var(--text3)',
-                borderBottom: '1px solid var(--border)',
-              }}
+              style={{ color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
             >
               Key Decisions
             </div>
@@ -166,19 +168,10 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         </div>
 
         {/* Action Items */}
-        <div
-          className="rounded-lg p-5 mb-3"
-          style={{
-            background: 'var(--white)',
-            border: '1px solid var(--border)',
-          }}
-        >
+        <div className="rounded-lg p-5 mb-3" style={{ background: 'var(--white)', border: '1px solid var(--border)' }}>
           <div
             className="text-[10px] font-semibold tracking-[1.5px] uppercase mb-3.5 pb-2.5 flex items-center justify-between"
-            style={{
-              color: 'var(--text3)',
-              borderBottom: '1px solid var(--border)',
-            }}
+            style={{ color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
           >
             Action Items
             <span
@@ -196,51 +189,33 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
             {meeting.action_items.map(item => (
               <ActionItemRow key={item.id} item={item} />
             ))}
+            {meeting.action_items.length === 0 && (
+              <p className="text-[12px]" style={{ color: 'var(--text3)' }}>No action items recorded.</p>
+            )}
           </div>
         </div>
 
-        {/* Transcript (expandable) */}
+        {/* Transcript */}
         {meeting.full_transcript && (
-          <div
-            className="rounded-lg overflow-hidden"
-            style={{
-              background: 'var(--white)',
-              border: '1px solid var(--border)',
-            }}
-          >
+          <div className="rounded-lg overflow-hidden" style={{ background: 'var(--white)', border: '1px solid var(--border)' }}>
             <button
               onClick={() => setTranscriptExpanded(!transcriptExpanded)}
               className="w-full px-5 py-4 flex items-center justify-between text-left transition-colors hover:bg-[var(--surface2)]"
-              style={{
-                borderBottom: transcriptExpanded ? '1px solid var(--border)' : 'none',
-                background: 'none',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-              }}
+              style={{ borderBottom: transcriptExpanded ? '1px solid var(--border)' : 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
             >
-              <span
-                className="text-[10px] font-semibold tracking-[1.5px] uppercase"
-                style={{ color: 'var(--text3)' }}
-              >
+              <span className="text-[10px] font-semibold tracking-[1.5px] uppercase" style={{ color: 'var(--text3)' }}>
                 Full Transcript
               </span>
               <span
                 className="text-[11px] font-medium transition-transform duration-200"
-                style={{
-                  color: 'var(--text3)',
-                  transform: transcriptExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                  display: 'inline-block',
-                }}
+                style={{ color: 'var(--text3)', transform: transcriptExpanded ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}
               >
                 ▾
               </span>
             </button>
             {transcriptExpanded && (
               <div className="p-5">
-                <pre
-                  className="text-[12px] leading-[1.9] font-mono whitespace-pre-wrap"
-                  style={{ color: 'var(--text2)' }}
-                >
+                <pre className="text-[12px] leading-[1.9] font-mono whitespace-pre-wrap" style={{ color: 'var(--text2)' }}>
                   {meeting.full_transcript}
                 </pre>
               </div>

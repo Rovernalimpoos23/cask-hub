@@ -1,9 +1,8 @@
 'use client'
 // src/app/(app)/sessions/page.tsx
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { MEETINGS } from '@/lib/seed-data'
 import {
   TopBar,
   PillGreen,
@@ -11,7 +10,8 @@ import {
   MeetingCard,
   FilterBar,
 } from '@/components/ui'
-import type { MeetingType } from '@/types'
+import { fetchAllMeetings } from '@/lib/meetings-client'
+import type { Meeting } from '@/types'
 
 const FILTER_TABS = [
   { value: 'all', label: 'All' },
@@ -22,11 +22,16 @@ const FILTER_TABS = [
 ]
 
 export default function SessionsPage() {
+  const [meetings, setMeetings] = useState<Meeting[]>([])
+  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
 
-  const meetings = [...MEETINGS].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  )
+  useEffect(() => {
+    fetchAllMeetings().then(data => {
+      setMeetings(data)
+      setLoading(false)
+    })
+  }, [])
 
   const filtered = filter === 'all'
     ? meetings
@@ -36,7 +41,7 @@ export default function SessionsPage() {
     <>
       <TopBar title="Sessions" subtitle="ActionCOACH">
         <PillGreen>Claude AI Active</PillGreen>
-        <PillRed>6 Sessions</PillRed>
+        <PillRed>{meetings.length} Sessions</PillRed>
         <Link
           href="/sessions/new"
           style={{
@@ -70,7 +75,7 @@ export default function SessionsPage() {
             All Sessions
           </h1>
           <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
-            {meetings.length} ActionCOACH coaching sessions recorded
+            {loading ? 'Loading…' : `${meetings.length} ActionCOACH coaching sessions recorded`}
           </p>
         </div>
 
@@ -81,20 +86,31 @@ export default function SessionsPage() {
           count={filtered.length}
         />
 
-        <div className="flex flex-col gap-2">
-          {filtered.map(m => (
-            <MeetingCard key={m.id} meeting={m} />
-          ))}
-
-          {filtered.length === 0 && (
-            <div
-              className="text-center py-12 text-[13px]"
-              style={{ color: 'var(--text3)' }}
-            >
-              No sessions found for this filter.
-            </div>
-          )}
-        </div>
+        {loading ? (
+          <div className="flex flex-col gap-2">
+            {[0, 1, 2].map(i => (
+              <div
+                key={i}
+                className="rounded-[10px] h-[82px] shimmer"
+                style={{ border: '1px solid var(--border)' }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {filtered.map(m => (
+              <MeetingCard key={m.id} meeting={m} />
+            ))}
+            {filtered.length === 0 && (
+              <div
+                className="text-center py-12 text-[13px]"
+                style={{ color: 'var(--text3)' }}
+              >
+                No sessions found for this filter.
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </>
   )
