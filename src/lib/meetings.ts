@@ -2,20 +2,20 @@
 // Data fetching functions - works with Supabase when connected,
 // falls back to seed data for development
 
-import { supabase } from './supabase'
+import { createClient } from './supabase'
 import { MEETINGS } from './seed-data'
 import type { Meeting, ActionItem } from '@/types'
 
 // Get all meetings, sorted by date descending
 export async function getMeetings(): Promise<Meeting[]> {
   try {
+    const supabase = createClient()
     const { data, error } = await supabase
       .from('meetings')
       .select('*')
       .order('date', { ascending: false })
 
     if (error || !data || data.length === 0) {
-      // Fallback to seed data
       return [...MEETINGS].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     }
     return data as Meeting[]
@@ -27,6 +27,7 @@ export async function getMeetings(): Promise<Meeting[]> {
 // Get single meeting by ID
 export async function getMeeting(id: string): Promise<Meeting | null> {
   try {
+    const supabase = createClient()
     const { data, error } = await supabase
       .from('meetings')
       .select('*')
@@ -45,13 +46,13 @@ export async function getMeeting(id: string): Promise<Meeting | null> {
 // Get all action items across all meetings
 export async function getAllActionItems(): Promise<ActionItem[]> {
   try {
+    const supabase = createClient()
     const { data, error } = await supabase
       .from('action_items')
       .select('*')
       .order('due_date', { ascending: true })
 
     if (error || !data || data.length === 0) {
-      // Fallback: flatten from seed data
       return MEETINGS.flatMap(m => m.action_items)
         .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
     }
@@ -65,6 +66,7 @@ export async function getAllActionItems(): Promise<ActionItem[]> {
 // Toggle action item done status
 export async function toggleActionItem(id: string, done: boolean): Promise<boolean> {
   try {
+    const supabase = createClient()
     const { error } = await supabase
       .from('action_items')
       .update({ done })
@@ -95,9 +97,6 @@ export async function getDashboardStats() {
     },
     recentSessions: meetings.slice(0, 3),
     recentActions: allActions.filter(a => !a.done).slice(0, 3),
-    completedThisWeek: completedActions.filter(a => {
-      // Show recently completed
-      return true
-    }).slice(0, 2),
+    completedThisWeek: completedActions.filter(() => true).slice(0, 2),
   }
 }

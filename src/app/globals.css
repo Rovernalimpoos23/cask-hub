@@ -93,10 +93,10 @@ body {
   animation: pageIn 0.18s ease both;
 }
 
-.animate-card-in-1 { animation: cardIn 0.3s ease 0.05s both; }
-.animate-card-in-2 { animation: cardIn 0.3s ease 0.1s both; }
-.animate-card-in-3 { animation: cardIn 0.3s ease 0.15s both; }
-.animate-card-in-4 { animation: cardIn 0.3s ease 0.2s both; }
+.animate-card-in-1 { animation: cardIn 0.32s ease 0s both; }
+.animate-card-in-2 { animation: cardIn 0.32s ease 0.08s both; }
+.animate-card-in-3 { animation: cardIn 0.32s ease 0.16s both; }
+.animate-card-in-4 { animation: cardIn 0.32s ease 0.24s both; }
 
 .status-blink {
   animation: blink 2s infinite;

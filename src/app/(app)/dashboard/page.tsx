@@ -1,5 +1,4 @@
 // src/app/(app)/dashboard/page.tsx
-import { getMeetings, getAllActionItems } from '@/lib/meetings'
 import { MEETINGS } from '@/lib/seed-data'
 import {
   TopBar,
@@ -13,8 +12,51 @@ import {
 
 export const dynamic = 'force-dynamic'
 
+// ── Stat card icons ───────────────────────────────────────────────────
+function IconSessions() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <rect x="2" y="11" width="3.5" height="5" rx="1" fill="currentColor"/>
+      <rect x="7.25" y="7" width="3.5" height="9" rx="1" fill="currentColor"/>
+      <rect x="12.5" y="3" width="3.5" height="13" rx="1" fill="currentColor"/>
+    </svg>
+  )
+}
+
+function IconCalendar() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <rect x="2" y="4" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+      <line x1="2" y1="8" x2="16" y2="8" stroke="currentColor" strokeWidth="1.4"/>
+      <line x1="6" y1="2" x2="6" y2="6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <line x1="12" y1="2" x2="12" y2="6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
+function IconList() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <line x1="6" y1="5" x2="16" y2="5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <line x1="6" y1="9" x2="16" y2="9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <line x1="6" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <circle cx="3" cy="5" r="1.2" fill="currentColor"/>
+      <circle cx="3" cy="9" r="1.2" fill="currentColor"/>
+      <circle cx="3" cy="13" r="1.2" fill="currentColor"/>
+    </svg>
+  )
+}
+
+function IconCheck() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.4"/>
+      <path d="M5.5 9l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
 export default async function DashboardPage() {
-  // Use seed data directly for reliability; swap to getMeetings() once Supabase is connected
   const meetings = [...MEETINGS].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   )
@@ -25,6 +67,10 @@ export default async function DashboardPage() {
   const recentOpenActions = openActions.slice(0, 3)
   const recentCompletedActions = completedActions.slice(0, 2)
 
+  const todayLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  })
+
   return (
     <>
       <TopBar title="Dashboard" subtitle="ActionCOACH Intelligence">
@@ -32,28 +78,43 @@ export default async function DashboardPage() {
         <PillRed>6 Sessions</PillRed>
       </TopBar>
 
-      <div className="flex-1 overflow-y-auto p-7 animate-page-in">
-        {/* Greeting */}
-        <div className="mb-6">
-          <h1
-            className="font-serif text-[26px] font-normal tracking-[-0.5px] leading-[1.1]"
-            style={{ color: 'var(--text)' }}
-          >
-            Good morning, Calin.
-          </h1>
-          <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
-            Here&apos;s your ActionCOACH intelligence overview — May 2026.
-          </p>
+      <div
+        className="flex-1 overflow-y-auto p-7 animate-page-in"
+        style={{ background: 'linear-gradient(to bottom, #f9f8f7 0%, #f5f4f2 100%)' }}
+      >
+        {/* Page Header */}
+        <div className="mb-7">
+          <div className="flex items-start justify-between">
+            <div>
+              <h1
+                className="font-serif text-[32px] font-normal tracking-[-0.5px] leading-[1.1]"
+                style={{ color: 'var(--text)' }}
+              >
+                Good morning, Calin.
+              </h1>
+              <p className="text-[13px] mt-1.5" style={{ color: 'var(--text3)' }}>
+                Here&apos;s your ActionCOACH intelligence overview — May 2026.
+              </p>
+            </div>
+            <div
+              className="text-[12px] font-medium shrink-0 mt-1"
+              style={{ color: 'var(--text3)' }}
+            >
+              {todayLabel}
+            </div>
+          </div>
+          <div className="h-px mt-5" style={{ background: 'var(--border)' }} />
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-3 mb-7">
+        <div className="grid grid-cols-4 gap-3 mb-8">
           <StatCard
             value={meetings.length}
             label="Total Sessions"
             hint="Feb – Apr 2026"
             variant="default"
             index={0}
+            icon={<IconSessions />}
           />
           <StatCard
             value={1}
@@ -61,6 +122,7 @@ export default async function DashboardPage() {
             hint="May 28, 2026"
             variant="alert"
             index={1}
+            icon={<IconCalendar />}
           />
           <StatCard
             value={openActions.length}
@@ -68,6 +130,7 @@ export default async function DashboardPage() {
             hint="Across all sessions"
             variant="default"
             index={2}
+            icon={<IconList />}
           />
           <StatCard
             value={completedActions.length}
@@ -75,11 +138,12 @@ export default async function DashboardPage() {
             hint="All time"
             variant="success"
             index={3}
+            icon={<IconCheck />}
           />
         </div>
 
         {/* Recent Sessions */}
-        <div className="mb-7">
+        <div className="mb-8">
           <SectionLabel action="View all →" href="/sessions">
             Recent Sessions
           </SectionLabel>
@@ -99,7 +163,6 @@ export default async function DashboardPage() {
             {recentOpenActions.map(item => (
               <ActionItemRow key={item.id} item={item} />
             ))}
-            {/* Show a couple completed items */}
             {recentCompletedActions.map(item => (
               <ActionItemRow key={item.id} item={item} />
             ))}

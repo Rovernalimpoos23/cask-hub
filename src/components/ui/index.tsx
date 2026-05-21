@@ -131,32 +131,49 @@ const LEFT_BORDER_COLOR: Record<string, string> = {
   education: '#7c3aed',
 }
 
+// ── Glow colors for meeting type left hover ───────────────────────────
+const LEFT_GLOW_COLOR: Record<string, string> = {
+  leadership: 'rgba(200, 49, 26, 0.10)',
+  planning: 'rgba(5, 150, 105, 0.10)',
+  coaching: 'rgba(217, 119, 6, 0.10)',
+  education: 'rgba(124, 58, 237, 0.10)',
+}
+
 // ── Meeting Card ─────────────────────────────────────────────────────
 export function MeetingCard({ meeting }: { meeting: Meeting }) {
+  const [hovered, setHovered] = useState(false)
   const date = new Date(meeting.date + 'T00:00:00')
   const day = date.getDate()
   const month = date.toLocaleString('en-US', { month: 'short' }).toUpperCase()
-  const borderColor = LEFT_BORDER_COLOR[meeting.meeting_type] || 'var(--border)'
+  const accentColor = LEFT_BORDER_COLOR[meeting.meeting_type] || 'var(--border)'
+  const glowColor = LEFT_GLOW_COLOR[meeting.meeting_type] || 'transparent'
 
   return (
     <Link
       href={`/sessions/${meeting.id}`}
-      className="group no-underline flex items-center gap-[18px] px-5 py-4 rounded-[10px] cursor-pointer transition-all duration-200 relative"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="group no-underline flex items-center gap-5 pl-6 pr-5 py-[18px] rounded-[10px] cursor-pointer relative overflow-hidden"
       style={{
-        background: 'var(--white)',
-        border: '1px solid var(--border)',
+        background: hovered ? '#fafaf9' : 'var(--white)',
+        border: hovered ? '1px solid var(--border2)' : '1px solid var(--border)',
+        transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
+        boxShadow: hovered
+          ? `-3px 0 16px ${glowColor}, 0 4px 16px rgba(0,0,0,0.06)`
+          : 'none',
+        transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 150ms ease, background 150ms ease',
       }}
     >
-      {/* Left accent border */}
+      {/* Left accent — full height, clipped by overflow-hidden */}
       <div
-        className="absolute left-0 top-3.5 bottom-3.5 w-[3px] rounded-r-[3px]"
-        style={{ background: borderColor }}
+        className="absolute left-0 top-0 bottom-0 w-[4px]"
+        style={{ background: accentColor }}
       />
 
       {/* Date */}
-      <div className="text-center shrink-0 w-11">
+      <div className="text-center shrink-0 w-11 ml-1">
         <div
-          className="font-serif text-[24px] leading-none"
+          className="font-serif text-[28px] leading-none"
           style={{ color: 'var(--text)' }}
         >
           {day}
@@ -170,17 +187,17 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
       </div>
 
       {/* Rule */}
-      <div className="w-px h-8 shrink-0" style={{ background: 'var(--border)' }} />
+      <div className="w-px h-9 shrink-0" style={{ background: 'var(--border)' }} />
 
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div
-          className="text-[13px] font-semibold tracking-[-0.2px] truncate mb-1 transition-colors group-hover:text-[var(--text)]"
+          className="text-[14px] font-semibold tracking-[-0.3px] truncate mb-[3px]"
           style={{ color: 'var(--text)' }}
         >
           {meeting.title}
         </div>
-        <div className="text-[11px] flex gap-3" style={{ color: '#78716c' }}>
+        <div className="text-[11px] flex gap-3" style={{ color: 'var(--text3)' }}>
           <span className="truncate">{meeting.attendees.join(', ')}</span>
           {meeting.time_start && meeting.time_end && (
             <span className="shrink-0">{meeting.time_start} – {meeting.time_end}</span>
@@ -191,8 +208,13 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
       <MeetingTypeTag type={meeting.meeting_type} />
 
       <span
-        className="text-[16px] shrink-0 transition-transform duration-150 group-hover:translate-x-0.5"
-        style={{ color: 'var(--text3)' }}
+        className="text-[16px] shrink-0"
+        style={{
+          color: 'var(--text3)',
+          transform: hovered ? 'translateX(2px)' : 'translateX(0)',
+          transition: 'transform 150ms ease',
+          display: 'inline-block',
+        }}
       >
         ›
       </span>
@@ -209,6 +231,7 @@ export function ActionItemRow({
   onToggle?: (id: string, done: boolean) => void
 }) {
   const [done, setDone] = useState(item.done)
+  const [hovered, setHovered] = useState(false)
 
   function toggle() {
     const next = !done
@@ -225,12 +248,23 @@ export function ActionItemRow({
 
   return (
     <div
-      className="flex items-start gap-3 px-3.5 py-3 rounded-[6px] transition-all duration-200 hover:-translate-y-px"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="relative flex items-start gap-3 pl-5 pr-3.5 py-3 rounded-[6px] overflow-hidden"
       style={{
         background: 'var(--white)',
-        border: '1px solid var(--border)',
+        border: hovered ? '1px solid var(--border2)' : '1px solid var(--border)',
+        transform: hovered ? 'translateY(-1px)' : 'translateY(0)',
+        boxShadow: hovered ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
+        transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 150ms ease',
       }}
     >
+      {/* Left accent stripe — amber for open, green for done */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-[3px]"
+        style={{ background: done ? 'var(--green)' : 'var(--amber)' }}
+      />
+
       {/* Checkbox */}
       <button
         onClick={toggle}
@@ -238,10 +272,7 @@ export function ActionItemRow({
         style={
           done
             ? { background: 'var(--green)', border: '1.5px solid var(--green)' }
-            : {
-                background: 'transparent',
-                border: '1.5px solid var(--border2)',
-              }
+            : { background: 'transparent', border: '1.5px solid var(--border2)' }
         }
       >
         {done && (
@@ -254,7 +285,7 @@ export function ActionItemRow({
       {/* Body */}
       <div className="flex-1 min-w-0">
         <div
-          className={`text-[12px] font-medium leading-relaxed ${done ? 'line-through' : ''}`}
+          className={`text-[13px] font-medium leading-relaxed ${done ? 'line-through' : ''}`}
           style={{ color: done ? 'var(--text3)' : 'var(--text)' }}
         >
           {item.task}
@@ -264,11 +295,15 @@ export function ActionItemRow({
         </div>
       </div>
 
-      {/* Due date */}
+      {/* Due date badge */}
       {dueDate && (
         <div
-          className="text-[10px] font-semibold shrink-0 mt-0.5"
-          style={{ color: done ? 'var(--green)' : 'var(--amber)' }}
+          className="text-[10px] font-semibold shrink-0 mt-0.5 px-2 py-[3px] rounded-full"
+          style={
+            done
+              ? { background: 'var(--green-bg)', color: 'var(--green)', border: '1px solid #bbf7d0' }
+              : { background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid #fde68a' }
+          }
         >
           {done ? 'Done ✓' : dueDate}
         </div>
@@ -284,31 +319,37 @@ export function StatCard({
   hint,
   variant = 'default',
   index = 0,
+  icon,
 }: {
   value: string | number
   label: string
   hint?: string
   variant?: 'default' | 'alert' | 'success'
   index?: number
+  icon?: React.ReactNode
 }) {
+  const [hovered, setHovered] = useState(false)
   const variants = {
     default: {
       background: 'var(--white)',
-      border: '1px solid var(--border)',
-      accent: 'var(--border)',
+      border: hovered ? '1px solid var(--border2)' : '1px solid var(--border)',
+      topAccent: 'var(--charcoal)',
       valueColor: 'var(--text)',
+      iconColor: 'var(--text3)',
     },
     alert: {
       background: 'linear-gradient(135deg, var(--white) 0%, var(--red-soft) 100%)',
-      border: '1px solid var(--red-border)',
-      accent: 'var(--red)',
+      border: hovered ? '1px solid #e8a49d' : '1px solid var(--red-border)',
+      topAccent: 'var(--red)',
       valueColor: 'var(--red)',
+      iconColor: 'var(--red)',
     },
     success: {
       background: 'linear-gradient(135deg, var(--white) 0%, #f0fdf4 100%)',
-      border: '1px solid #bbf7d0',
-      accent: '#059669',
+      border: hovered ? '1px solid #86efac' : '1px solid #bbf7d0',
+      topAccent: '#059669',
       valueColor: '#166534',
+      iconColor: '#059669',
     },
   }
   const v = variants[variant]
@@ -316,27 +357,47 @@ export function StatCard({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-[10px] p-5 transition-all duration-200 cursor-default hover:-translate-y-0.5 ${animClass}`}
-      style={{ background: v.background, border: v.border }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className={`relative overflow-hidden rounded-[10px] p-5 cursor-default ${animClass}`}
+      style={{
+        background: v.background,
+        border: v.border,
+        transform: hovered ? 'translateY(-4px)' : 'translateY(0)',
+        boxShadow: hovered ? '0 8px 24px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
+        transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 150ms ease',
+      }}
     >
+      {/* Top accent bar */}
       <div
-        className="absolute bottom-0 left-0 right-0 h-[3px] rounded-b-[10px] transition-colors duration-200"
-        style={{ background: v.accent }}
+        className="absolute top-0 left-0 right-0 h-[3px]"
+        style={{ background: v.topAccent }}
       />
+
+      {/* Icon — top right */}
+      {icon && (
+        <div
+          className="absolute top-4 right-4"
+          style={{ color: v.iconColor, opacity: hovered ? 0.7 : 0.35, transition: 'opacity 180ms ease' }}
+        >
+          {icon}
+        </div>
+      )}
+
       <div
-        className="font-serif text-[34px] leading-none tracking-[-1px]"
+        className="font-serif text-[42px] leading-none tracking-[-2px] mt-1"
         style={{ color: v.valueColor }}
       >
         {value}
       </div>
       <div
-        className="text-[11px] font-semibold tracking-[0.3px] mt-2"
-        style={{ color: '#78716c' }}
+        className="text-[11px] font-semibold tracking-[0.4px] mt-2.5 uppercase"
+        style={{ color: 'var(--text3)' }}
       >
         {label}
       </div>
       {hint && (
-        <div className="text-[10px] mt-[3px] font-normal" style={{ color: 'var(--text3)' }}>
+        <div className="text-[10px] mt-[3px] font-normal" style={{ color: 'var(--text3)', opacity: 0.7 }}>
           {hint}
         </div>
       )}
@@ -358,8 +419,12 @@ export function SectionLabel({
 }) {
   return (
     <div
-      className="text-[11px] font-semibold tracking-[1px] uppercase flex items-center justify-between mb-3"
-      style={{ color: 'var(--text3)' }}
+      className="text-[11px] font-semibold tracking-[1.5px] uppercase flex items-center justify-between mb-3"
+      style={{
+        color: 'var(--text3)',
+        borderLeft: '2px solid var(--red)',
+        paddingLeft: '10px',
+      }}
     >
       {children}
       {action && href && (

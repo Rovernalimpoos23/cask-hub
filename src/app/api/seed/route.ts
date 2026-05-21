@@ -3,7 +3,7 @@
 // Protect this with a secret in production!
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase'
+import { createClient as createServerClient } from '@/lib/supabase-server'
 import { MEETINGS } from '@/lib/seed-data'
 
 export async function POST(req: NextRequest) {

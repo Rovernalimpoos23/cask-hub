@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Dark background -->
+  <rect width="64" height="64" fill="#1a1917"/>
+
+  <!-- Roof chevron — mirrors the original polygon peak -->
+  <polyline
+    points="5,20 32,4 59,20"
+    fill="none"
+    stroke="#ee3231"
+    stroke-width="2.2"
+    stroke-linejoin="round"
+    stroke-linecap="round"
+  />
+
+  <!-- 4 red squares at the chevron peak (2×2 grid) -->
+  <rect x="27.5" y="7"  width="4" height="4" fill="#ee3231"/>
+  <rect x="32.5" y="7"  width="4" height="4" fill="#ee3231"/>
+  <rect x="27.5" y="12" width="4" height="4" fill="#ee3231"/>
+  <rect x="32.5" y="12" width="4" height="4" fill="#ee3231"/>
+
+  <!-- CASK — bold, fills the width -->
+  <text
+    x="32" y="41"
+    text-anchor="middle"
+    font-family="'Arial Black', Arial, sans-serif"
+    font-weight="900"
+    font-size="22"
+    fill="white"
+    letter-spacing="-0.5"
+  >CASK</text>
+
+  <!-- Red separator rule -->
+  <rect x="5" y="44" width="54" height="1.5" fill="#ee3231"/>
+
+  <!-- CONSTRUCTION — small, wide tracking -->
+  <text
+    x="32" y="53"
+    text-anchor="middle"
+    font-family="Arial, sans-serif"
+    font-weight="700"
+    font-size="5"
+    fill="white"
+    letter-spacing="1.8"
+  >CONSTRUCTION</text>
+
+  <!-- Red bottom bar -->
+  <rect x="0" y="59" width="64" height="5" fill="#ee3231"/>
+</svg>

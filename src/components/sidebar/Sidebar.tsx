@@ -2,9 +2,11 @@
 // src/components/sidebar/Sidebar.tsx
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Image from 'next/image'
-import clsx from 'clsx'
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase'
+import type { User } from '@supabase/supabase-js'
 
 const NAV_SECTIONS = [
   {
@@ -14,6 +16,23 @@ const NAV_SECTIONS = [
       { href: '/sessions', icon: '◈', label: 'Sessions', locked: false },
       { href: '/generate', icon: '✦', label: 'Generate Agenda', locked: false },
       { href: '/actions', icon: '◎', label: 'Action Items', locked: false },
+    ],
+  },
+  {
+    label: 'President Workflow',
+    items: [
+      { href: '/president/daily', icon: '📅', label: 'Daily Meetings', locked: false },
+      { href: '/president/coaching', icon: '🎯', label: 'Coaching Sessions', locked: false },
+      { href: '/president/alignment', icon: '🏢', label: 'Department Alignment', locked: false },
+      { href: '/president/pit-goals', icon: '⚡', label: 'PIT Goals', locked: false },
+    ],
+  },
+  {
+    label: 'Customer Journey',
+    items: [
+      { href: '/customers', icon: '👥', label: 'Active Clients', locked: false },
+      { href: '/customers/templates', icon: '📋', label: 'Client Templates', locked: false },
+      { href: '/customers/new', icon: '➕', label: 'New Client Setup', locked: false },
     ],
   },
   {
@@ -51,8 +70,113 @@ const RECENT_SESSIONS = [
   { label: 'Feb 27 · Leadership', href: '/sessions/a1b2c3d4-0001-0001-0001-000000000001' },
 ]
 
+function getInitials(name: string | null | undefined, email: string | null | undefined): string {
+  if (name) {
+    const parts = name.trim().split(' ')
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+  if (email) return email.slice(0, 2).toUpperCase()
+  return '?'
+}
+
+function getDisplayName(user: User | null): string {
+  if (!user) return 'Loading…'
+  const meta = user.user_metadata as Record<string, string> | undefined
+  return meta?.full_name ?? meta?.name ?? user.email ?? 'CASK User'
+}
+
+function getSubtitle(user: User | null): string {
+  if (!user) return ''
+  const meta = user.user_metadata as Record<string, string> | undefined
+  return meta?.role ?? meta?.title ?? user.email ?? ''
+}
+
+function SideNavLink({ href, icon, label, isActive }: { href: string; icon: string; label: string; isActive: boolean }) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <Link
+      href={href}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex items-center gap-[9px] rounded-[6px] font-sans text-[13px] font-medium tracking-[-0.1px] no-underline"
+      style={{
+        paddingTop: '8px',
+        paddingBottom: '8px',
+        paddingRight: '10px',
+        paddingLeft: isActive ? '10px' : hovered ? '14px' : '10px',
+        background: isActive ? 'rgba(255,255,255,0.08)' : hovered ? 'rgba(255,255,255,0.07)' : 'transparent',
+        color: isActive ? 'rgba(255,255,255,0.95)' : hovered ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.75)',
+        transition: 'padding-left 180ms ease, background 180ms ease, color 180ms ease',
+      }}
+    >
+      <span
+        className="text-[13px] w-4 text-center shrink-0"
+        style={{ opacity: isActive ? 0.9 : 0.5 }}
+      >
+        {icon}
+      </span>
+      {label}
+    </Link>
+  )
+}
+
+function SideRecentLink({ href, label }: { href: string; label: string }) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <Link
+      href={href}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex items-center gap-[9px] rounded-[6px] font-sans text-[12px] font-normal tracking-[-0.1px] no-underline"
+      style={{
+        paddingTop: '7px',
+        paddingBottom: '7px',
+        paddingRight: '10px',
+        paddingLeft: hovered ? '14px' : '10px',
+        background: hovered ? 'rgba(255,255,255,0.07)' : 'transparent',
+        color: 'rgba(255,255,255,0.45)',
+        transition: 'padding-left 180ms ease, background 180ms ease',
+      }}
+    >
+      <span style={{ color: 'rgba(255,255,255,0.25)' }}>›</span>
+      {label}
+    </Link>
+  )
+}
+
 export default function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const [user, setUser] = useState<User | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => setUser(data.user))
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  async function handleSignOut() {
+    setSigningOut(true)
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/auth/login')
+    router.refresh()
+  }
+
+  const displayName = getDisplayName(user)
+  const subtitle = getSubtitle(user)
+  const initials = user ? getInitials(
+    (user.user_metadata as Record<string, string> | undefined)?.full_name ??
+    (user.user_metadata as Record<string, string> | undefined)?.name,
+    user.email
+  ) : '…'
 
   return (
     <aside
@@ -151,26 +275,13 @@ export default function Sidebar() {
                 )
               }
               return (
-                <Link
+                <SideNavLink
                   key={item.label}
                   href={item.href}
-                  className={clsx(
-                    'flex items-center gap-[9px] px-2.5 py-2 rounded-[6px] font-sans text-[13px] font-medium tracking-[-0.1px] transition-all duration-[180ms] no-underline',
-                    isActive
-                      ? 'bg-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.95)]'
-                      : 'text-[rgba(255,255,255,0.75)] hover:bg-[rgba(255,255,255,0.07)] hover:text-[rgba(255,255,255,0.92)] hover:pl-3.5'
-                  )}
-                >
-                  <span
-                    className={clsx(
-                      'text-[13px] w-4 text-center shrink-0',
-                      isActive ? 'opacity-90' : 'opacity-50'
-                    )}
-                  >
-                    {item.icon}
-                  </span>
-                  {item.label}
-                </Link>
+                  icon={item.icon}
+                  label={item.label}
+                  isActive={isActive}
+                />
               )
             })}
           </div>
@@ -187,15 +298,7 @@ export default function Sidebar() {
           Recent Sessions
         </div>
         {RECENT_SESSIONS.map((s) => (
-          <Link
-            key={s.href}
-            href={s.href}
-            className="flex items-center gap-[9px] px-2.5 py-[7px] rounded-[6px] font-sans text-[12px] font-normal tracking-[-0.1px] transition-all duration-[180ms] no-underline hover:bg-[rgba(255,255,255,0.07)] hover:pl-3.5"
-            style={{ color: 'rgba(255,255,255,0.45)' }}
-          >
-            <span style={{ color: 'rgba(255,255,255,0.25)' }}>›</span>
-            {s.label}
-          </Link>
+          <SideRecentLink key={s.href} href={s.href} label={s.label} />
         ))}
 
         {/* Upcoming */}
@@ -245,22 +348,54 @@ export default function Sidebar() {
             className="w-[30px] h-[30px] rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0 tracking-[0.5px]"
             style={{ background: 'linear-gradient(135deg, var(--red), #e8754a)' }}
           >
-            RA
+            {initials}
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <div
-              className="text-[12px] font-medium"
+              className="text-[12px] font-medium truncate"
               style={{ color: 'rgba(255,255,255,0.75)' }}
             >
-              Rovern Alimpoos
+              {displayName}
             </div>
-            <div
-              className="text-[10px] mt-[1px]"
-              style={{ color: 'rgba(255,255,255,0.3)' }}
-            >
-              AI Workflow Specialist
-            </div>
+            {subtitle && (
+              <div
+                className="text-[10px] mt-[1px] truncate"
+                style={{ color: 'rgba(255,255,255,0.3)' }}
+              >
+                {subtitle}
+              </div>
+            )}
           </div>
+          <button
+            onClick={handleSignOut}
+            disabled={signingOut}
+            title="Sign out"
+            className="shrink-0 rounded-[5px] p-1.5 transition-colors"
+            style={{ color: 'rgba(255,255,255,0.3)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+              e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'rgba(255,255,255,0.3)'
+              e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
         </div>
       </div>
     </aside>
