@@ -12,7 +12,20 @@ import {
   SectionLabel,
 } from '@/components/ui'
 import { fetchAllMeetings } from '@/lib/meetings-client'
+import { createClient } from '@/lib/supabase'
 import type { Meeting } from '@/types'
+
+function getGreeting(): string {
+  const hour = new Date().getHours()
+  if (hour >= 5 && hour < 12) return 'Good morning'
+  if (hour >= 12 && hour < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
+
+function getCurrentMonthYear(): string {
+  return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+}
 
 function IconSessions() {
   return (
@@ -60,11 +73,23 @@ function IconCheck() {
 export default function DashboardPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
+  const [firstName, setFirstName] = useState('')
 
   useEffect(() => {
     fetchAllMeetings().then(data => {
       setMeetings(data)
       setLoading(false)
+    })
+    const supabase = createClient()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) return
+      const { data: userData } = await supabase
+        .from('users')
+        .select('name')
+        .eq('email', user.email)
+        .single()
+      const name = userData?.name?.split(' ')[0] || ''
+      setFirstName(name)
     })
   }, [])
 
@@ -95,10 +120,10 @@ export default function DashboardPage() {
                 className="font-serif text-[32px] font-normal tracking-[-0.5px] leading-[1.1]"
                 style={{ color: 'var(--text)' }}
               >
-                Good morning, Calin.
+                {getGreeting()}{firstName ? `, ${firstName}.` : '!'}
               </h1>
               <p className="text-[13px] mt-1.5" style={{ color: 'var(--text3)' }}>
-                Here&apos;s your ActionCOACH intelligence overview — May 2026.
+                Here&apos;s your ActionCOACH intelligence overview — {getCurrentMonthYear()}.
               </p>
             </div>
             <div className="text-[12px] font-medium shrink-0 mt-1" style={{ color: 'var(--text3)' }}>
