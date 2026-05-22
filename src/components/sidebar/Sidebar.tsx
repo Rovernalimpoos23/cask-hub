@@ -215,7 +215,7 @@ export default function Sidebar() {
           />
           <div>
             <div
-              className="font-serif text-[15px] font-normal tracking-[0.2px]"
+              className="font-sans text-[15px] font-medium tracking-[0.2px]"
               style={{ color: 'rgba(255,255,255,0.88)' }}
             >
               Hub

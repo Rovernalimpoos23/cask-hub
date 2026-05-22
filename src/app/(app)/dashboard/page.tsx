@@ -86,7 +86,7 @@ export default function DashboardPage() {
         <PillRed>{loading ? '…' : `${meetings.length} Sessions`}</PillRed>
       </TopBar>
 
-      <div className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ background: 'var(--bg)' }}>
+      <div className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ background: 'transparent' }}>
         {/* Page Header */}
         <div className="mb-7">
           <div className="flex items-start justify-between">

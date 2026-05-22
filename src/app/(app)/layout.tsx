@@ -7,7 +7,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell">
       <Sidebar />
-      <main className="flex flex-col overflow-hidden bg-[var(--bg)]">
+      <main className="flex flex-col overflow-hidden" style={{ background: 'var(--bg)' }}>
         {children}
       </main>
       <AIPanel />

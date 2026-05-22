@@ -5,12 +5,12 @@
 
 :root {
   --white: #ffffff;
-  --bg: #f9f8f7;
+  --bg: #F9F8F7;
   --surface: #ffffff;
-  --surface2: #f4f3f1;
-  --surface-hover: #fafaf9;
-  --border: #e8e5e1;
-  --border2: #d4d0ca;
+  --surface2: #ECEEF1;
+  --surface-hover: #F8F9FA;
+  --border: #E2E8F0;
+  --border2: #CBD5E1;
   --text: #1a1917;
   --text2: #3a3834;
   --text3: #a8a29e;
@@ -18,7 +18,7 @@
   --red-soft: #fdf2f0;
   --red-border: #f5c9c2;
   --charcoal: #1a1917;
-  --sidebar: #1c1c1e;
+  --sidebar: #2c2c2e;
   --sidebar-text: rgba(255, 255, 255, 0.65);
   --sidebar-active: rgba(255, 255, 255, 0.08);
   --green: #166534;
@@ -28,34 +28,140 @@
   --purple: #6d28d9;
   --purple-bg: #faf5ff;
   --purple-border: #e9d5ff;
+
+  /* Status pills */
+  --pill-green-bg: var(--green-bg);
+  --pill-green-color: var(--green);
+  --pill-green-border: #bbf7d0;
+  --pill-red-bg: var(--red-soft);
+  --pill-red-color: var(--red);
+  --pill-red-border: var(--red-border);
+
+  /* Meeting type tag colors */
+  --tag-leadership-color: #9B1C0E;
+  --tag-planning-color: #14532D;
+  --tag-planning-border: #bbf7d0;
+  --tag-coaching-color: #78350F;
+  --tag-coaching-border: #fde68a;
+  --tag-education-color: #4C1D95;
+
+  /* Action item badge borders */
+  --badge-done-border: #bbf7d0;
+  --badge-open-border: #fde68a;
+
+  /* Stat card variant borders */
+  --glass-stat-alert-border: var(--red-border);
+  --glass-stat-alert-hover-border: #e8a49d;
+  --glass-stat-success-border: #bbf7d0;
+  --glass-stat-success-hover-border: #86efac;
+
+  /* Backdrop blur — none in light mode, blur in dark mode */
+  --card-backdrop: none;
+
+  /* Cards — solid white on warm off-white canvas */
+  --glass-stat-bg: #FFFFFF;
+  --glass-stat-border: #E8E5E1;
+  --glass-stat-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --glass-stat-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --glass-stat-alert-bg: #FEF2F0;
+  --glass-stat-success-bg: #F0FDF4;
+
+  --glass-card-bg: #FFFFFF;
+  --glass-card-border: #E8E5E1;
+  --glass-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --glass-card-hover-bg: #FAFAF9;
+  --glass-card-hover-border: rgba(200, 49, 26, 0.2);
+  --glass-card-hover-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+
+  --glass-action-bg: #FFFFFF;
+  --glass-action-border: #E8E5E1;
+
+  /* AI message bubbles */
+  --glass-msg-user: rgba(26, 25, 23, 0.9);
+  --glass-msg-assist: #F1F5F9;
 }
 
 .dark {
-  --white: #1a1917;
-  --bg: #111110;
-  --surface: #1a1917;
-  --surface2: #1c1c1e;
-  --surface-hover: #222220;
-  --border: rgba(255, 255, 255, 0.08);
-  --border2: rgba(255, 255, 255, 0.12);
-  --text: rgba(255, 255, 255, 0.92);
-  --text2: rgba(255, 255, 255, 0.65);
-  --text3: rgba(255, 255, 255, 0.3);
+  --white: #1E1E1E;
+  --bg: #111111;
+  --surface: #1E1E1E;
+  --surface2: #252525;
+  --surface-hover: #2A2A2A;
+  --border: #2E2E2E;
+  --border2: #3E3E3E;
+  --text: #F1F5F9;
+  --text2: #94A3B8;
+  --text3: #64748B;
   --red-soft: rgba(200, 49, 26, 0.12);
   --red-border: rgba(200, 49, 26, 0.25);
   --green-bg: rgba(22, 101, 52, 0.15);
   --amber-bg: rgba(146, 64, 14, 0.15);
-  --sidebar: #0d0d0c;
-  --charcoal: #3a3835;
+  --sidebar: #0D0D0D;
+  --charcoal: #3A3A3A;
   --purple-bg: rgba(109, 40, 217, 0.12);
   --purple-border: rgba(109, 40, 217, 0.25);
+
+  /* Status pills — muted in dark mode */
+  --pill-green-bg: rgba(16, 185, 129, 0.08);
+  --pill-green-color: rgba(16, 185, 129, 0.7);
+  --pill-green-border: rgba(16, 185, 129, 0.2);
+  --pill-red-bg: rgba(200, 49, 26, 0.1);
+  --pill-red-color: rgba(200, 49, 26, 0.8);
+  --pill-red-border: rgba(200, 49, 26, 0.2);
+
+  /* Meeting type tag colors — muted in dark mode */
+  --tag-leadership-color: rgba(200, 49, 26, 0.85);
+  --tag-planning-color: rgba(52, 211, 153, 0.8);
+  --tag-planning-border: rgba(5, 150, 105, 0.2);
+  --tag-coaching-color: rgba(251, 191, 36, 0.75);
+  --tag-coaching-border: rgba(217, 119, 6, 0.25);
+  --tag-education-color: rgba(124, 58, 237, 0.8);
+
+  /* Action item badge borders — muted in dark mode */
+  --badge-done-border: rgba(22, 101, 52, 0.25);
+  --badge-open-border: rgba(217, 119, 6, 0.25);
+
+  /* Stat card variant borders — muted in dark mode */
+  --glass-stat-alert-border: rgba(200, 49, 26, 0.2);
+  --glass-stat-alert-hover-border: rgba(200, 49, 26, 0.35);
+  --glass-stat-success-border: rgba(22, 101, 52, 0.2);
+  --glass-stat-success-hover-border: rgba(22, 101, 52, 0.35);
+
+  /* Backdrop blur — active in dark mode */
+  --card-backdrop: blur(12px);
+
+  /* Cards — solid elevated surface on dark canvas */
+  --glass-stat-bg: #1E1E1E;
+  --glass-stat-border: #2E2E2E;
+  --glass-stat-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --glass-stat-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  --glass-stat-alert-bg: rgba(200, 49, 26, 0.08);
+  --glass-stat-success-bg: rgba(22, 101, 52, 0.1);
+
+  --glass-card-bg: #1E1E1E;
+  --glass-card-border: #2E2E2E;
+  --glass-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --glass-card-hover-bg: #252525;
+  --glass-card-hover-border: #3E3E3E;
+  --glass-card-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+
+  --glass-action-bg: #1E1E1E;
+  --glass-action-border: #2E2E2E;
+
+  /* AI message bubbles dark */
+  --glass-msg-user: #2E2E2E;
+  --glass-msg-assist: #252525;
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+  transition: background-color 0.2s ease,
+              border-color 0.2s ease,
+              color 0.15s ease,
+              box-shadow 0.2s ease,
+              transform 0.15s ease;
 }
 
 html,
@@ -93,8 +199,8 @@ body {
 }
 
 @keyframes cardIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes blink {
@@ -112,14 +218,32 @@ body {
   30% { transform: translateY(-4px); opacity: 1; }
 }
 
+@keyframes soundBar {
+  from { height: 3px; opacity: 0.5; }
+  to   { height: 11px; opacity: 1; }
+}
+
+/* Checkbox spring — triggers on key change */
+@keyframes checkSpring {
+  0%   { transform: scale(1); }
+  20%  { transform: scale(0.72); }
+  55%  { transform: scale(1.32); }
+  75%  { transform: scale(0.94); }
+  90%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+.animate-spring {
+  animation: checkSpring 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
 .animate-page-in {
   animation: pageIn 0.18s ease both;
 }
 
-.animate-card-in-1 { animation: cardIn 0.32s ease 0s both; }
-.animate-card-in-2 { animation: cardIn 0.32s ease 0.08s both; }
-.animate-card-in-3 { animation: cardIn 0.32s ease 0.16s both; }
-.animate-card-in-4 { animation: cardIn 0.32s ease 0.24s both; }
+.animate-card-in-1 { animation: cardIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) 0s both; }
+.animate-card-in-2 { animation: cardIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) 0.07s both; }
+.animate-card-in-3 { animation: cardIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both; }
+.animate-card-in-4 { animation: cardIn 0.36s cubic-bezier(0.16, 1, 0.3, 1) 0.21s both; }
 
 .status-blink {
   animation: blink 2s infinite;

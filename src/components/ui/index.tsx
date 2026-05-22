@@ -1,6 +1,5 @@
 'use client'
 // src/components/ui/index.tsx
-// Shared UI components matching the HTML prototype
 
 import Link from 'next/link'
 import { useState } from 'react'
@@ -42,7 +41,6 @@ function ThemeToggle() {
         e.currentTarget.style.color = 'var(--text3)'
       }}
     >
-      {/* Always render both icons, show correct one via opacity — avoids DOM structure mismatch */}
       <svg
         width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -118,14 +116,14 @@ export function PillGreen({ children }: { children: React.ReactNode }) {
     <span
       className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full tracking-[0.1px]"
       style={{
-        background: 'var(--green-bg)',
-        color: 'var(--green)',
-        border: '1px solid #bbf7d0',
+        background: 'var(--pill-green-bg)',
+        color: 'var(--pill-green-color)',
+        border: '1px solid var(--pill-green-border)',
       }}
     >
       <span
         className="w-[5px] h-[5px] rounded-full status-blink"
-        style={{ background: 'var(--green)' }}
+        style={{ background: 'var(--pill-green-color)' }}
       />
       {children}
     </span>
@@ -137,9 +135,9 @@ export function PillRed({ children }: { children: React.ReactNode }) {
     <span
       className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full tracking-[0.1px]"
       style={{
-        background: 'var(--red-soft)',
-        color: 'var(--red)',
-        border: '1px solid var(--red-border)',
+        background: 'var(--pill-red-bg)',
+        color: 'var(--pill-red-color)',
+        border: '1px solid var(--pill-red-border)',
       }}
     >
       {children}
@@ -151,25 +149,25 @@ export function PillRed({ children }: { children: React.ReactNode }) {
 const TYPE_STYLES: Record<string, { bg: string; color: string; border: string; label: string }> = {
   leadership: {
     bg: 'var(--red-soft)',
-    color: 'var(--red)',
+    color: 'var(--tag-leadership-color)',
     border: 'var(--red-border)',
     label: 'Leadership',
   },
   planning: {
     bg: 'var(--green-bg)',
-    color: '#166534',
-    border: '#bbf7d0',
+    color: 'var(--tag-planning-color)',
+    border: 'var(--tag-planning-border)',
     label: 'Planning',
   },
   coaching: {
     bg: 'var(--amber-bg)',
-    color: 'var(--amber)',
-    border: '#fde68a',
+    color: 'var(--tag-coaching-color)',
+    border: 'var(--tag-coaching-border)',
     label: 'Coaching',
   },
   education: {
     bg: 'var(--purple-bg)',
-    color: 'var(--purple)',
+    color: 'var(--tag-education-color)',
     border: 'var(--purple-border)',
     label: 'Education',
   },
@@ -197,10 +195,10 @@ const LEFT_BORDER_COLOR: Record<string, string> = {
 
 // ── Glow colors for meeting type left hover ───────────────────────────
 const LEFT_GLOW_COLOR: Record<string, string> = {
-  leadership: 'rgba(200, 49, 26, 0.10)',
-  planning: 'rgba(5, 150, 105, 0.10)',
-  coaching: 'rgba(217, 119, 6, 0.10)',
-  education: 'rgba(124, 58, 237, 0.10)',
+  leadership: 'rgba(200, 49, 26, 0.12)',
+  planning: 'rgba(5, 150, 105, 0.12)',
+  coaching: 'rgba(217, 119, 6, 0.12)',
+  education: 'rgba(124, 58, 237, 0.12)',
 }
 
 // ── Meeting Card ─────────────────────────────────────────────────────
@@ -219,16 +217,20 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
       onMouseLeave={() => setHovered(false)}
       className="group no-underline flex items-center gap-5 pl-6 pr-5 py-[18px] rounded-[10px] cursor-pointer relative overflow-hidden"
       style={{
-        background: hovered ? 'var(--surface-hover)' : 'var(--white)',
-        border: hovered ? '1px solid var(--border2)' : '1px solid var(--border)',
+        background: hovered ? 'var(--glass-card-hover-bg)' : 'var(--glass-card-bg)',
+        backdropFilter: 'var(--card-backdrop)',
+        WebkitBackdropFilter: 'var(--card-backdrop)',
+        border: hovered
+          ? `1px solid var(--glass-card-hover-border)`
+          : '1px solid var(--glass-card-border)',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
         boxShadow: hovered
-          ? `-3px 0 16px ${glowColor}, 0 4px 16px rgba(0,0,0,0.06)`
-          : 'none',
-        transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 150ms ease, background 150ms ease',
+          ? `-4px 0 20px ${glowColor}, var(--glass-card-hover-shadow)`
+          : 'var(--glass-card-shadow)',
+        transition: 'transform 200ms ease, box-shadow 200ms ease, border-color 150ms ease, background 150ms ease',
       }}
     >
-      {/* Left accent — full height, clipped by overflow-hidden */}
+      {/* Left accent — full height, 4px wide */}
       <div
         className="absolute left-0 top-0 bottom-0 w-[4px]"
         style={{ background: accentColor }}
@@ -237,7 +239,7 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
       {/* Date */}
       <div className="text-center shrink-0 w-11 ml-1">
         <div
-          className="font-serif text-[28px] leading-none"
+          className="font-sans text-[28px] leading-none font-light tracking-[-1px]"
           style={{ color: 'var(--text)' }}
         >
           {day}
@@ -272,11 +274,11 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
       <MeetingTypeTag type={meeting.meeting_type} />
 
       <span
-        className="text-[16px] shrink-0"
+        className="text-[16px] shrink-0 font-light"
         style={{
-          color: 'var(--text3)',
-          transform: hovered ? 'translateX(2px)' : 'translateX(0)',
-          transition: 'transform 150ms ease',
+          color: hovered ? 'var(--text2)' : 'var(--text3)',
+          transform: hovered ? 'translateX(3px)' : 'translateX(0)',
+          transition: 'transform 150ms ease, color 150ms ease',
           display: 'inline-block',
         }}
       >
@@ -296,10 +298,12 @@ export function ActionItemRow({
 }) {
   const [done, setDone] = useState(item.done)
   const [hovered, setHovered] = useState(false)
+  const [springKey, setSpringKey] = useState(0)
 
   function toggle() {
     const next = !done
     setDone(next)
+    setSpringKey(k => k + 1)
     onToggle?.(item.id, next)
   }
 
@@ -316,23 +320,29 @@ export function ActionItemRow({
       onMouseLeave={() => setHovered(false)}
       className="relative flex items-start gap-3 pl-5 pr-3.5 py-3 rounded-[6px] overflow-hidden"
       style={{
-        background: 'var(--white)',
-        border: hovered ? '1px solid var(--border2)' : '1px solid var(--border)',
+        background: 'var(--glass-action-bg)',
+        backdropFilter: 'var(--card-backdrop)',
+        WebkitBackdropFilter: 'var(--card-backdrop)',
+        border: hovered ? '1px solid var(--border2)' : '1px solid var(--glass-action-border)',
         transform: hovered ? 'translateY(-1px)' : 'translateY(0)',
-        boxShadow: hovered ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
+        boxShadow: hovered ? '0 4px 16px rgba(0,0,0,0.06)' : '0 1px 4px rgba(0,0,0,0.03)',
         transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 150ms ease',
       }}
     >
       {/* Left accent stripe — amber for open, green for done */}
       <div
         className="absolute left-0 top-0 bottom-0 w-[3px]"
-        style={{ background: done ? 'var(--green)' : 'var(--amber)' }}
+        style={{
+          background: done ? 'var(--green)' : '#d97706',
+          transition: 'background 0.25s ease',
+        }}
       />
 
-      {/* Checkbox */}
+      {/* Checkbox — spring effect via key remount */}
       <button
+        key={springKey}
         onClick={toggle}
-        className="w-4 h-4 rounded-[4px] flex items-center justify-center transition-all duration-150 shrink-0 mt-[1px]"
+        className={`w-4 h-4 rounded-[4px] flex items-center justify-center shrink-0 mt-[1px] ${springKey > 0 ? 'animate-spring' : ''}`}
         style={
           done
             ? { background: 'var(--green)', border: '1.5px solid var(--green)' }
@@ -350,7 +360,7 @@ export function ActionItemRow({
       <div className="flex-1 min-w-0">
         <div
           className={`text-[13px] font-medium leading-relaxed ${done ? 'line-through' : ''}`}
-          style={{ color: done ? 'var(--text3)' : 'var(--text)' }}
+          style={{ color: done ? 'var(--text3)' : 'var(--text)', transition: 'color 0.2s ease' }}
         >
           {item.task}
         </div>
@@ -362,11 +372,11 @@ export function ActionItemRow({
       {/* Due date badge */}
       {dueDate && (
         <div
-          className="text-[10px] font-semibold shrink-0 mt-0.5 px-2 py-[3px] rounded-full"
+          className="text-[10px] font-semibold shrink-0 mt-0.5 px-2.5 py-[4px] rounded-full tracking-[0.2px]"
           style={
             done
-              ? { background: 'var(--green-bg)', color: 'var(--green)', border: '1px solid #bbf7d0' }
-              : { background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid #fde68a' }
+              ? { background: 'var(--green-bg)', color: 'var(--tag-planning-color)', border: '1px solid var(--badge-done-border)' }
+              : { background: 'var(--amber-bg)', color: 'var(--tag-coaching-color)', border: '1px solid var(--badge-open-border)' }
           }
         >
           {done ? 'Done ✓' : dueDate}
@@ -393,30 +403,31 @@ export function StatCard({
   icon?: React.ReactNode
 }) {
   const [hovered, setHovered] = useState(false)
-  const variants = {
+
+  const variantStyles = {
     default: {
-      background: 'var(--white)',
-      border: hovered ? '1px solid var(--border2)' : '1px solid var(--border)',
+      background: 'var(--glass-stat-bg)',
+      border: hovered ? '1px solid var(--border2)' : '1px solid var(--glass-stat-border)',
       topAccent: 'var(--charcoal)',
       valueColor: 'var(--text)',
       iconColor: 'var(--text3)',
     },
     alert: {
-      background: 'linear-gradient(135deg, var(--white) 0%, var(--red-soft) 100%)',
-      border: hovered ? '1px solid #e8a49d' : '1px solid var(--red-border)',
+      background: 'var(--glass-stat-alert-bg)',
+      border: hovered ? '1px solid var(--glass-stat-alert-hover-border)' : '1px solid var(--glass-stat-alert-border)',
       topAccent: 'var(--red)',
       valueColor: 'var(--red)',
       iconColor: 'var(--red)',
     },
     success: {
-      background: 'linear-gradient(135deg, var(--white) 0%, var(--green-bg) 100%)',
-      border: hovered ? '1px solid #86efac' : '1px solid #bbf7d0',
+      background: 'var(--glass-stat-success-bg)',
+      border: hovered ? '1px solid var(--glass-stat-success-hover-border)' : '1px solid var(--glass-stat-success-border)',
       topAccent: '#059669',
-      valueColor: '#166534',
+      valueColor: 'var(--tag-planning-color)',
       iconColor: '#059669',
     },
   }
-  const v = variants[variant]
+  const v = variantStyles[variant]
   const animClass = ['animate-card-in-1', 'animate-card-in-2', 'animate-card-in-3', 'animate-card-in-4'][index] || ''
 
   return (
@@ -426,10 +437,12 @@ export function StatCard({
       className={`relative overflow-hidden rounded-[10px] p-5 cursor-default ${animClass}`}
       style={{
         background: v.background,
+        backdropFilter: 'var(--card-backdrop)',
+        WebkitBackdropFilter: 'var(--card-backdrop)',
         border: v.border,
         transform: hovered ? 'translateY(-4px)' : 'translateY(0)',
-        boxShadow: hovered ? '0 8px 24px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
-        transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 150ms ease',
+        boxShadow: hovered ? 'var(--glass-stat-hover-shadow)' : 'var(--glass-stat-shadow)',
+        transition: 'transform 200ms ease, box-shadow 200ms ease, border-color 150ms ease',
       }}
     >
       {/* Top accent bar */}
@@ -442,14 +455,14 @@ export function StatCard({
       {icon && (
         <div
           className="absolute top-4 right-4"
-          style={{ color: v.iconColor, opacity: hovered ? 0.7 : 0.35, transition: 'opacity 180ms ease' }}
+          style={{ color: v.iconColor, opacity: hovered ? 0.75 : 0.38, transition: 'opacity 200ms ease' }}
         >
           {icon}
         </div>
       )}
 
       <div
-        className="font-serif text-[42px] leading-none tracking-[-2px] mt-1"
+        className="font-sans text-[44px] leading-none tracking-[-2.5px] mt-1 font-light"
         style={{ color: v.valueColor }}
       >
         {value}
@@ -486,7 +499,7 @@ export function SectionLabel({
       className="text-[11px] font-semibold tracking-[1.5px] uppercase flex items-center justify-between mb-3"
       style={{
         color: 'var(--text3)',
-        borderLeft: '2px solid var(--red)',
+        borderLeft: '3px solid var(--red)',
         paddingLeft: '10px',
       }}
     >

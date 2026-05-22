@@ -318,12 +318,16 @@ export default function AIPanel() {
               style={
                 msg.role === 'user'
                   ? {
-                      background: 'var(--charcoal)',
+                      background: 'var(--glass-msg-user)',
+                      backdropFilter: 'var(--card-backdrop)',
+                      WebkitBackdropFilter: 'var(--card-backdrop)',
                       color: 'rgba(255,255,255,0.9)',
                       borderRadius: '10px 10px 2px 10px',
                     }
                   : {
-                      background: 'var(--surface2)',
+                      background: 'var(--glass-msg-assist)',
+                      backdropFilter: 'var(--card-backdrop)',
+                      WebkitBackdropFilter: 'var(--card-backdrop)',
                       color: 'var(--text2)',
                       border: `1px solid ${isCurrentlySpeaking ? '#10b981' : 'var(--border)'}`,
                       borderLeft: isCurrentlySpeaking ? '3px solid #10b981' : '1px solid var(--border)',
@@ -343,7 +347,9 @@ export default function AIPanel() {
           <div
             className="self-start flex items-center gap-1.5 px-3 py-2.5 rounded-lg"
             style={{
-              background: 'var(--surface2)',
+              background: 'var(--glass-msg-assist)',
+              backdropFilter: 'var(--card-backdrop)',
+              WebkitBackdropFilter: 'var(--card-backdrop)',
               border: '1px solid var(--border)',
               borderRadius: '2px 10px 10px 10px',
             }}
