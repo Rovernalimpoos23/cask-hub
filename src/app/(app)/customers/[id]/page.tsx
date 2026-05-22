@@ -1,0 +1,756 @@
+'use client'
+// src/app/(app)/customers/[id]/page.tsx
+
+import Link from 'next/link'
+import { useState, useEffect, useRef } from 'react'
+import { TopBar } from '@/components/ui'
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type Happiness = 'green' | 'yellow' | 'red'
+type PriorityStatus = 'done' | 'in_progress' | 'unresolved'
+
+interface Priority {
+  text: string
+  status: PriorityStatus
+}
+
+interface MeetingItem {
+  number: number
+  title: string
+  completed: boolean
+}
+
+interface ClientData {
+  id: string
+  name: string
+  initials: string
+  project_type: string
+  project_value: number
+  location: string
+  start_date: string
+  happiness: Happiness
+  meetings_completed: number
+  total_meetings: number
+  owner: string
+  personality_tags: string[]
+  communication_style: string
+  key_interests: string
+  ai_tip: string
+  priorities: Priority[]
+  meetings: MeetingItem[]
+}
+
+// ── Sample Data ───────────────────────────────────────────────────────────────
+
+const SAMPLE_CLIENTS: Record<string, ClientData> = {
+  'sample-1': {
+    id: 'sample-1',
+    name: 'John Smith',
+    initials: 'JS',
+    project_type: 'Custom Home',
+    project_value: 485000,
+    location: 'St. Petersburg, FL',
+    start_date: 'January 2026',
+    happiness: 'green',
+    meetings_completed: 3,
+    total_meetings: 40,
+    owner: 'Jeff',
+    personality_tags: ['Verbal communicator', 'Direct', 'Excited by visuals', 'Budget-focused', 'Tampa Bay Rays fan', 'Fast decision maker'],
+    communication_style: 'Prefers excitement in the moment. Makes decisions quickly. Loves in-person walkthroughs. Lead with vision and feeling not details.',
+    key_interests: 'Tampa Bay Rays baseball, modern design, open floor plans',
+    ai_tip: 'Lead with excitement and visuals. Save detailed numbers for follow-up email. John decides fast — give him the feeling first.',
+    priorities: [
+      { text: 'Budget alignment', status: 'unresolved' },
+      { text: 'Financing confirmed', status: 'in_progress' },
+      { text: 'Floor plan approved', status: 'done' },
+      { text: 'Design alignment', status: 'done' },
+      { text: 'Contract signed', status: 'unresolved' },
+    ],
+    meetings: [
+      { number: 1, title: 'First In-Person Sales Meeting', completed: true },
+      { number: 2, title: 'Budget & Financing Discussion', completed: true },
+      { number: 3, title: 'Floor Plan Selection', completed: true },
+      { number: 4, title: 'Design Center Walkthrough', completed: false },
+      { number: 5, title: 'Contract Signing', completed: false },
+      { number: 6, title: 'Pre-Construction Meeting', completed: false },
+      { number: 7, title: 'Foundation Review', completed: false },
+      { number: 8, title: 'Framing Walkthrough', completed: false },
+    ],
+  },
+  'sample-2': {
+    id: 'sample-2',
+    name: 'Jennifer Lee',
+    initials: 'JL',
+    project_type: 'ADU',
+    project_value: 120000,
+    location: 'Tampa, FL',
+    start_date: 'March 2026',
+    happiness: 'yellow',
+    meetings_completed: 8,
+    total_meetings: 40,
+    owner: 'Jeff',
+    personality_tags: ['Detail-oriented', 'Analytical', 'Needs time to decide', 'Email communicator', 'Budget-conscious'],
+    communication_style: 'Sends detailed emails with questions. Needs time to process information. Follow up with written summaries after every meeting.',
+    key_interests: 'Rental income potential, energy efficiency, modern finishes',
+    ai_tip: 'Always follow up meetings with detailed written summaries. Jennifer needs to process before deciding — give her space and information.',
+    priorities: [
+      { text: 'Budget alignment', status: 'done' },
+      { text: 'Financing confirmed', status: 'done' },
+      { text: 'Floor plan approved', status: 'done' },
+      { text: 'Permit approval', status: 'in_progress' },
+      { text: 'Contract signed', status: 'done' },
+    ],
+    meetings: [
+      { number: 1, title: 'First In-Person Sales Meeting', completed: true },
+      { number: 2, title: 'Budget & Financing Discussion', completed: true },
+      { number: 3, title: 'Floor Plan Selection', completed: true },
+      { number: 4, title: 'Design Center Walkthrough', completed: true },
+      { number: 5, title: 'Contract Signing', completed: true },
+      { number: 6, title: 'Pre-Construction Meeting', completed: true },
+      { number: 7, title: 'Permit Submission Review', completed: true },
+      { number: 8, title: 'Foundation Review', completed: true },
+      { number: 9, title: 'Framing Walkthrough', completed: false },
+      { number: 10, title: 'Electrical & Plumbing Rough-in', completed: false },
+    ],
+  },
+  'sample-3': {
+    id: 'sample-3',
+    name: 'Robert Davis',
+    initials: 'RD',
+    project_type: 'Detached Garage',
+    project_value: 65000,
+    location: 'Clearwater, FL',
+    start_date: 'February 2026',
+    happiness: 'red',
+    meetings_completed: 12,
+    total_meetings: 40,
+    owner: 'Chad',
+    personality_tags: ['Skeptical', 'Price-sensitive', 'Needs reassurance', 'Prefers phone calls', 'Detail-oriented'],
+    communication_style: 'Prefers phone calls over email. Gets anxious about delays. Needs frequent check-ins and reassurance that project is on track.',
+    key_interests: 'On-time delivery, staying on budget, clear communication',
+    ai_tip: 'Robert needs more frequent communication — schedule weekly check-in calls. Address his concerns proactively before he brings them up.',
+    priorities: [
+      { text: 'Budget alignment', status: 'done' },
+      { text: 'Timeline concerns addressed', status: 'unresolved' },
+      { text: 'Material selection finalized', status: 'in_progress' },
+      { text: 'Permit approved', status: 'done' },
+      { text: 'Weekly check-in scheduled', status: 'unresolved' },
+    ],
+    meetings: [
+      { number: 1, title: 'First In-Person Sales Meeting', completed: true },
+      { number: 2, title: 'Budget Discussion', completed: true },
+      { number: 3, title: 'Design Selection', completed: true },
+      { number: 4, title: 'Contract Signing', completed: true },
+      { number: 5, title: 'Pre-Construction Meeting', completed: true },
+      { number: 6, title: 'Foundation Review', completed: true },
+      { number: 7, title: 'Framing Walkthrough', completed: true },
+      { number: 8, title: 'Electrical Rough-in', completed: true },
+      { number: 9, title: 'Plumbing Rough-in', completed: true },
+      { number: 10, title: 'Insulation Review', completed: true },
+      { number: 11, title: 'Drywall Walkthrough', completed: true },
+      { number: 12, title: 'Paint & Finishes Review', completed: true },
+      { number: 13, title: 'Final Walkthrough', completed: false },
+      { number: 14, title: 'Punch List Review', completed: false },
+    ],
+  },
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const HAPPINESS = {
+  green: { bg: '#F0FDF4', color: '#166534', label: 'Happy', accent: '#16a34a' },
+  yellow: { bg: '#FFFBEB', color: '#92400E', label: 'At Risk', accent: '#d97706' },
+  red: { bg: '#FDF2F0', color: '#9B1C0E', label: 'Needs Attention', accent: '#dc2626' },
+}
+
+const PRIORITY_CONFIG: Record<PriorityStatus, { dot: string; color: string; strike: boolean }> = {
+  done: { dot: '#16a34a', color: '#16a34a', strike: true },
+  in_progress: { dot: '#d97706', color: '#d97706', strike: false },
+  unresolved: { dot: '#dc2626', color: '#dc2626', strike: false },
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatCurrency(v: number) {
+  return '$' + v.toLocaleString('en-US')
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function BackLink() {
+  return (
+    <Link
+      href="/customers"
+      className="inline-flex items-center gap-1.5 text-[12px] font-medium mb-[18px] no-underline transition-colors duration-150 hover:text-[var(--text)]"
+      style={{ color: 'var(--text3)' }}
+    >
+      ← Active Clients
+    </Link>
+  )
+}
+
+function SectionLabel({ icon, children }: { icon: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <span style={{ fontSize: 14, opacity: 0.6 }}>{icon}</span>
+      <span
+        className="text-[11px] font-semibold tracking-[1.2px] uppercase"
+        style={{ color: 'var(--text3)' }}
+      >
+        {children}
+      </span>
+    </div>
+  )
+}
+
+function IntelligencePanel({ client, messages, onSend }: {
+  client: ClientData
+  messages: { role: 'user' | 'assistant'; content: string }[]
+  onSend: (msg: string) => void
+}) {
+  const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const text = input.trim()
+    if (!text || sending) return
+    setInput('')
+    setSending(true)
+    await onSend(text)
+    setSending(false)
+  }
+
+  return (
+    <div
+      className="rounded-[10px] overflow-hidden"
+      style={{ background: 'var(--charcoal)', border: '1px solid rgba(255,255,255,0.07)' }}
+    >
+      {/* Header */}
+      <div
+        className="px-6 py-4"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-[7px] h-[7px] rounded-full"
+            style={{ background: 'var(--red, #c8311a)', boxShadow: '0 0 6px rgba(200,49,26,0.6)' }}
+          />
+          <span
+            className="text-[12px] font-semibold tracking-[0.8px] uppercase"
+            style={{ color: 'rgba(255,255,255,0.5)' }}
+          >
+            CASK Intelligence — {client.name} context
+          </span>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="px-5 py-4 flex flex-col gap-3" style={{ minHeight: 120 }}>
+        {/* Initial AI tip as assistant bubble */}
+        <div className="flex justify-start">
+          <div
+            className="text-[12px] leading-relaxed px-3.5 py-2.5 max-w-[88%]"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              color: 'rgba(255,255,255,0.8)',
+              borderRadius: '2px 10px 10px 10px',
+              border: '1px solid rgba(255,255,255,0.08)',
+            }}
+          >
+            {client.ai_tip}
+          </div>
+        </div>
+
+        {/* Conversation messages */}
+        {messages.map((m, i) =>
+          m.role === 'user' ? (
+            <div key={i} className="flex justify-end">
+              <div
+                className="text-[12px] leading-relaxed px-3.5 py-2.5 max-w-[88%]"
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  color: 'rgba(255,255,255,0.9)',
+                  borderRadius: '10px 10px 2px 10px',
+                }}
+              >
+                {m.content}
+              </div>
+            </div>
+          ) : (
+            <div key={i} className="flex justify-start">
+              <div
+                className="text-[12px] leading-relaxed px-3.5 py-2.5 max-w-[88%]"
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  color: 'rgba(255,255,255,0.8)',
+                  borderRadius: '2px 10px 10px 10px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                {m.content}
+              </div>
+            </div>
+          )
+        )}
+
+        {sending && (
+          <div className="flex justify-start">
+            <div
+              className="text-[11px] px-3.5 py-2.5"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                color: 'rgba(255,255,255,0.4)',
+                borderRadius: '2px 10px 10px 10px',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              Thinking…
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <form
+        onSubmit={handleSubmit}
+        className="px-5 pb-4"
+      >
+        <div
+          className="flex items-center gap-2 rounded-[8px] px-3"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.1)',
+          }}
+        >
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={`Ask about ${client.name}…`}
+            disabled={sending}
+            className="flex-1 bg-transparent border-none outline-none py-2.5 text-[12px]"
+            style={{ color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}
+          />
+          <button
+            type="submit"
+            disabled={!input.trim() || sending}
+            className="text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
+            style={{
+              background: 'var(--red, #c8311a)',
+              color: '#fff',
+              opacity: !input.trim() || sending ? 0.4 : 1,
+              border: 'none',
+              cursor: !input.trim() || sending ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            Send
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export default function ClientDetailPage({ params }: { params: { id: string } }) {
+  const client = SAMPLE_CLIENTS[params.id] ?? null
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+
+  async function handleChatSend(userMsg: string) {
+    const newMessages = [...chatMessages, { role: 'user' as const, content: userMsg }]
+    setChatMessages(newMessages)
+
+    try {
+      const contextPrefix = client
+        ? `You are CASK Intelligence, an AI assistant for CASK Construction. You have context about a client named ${client.name}. Their project is a ${client.project_type} in ${client.location} valued at ${formatCurrency(client.project_value)}. Communication style: ${client.communication_style} Key interests: ${client.key_interests}. AI tip: ${client.ai_tip}\n\nUser question: `
+        : ''
+
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            ...newMessages.slice(0, -1),
+            { role: 'user', content: contextPrefix + userMsg },
+          ],
+        }),
+      })
+
+      if (!res.ok) throw new Error('Chat failed')
+
+      const data = await res.json()
+      const reply =
+        typeof data === 'string'
+          ? data
+          : data?.content ?? data?.message ?? data?.choices?.[0]?.message?.content ?? 'No response.'
+
+      setChatMessages([...newMessages, { role: 'assistant', content: reply }])
+    } catch {
+      setChatMessages([...newMessages, { role: 'assistant', content: 'Unable to get a response right now. Please try again.' }])
+    }
+  }
+
+  if (!client) {
+    return (
+      <>
+        <TopBar title="Client Not Found" subtitle="Customer Journey" />
+        <div className="flex-1 overflow-y-auto p-7">
+          <BackLink />
+          <p style={{ color: 'var(--text3)', fontSize: 14 }}>Client not found.</p>
+        </div>
+      </>
+    )
+  }
+
+  const happiness = HAPPINESS[client.happiness]
+  const pct = Math.round((client.meetings_completed / client.total_meetings) * 100)
+
+  return (
+    <>
+      <TopBar title={client.name} subtitle="Customer Journey" />
+
+      <div className="flex-1 overflow-y-auto p-7 animate-page-in">
+        <BackLink />
+
+        {/* ── Hero Card ─────────────────────────────────────────────────── */}
+        <div
+          className="rounded-[10px] p-7 mb-3.5 relative overflow-hidden"
+          style={{ background: 'var(--charcoal)' }}
+        >
+          {/* Decorative gradient */}
+          <div
+            className="absolute bottom-0 right-0 w-[260px] h-[260px] pointer-events-none"
+            style={{
+              background: 'radial-gradient(circle at 80% 80%, rgba(255,255,255,0.03) 0%, transparent 60%)',
+            }}
+          />
+
+          {/* Project value — top right */}
+          <div
+            className="absolute top-7 right-7 text-right"
+          >
+            <div
+              className="text-[11px] font-medium tracking-[0.8px] uppercase mb-0.5"
+              style={{ color: 'rgba(255,255,255,0.35)' }}
+            >
+              Project Value
+            </div>
+            <div
+              className="text-[22px] font-semibold tracking-[-0.5px]"
+              style={{ color: 'rgba(255,255,255,0.92)' }}
+            >
+              {formatCurrency(client.project_value)}
+            </div>
+          </div>
+
+          {/* Avatar + Name */}
+          <div className="flex items-center gap-5 mb-5">
+            <div
+              className="flex items-center justify-center rounded-full text-white font-bold tracking-[0.5px] shrink-0"
+              style={{
+                width: 64,
+                height: 64,
+                background: 'rgba(255,255,255,0.1)',
+                border: '2px solid rgba(255,255,255,0.12)',
+                fontSize: 20,
+              }}
+            >
+              {client.initials}
+            </div>
+            <div>
+              <div
+                className="text-[9px] font-medium tracking-[1.8px] uppercase mb-1"
+                style={{ color: 'rgba(255,255,255,0.35)' }}
+              >
+                Customer Journey · CASK Construction
+              </div>
+              <h1
+                className="font-serif text-[26px] text-white leading-[1.15] tracking-[-0.3px]"
+                style={{ margin: 0 }}
+              >
+                {client.name}
+              </h1>
+            </div>
+          </div>
+
+          {/* Pills row */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Project type */}
+            <span
+              className="text-[11px] font-medium px-3 py-1 rounded-full"
+              style={{
+                color: 'rgba(255,255,255,0.7)',
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}
+            >
+              {client.project_type}
+            </span>
+            {/* Location */}
+            <span
+              className="text-[11px] font-medium px-3 py-1 rounded-full"
+              style={{
+                color: 'rgba(255,255,255,0.7)',
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}
+            >
+              📍 {client.location}
+            </span>
+            {/* Start date */}
+            <span
+              className="text-[11px] font-medium px-3 py-1 rounded-full"
+              style={{
+                color: 'rgba(255,255,255,0.7)',
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}
+            >
+              Started {client.start_date}
+            </span>
+            {/* Owner */}
+            <span
+              className="text-[11px] font-medium px-3 py-1 rounded-full"
+              style={{
+                color: 'rgba(255,255,255,0.7)',
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}
+            >
+              Owner: {client.owner}
+            </span>
+            {/* Happiness */}
+            <span
+              className="text-[11px] font-semibold px-3 py-1 rounded-full"
+              style={{ background: happiness.bg, color: happiness.color }}
+            >
+              {happiness.label}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Two-column grid ───────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+
+          {/* Card 1 — Personality & Communication */}
+          <div
+            className="rounded-lg p-5"
+            style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
+          >
+            <SectionLabel icon="👤">Personality & Communication</SectionLabel>
+
+            {/* Tags */}
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {client.personality_tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[11px] font-medium px-2.5 py-1 rounded-full"
+                  style={{
+                    background: 'var(--surface2, #f5f5f5)',
+                    color: 'var(--text2)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+
+            {/* Communication style */}
+            <div className="mb-3">
+              <div
+                className="text-[10px] font-semibold tracking-[0.8px] uppercase mb-1"
+                style={{ color: 'var(--text3)' }}
+              >
+                Communication Style
+              </div>
+              <p
+                className="text-[13px] leading-relaxed m-0"
+                style={{ color: 'var(--text2)' }}
+              >
+                {client.communication_style}
+              </p>
+            </div>
+
+            {/* Key interests */}
+            <div className="mb-4">
+              <div
+                className="text-[10px] font-semibold tracking-[0.8px] uppercase mb-1"
+                style={{ color: 'var(--text3)' }}
+              >
+                Key Interests
+              </div>
+              <p
+                className="text-[13px] leading-relaxed m-0"
+                style={{ color: 'var(--text2)' }}
+              >
+                {client.key_interests}
+              </p>
+            </div>
+
+            {/* AI Tip */}
+            <div
+              className="rounded-[8px] p-3.5"
+              style={{
+                background: 'var(--red-soft, #fdf2f0)',
+                borderLeft: '3px solid var(--red, #c8311a)',
+              }}
+            >
+              <div
+                className="text-[10px] font-semibold tracking-[0.8px] uppercase mb-1.5"
+                style={{ color: 'var(--red, #c8311a)', opacity: 0.8 }}
+              >
+                How to communicate with {client.name.split(' ')[0]}
+              </div>
+              <p
+                className="text-[12px] leading-relaxed m-0"
+                style={{ color: 'var(--text2)' }}
+              >
+                {client.ai_tip}
+              </p>
+            </div>
+          </div>
+
+          {/* Card 2 — Key Priorities */}
+          <div
+            className="rounded-lg p-5"
+            style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
+          >
+            <SectionLabel icon="🚩">Key Priorities</SectionLabel>
+
+            <div className="flex flex-col gap-2.5">
+              {client.priorities.map((p, i) => {
+                const cfg = PRIORITY_CONFIG[p.status]
+                return (
+                  <div key={i} className="flex items-center gap-2.5">
+                    {/* Dot */}
+                    <div
+                      className="shrink-0 rounded-full"
+                      style={{ width: 8, height: 8, background: cfg.dot }}
+                    />
+                    {/* Text */}
+                    <span
+                      className="text-[13px] font-medium"
+                      style={{
+                        color: cfg.color,
+                        textDecoration: cfg.strike ? 'line-through' : 'none',
+                        opacity: cfg.strike ? 0.65 : 1,
+                      }}
+                    >
+                      {p.text}
+                    </span>
+                    {/* Status label */}
+                    <span
+                      className="ml-auto text-[10px] font-semibold tracking-[0.4px] shrink-0"
+                      style={{ color: cfg.color, opacity: 0.7 }}
+                    >
+                      {p.status === 'done' ? 'Done' : p.status === 'in_progress' ? 'In Progress' : 'Unresolved'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Meeting Journey ───────────────────────────────────────────── */}
+        <div
+          className="rounded-lg p-5 mb-3"
+          style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
+        >
+          <SectionLabel icon="📋">Meeting Journey</SectionLabel>
+
+          {/* Progress summary + bar */}
+          <div className="mb-5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[13px] font-medium" style={{ color: 'var(--text2)' }}>
+                {client.meetings_completed} of {client.total_meetings} meetings completed
+              </span>
+              <span className="text-[12px] font-semibold" style={{ color: happiness.accent }}>
+                {pct}%
+              </span>
+            </div>
+            <div
+              className="h-[5px] rounded-full overflow-hidden"
+              style={{ background: 'var(--border)' }}
+            >
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${pct}%`,
+                  background: happiness.accent,
+                  transition: 'width 600ms ease',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Meeting list */}
+          <div className="flex flex-col gap-0">
+            {client.meetings.map((m, i) => (
+              <div
+                key={m.number}
+                className="flex items-center gap-3 py-2.5"
+                style={{
+                  borderTop: i > 0 ? '1px solid var(--border)' : 'none',
+                }}
+              >
+                {/* Number */}
+                <div
+                  className="text-[11px] font-semibold w-6 text-center shrink-0"
+                  style={{ color: 'var(--text3)' }}
+                >
+                  {m.number}
+                </div>
+
+                {/* Title */}
+                <span
+                  className="flex-1 text-[13px]"
+                  style={{
+                    color: m.completed ? 'var(--text3)' : 'var(--text)',
+                    textDecoration: m.completed ? 'line-through' : 'none',
+                    fontWeight: m.completed ? 400 : 500,
+                  }}
+                >
+                  {m.title}
+                </span>
+
+                {/* Checkbox */}
+                <div
+                  className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
+                  style={{
+                    background: m.completed ? '#F0FDF4' : 'var(--surface2, #f5f5f5)',
+                    border: `1.5px solid ${m.completed ? '#16a34a' : 'var(--border)'}`,
+                  }}
+                >
+                  {m.completed && (
+                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                      <path d="M2 6l3 3 5-5" stroke="#16a34a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── CASK Intelligence ─────────────────────────────────────────── */}
+        <IntelligencePanel
+          client={client}
+          messages={chatMessages}
+          onSend={handleChatSend}
+        />
+      </div>
+    </>
+  )
+}
