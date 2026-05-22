@@ -323,6 +323,88 @@ const AGENDAS: Record<string, AgendaContent> = {
     ],
     nps: true,
   },
+  PD1m: {
+    header: 'PD1m — 50% Floor Plan with Customer',
+    subheader: 'Phase 2: Pre-Construction Design · Meeting',
+    sections: [
+      {
+        title: 'INITIAL SITE PLAN LAYOUT',
+        items: [
+          {
+            text: 'Trees',
+            sub: [
+              'Distance of tree(s) to building',
+              'Size of tree(s)',
+            ],
+          },
+          {
+            text: 'Utilities',
+            sub: [
+              '(1) Overhead electrical lines — Does power need to be moved for ADU? Does owner want separate electric meter?',
+              '(2) Sanitary line location — Is sanitary line under new ADU? Does homeowner want to replace existing line?',
+              '(3) Water line size and connection point — Waterline location; Need for new meter and cost implications',
+              '(4) Natural gas availability — What appliances need gas? Where will it be fed? Separate meter needed?',
+            ],
+          },
+          'Establish location of parking',
+          'If historic — send customer email to clarify expectations',
+          'Establish exterior dimensions',
+          'Wall layout (furniture flow and functionality)',
+          {
+            text: 'Kitchen layout',
+            sub: [
+              'Owner approves area of kitchen',
+              'Special features of kitchen',
+            ],
+          },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  PD4m: {
+    header: 'PD4m — 75% Floor Plan with Customer',
+    subheader: 'Phase 2: Pre-Construction Design · Meeting',
+    sections: [
+      {
+        title: 'MEP LAYOUT',
+        items: [
+          {
+            text: 'Electrical Layout',
+            sub: [
+              '(1) Outdoor lighting if necessary',
+              '(2) Indoor lighting options',
+            ],
+          },
+          {
+            text: 'Plumbing',
+            sub: [
+              '(1) Locate hose bibs',
+              '(2) Location of water heater',
+              '(3) Tub or shower selection',
+              '(4) Location of shower valve (preferred not on exterior wall)',
+            ],
+          },
+          {
+            text: 'Mechanical',
+            sub: [
+              '(1) Location of air handler',
+              '(2) Location of condenser',
+              '(3) Determine if range hood exhaust is vented to outside',
+            ],
+          },
+        ],
+      },
+      {
+        title: 'ELEVATIONS',
+        items: [
+          'Confirm Window Placement',
+          'Garage door height – confirm at 7 ft',
+        ],
+      },
+    ],
+    nps: true,
+  },
 }
 
 // ── Agenda modal ──────────────────────────────────────────────────────────────
