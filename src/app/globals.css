@@ -5,20 +5,20 @@
 
 :root {
   --white: #ffffff;
-  --bg: #F9F8F7;
+  --bg: #FAFAFA;
   --surface: #ffffff;
-  --surface2: #ECEEF1;
-  --surface-hover: #F8F9FA;
-  --border: #E2E8F0;
-  --border2: #CBD5E1;
-  --text: #1a1917;
-  --text2: #3a3834;
-  --text3: #a8a29e;
+  --surface2: #F5F5F5;
+  --surface-hover: #F5F5F5;
+  --border: #EAEAEA;
+  --border2: #C1C1C1;
+  --text: #111111;
+  --text2: #666666;
+  --text3: #999999;
   --red: #c8311a;
   --red-soft: #fdf2f0;
   --red-border: #f5c9c2;
-  --charcoal: #1a1917;
-  --sidebar: #2c2c2e;
+  --charcoal: #111111;
+  --sidebar: #0A0A0A;
   --sidebar-text: rgba(255, 255, 255, 0.65);
   --sidebar-active: rgba(255, 255, 255, 0.08);
   --green: #166534;
@@ -58,27 +58,27 @@
   /* Backdrop blur — none in light mode, blur in dark mode */
   --card-backdrop: none;
 
-  /* Cards — solid white on warm off-white canvas */
+  /* Cards — clean white, Vercel-style minimal */
   --glass-stat-bg: #FFFFFF;
-  --glass-stat-border: #E8E5E1;
-  --glass-stat-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --glass-stat-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --glass-stat-border: #EAEAEA;
+  --glass-stat-shadow: none;
+  --glass-stat-hover-shadow: none;
   --glass-stat-alert-bg: #FEF2F0;
   --glass-stat-success-bg: #F0FDF4;
 
   --glass-card-bg: #FFFFFF;
-  --glass-card-border: #E8E5E1;
-  --glass-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  --glass-card-hover-bg: #FAFAF9;
-  --glass-card-hover-border: rgba(200, 49, 26, 0.2);
-  --glass-card-hover-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --glass-card-border: #EAEAEA;
+  --glass-card-shadow: none;
+  --glass-card-hover-bg: #FFFFFF;
+  --glass-card-hover-border: #C1C1C1;
+  --glass-card-hover-shadow: none;
 
   --glass-action-bg: #FFFFFF;
-  --glass-action-border: #E8E5E1;
+  --glass-action-border: #EAEAEA;
 
   /* AI message bubbles */
-  --glass-msg-user: rgba(26, 25, 23, 0.9);
-  --glass-msg-assist: #F1F5F9;
+  --glass-msg-user: #111111;
+  --glass-msg-assist: #F5F5F5;
 }
 
 .dark {

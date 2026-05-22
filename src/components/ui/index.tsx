@@ -203,6 +203,8 @@ const LEFT_GLOW_COLOR: Record<string, string> = {
 
 // ── Meeting Card ─────────────────────────────────────────────────────
 export function MeetingCard({ meeting }: { meeting: Meeting }) {
+  const { theme, mounted } = useTheme()
+  const isDark = mounted && theme === 'dark'
   const [hovered, setHovered] = useState(false)
   const date = new Date(meeting.date + 'T00:00:00')
   const day = date.getDate()
@@ -223,9 +225,9 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
         border: hovered
           ? `1px solid var(--glass-card-hover-border)`
           : '1px solid var(--glass-card-border)',
-        transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
+        transform: hovered ? 'translateY(-1px)' : 'translateY(0)',
         boxShadow: hovered
-          ? `-4px 0 20px ${glowColor}, var(--glass-card-hover-shadow)`
+          ? isDark ? `-4px 0 20px ${glowColor}, var(--glass-card-hover-shadow)` : 'var(--glass-card-hover-shadow)'
           : 'var(--glass-card-shadow)',
         transition: 'transform 200ms ease, box-shadow 200ms ease, border-color 150ms ease, background 150ms ease',
       }}
@@ -496,9 +498,9 @@ export function SectionLabel({
 }) {
   return (
     <div
-      className="text-[11px] font-semibold tracking-[1.5px] uppercase flex items-center justify-between mb-3"
+      className="text-[11px] font-semibold tracking-[1px] uppercase flex items-center justify-between mb-3"
       style={{
-        color: 'var(--text3)',
+        color: 'var(--text2)',
         borderLeft: '3px solid var(--red)',
         paddingLeft: '10px',
       }}
