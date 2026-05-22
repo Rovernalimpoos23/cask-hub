@@ -15,6 +15,7 @@ interface Phase {
   color: string
   bgColor: string
   borderColor: string
+  note?: string
   meetings: MeetingEntry[]
   startIndex: number
 }
@@ -111,15 +112,13 @@ const PHASES: Phase[] = [
     color: '#7c3aed',
     bgColor: '#f5f3ff',
     borderColor: '#ddd6fe',
+    note: 'This phase is fully automated — all items are email templates sent to the customer during the permitting process.',
     meetings: [
-      'Flooring Installation Review',
-      'Cabinet & Countertop Review',
-      'Fixture Selection Meeting',
-      'Tile & Backsplash Review',
-      'Appliance Selection Meeting',
-      'Trim & Millwork Review',
-      'Lighting Review',
-      'Interior Paint Final Review',
+      { code: 'PP1e', title: '1st RFC to Customer', type: 'email' },
+      { code: 'PP2e', title: '1st RFC to Customer', type: 'email' },
+      { code: 'PP3e', title: '2nd RFC to Customer', type: 'email' },
+      { code: 'PP4e', title: '2nd RFC to Customer', type: 'email' },
+      { code: 'PP5e', title: 'Permit Approval', type: 'email' },
     ],
     startIndex: 14,
   },
@@ -130,14 +129,14 @@ const PHASES: Phase[] = [
     bgColor: '#f0fdf4',
     borderColor: '#bbf7d0',
     meetings: [
-      'Exterior Paint Review',
-      'Roofing Final Inspection',
-      'Driveway & Walkway Review',
-      'Landscaping Plan Meeting',
-      'Pool & Outdoor Living Review',
-      'Fence & Gate Review',
-      'Garage Door & Entry Review',
-      'Exterior Final Walkthrough',
+      { code: 'PS1e', title: 'Selections Kick-off to Customer', type: 'email' },
+      { code: 'PS2m', title: 'In-Person 1st Selections with Customer', type: 'meeting' },
+      { code: 'PS3e', title: 'Post 1st Selections Meeting to Customer', type: 'email' },
+      { code: 'PS4m', title: 'In-Person 2nd Selections with Customer', type: 'meeting' },
+      { code: 'PS5e', title: 'Post 2nd Selections Meeting to Customer', type: 'email' },
+      { code: 'PS6m', title: 'In-Person 3rd Selections with Customer', type: 'meeting' },
+      { code: 'PS7e', title: 'Post 3rd Selections Meeting to Customer', type: 'email' },
+      { code: 'PS8m', title: 'In-Person 4th Selections with Customer', type: 'meeting' },
     ],
     startIndex: 22,
   },
@@ -148,24 +147,22 @@ const PHASES: Phase[] = [
     bgColor: '#fdf2f0',
     borderColor: '#f5c9c2',
     meetings: [
-      'Punch List Walkthrough',
-      'Final Inspection Meeting',
-      'Utility Connection Review',
-      'Certificate of Occupancy Meeting',
-      'Final Cleaning Review',
-      'Furniture & Staging Meeting',
-      'Client Orientation & Handover',
-      '30-Day Follow-up Meeting',
+      { code: 'PB1e', title: 'Sewage and Water Inspection to Customer', type: 'email' },
+      { code: 'PB2m', title: 'In-Person Sewage and Water Inspection', type: 'meeting' },
+      { code: 'PB3e', title: 'Congratulations Project Out to Bid', type: 'email' },
+      { code: 'PB4e', title: '95% Budget Update to Customer', type: 'email' },
+      { code: 'PB5m', title: 'Contract Review with Customer', type: 'meeting' },
+      { code: 'PB6e', title: 'Contract Approval to Customer', type: 'email' },
     ],
     startIndex: 30,
   },
 ]
 
 const STATS = [
-  { value: '40', label: 'Total Meetings' },
+  { value: '33', label: 'Total Items' },
+  { value: '11', label: 'Meetings (M)' },
+  { value: '22', label: 'Email Templates (E)' },
   { value: '5', label: 'Phases' },
-  { value: '~12', label: 'Months Avg' },
-  { value: '100%', label: 'Consistent' },
 ]
 
 // ── Agenda modal data ─────────────────────────────────────────────────────────
@@ -605,6 +602,24 @@ function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code
       {/* Meeting rows */}
       {open && (
         <div style={{ background: 'var(--white)', borderTop: `1px solid ${phase.borderColor}` }}>
+          {phase.note && (
+            <div
+              className="flex items-start gap-2 px-5 py-3 text-[12px]"
+              style={{
+                background: phase.bgColor,
+                borderBottom: `1px solid ${phase.borderColor}`,
+                color: phase.color,
+                lineHeight: 1.5,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0, marginTop: 1 }}>
+                <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.5"/>
+                <line x1="9" y1="6" x2="9" y2="9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <circle cx="9" cy="12" r="0.8" fill="currentColor"/>
+              </svg>
+              <span style={{ opacity: 0.85 }}>{phase.note}</span>
+            </div>
+          )}
           {phase.meetings.map((item, i) => {
             const num = phase.startIndex + i
             const isObj = typeof item === 'object'
