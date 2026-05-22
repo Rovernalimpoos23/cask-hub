@@ -236,16 +236,13 @@ export default function ActiveClientsPage() {
     async function load() {
       try {
         const supabase = createClient()
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('clients')
           .select('*')
           .order('name')
 
-        if (error || !data || data.length === 0) {
-          setClients(SAMPLE_CLIENTS)
-        } else {
-          setClients(data as Client[])
-        }
+        const realClients = (data as Client[]) ?? []
+        setClients([...realClients, ...SAMPLE_CLIENTS])
       } catch {
         setClients(SAMPLE_CLIENTS)
       } finally {

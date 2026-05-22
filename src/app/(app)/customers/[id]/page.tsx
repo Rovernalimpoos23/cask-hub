@@ -4,6 +4,7 @@
 import Link from 'next/link'
 import { useState, useEffect, useRef } from 'react'
 import { TopBar } from '@/components/ui'
+import { createClient } from '@/lib/supabase'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -214,7 +215,9 @@ function IntelligencePanel({ client, messages, onSend }: {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (messages.length > 0) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -336,6 +339,7 @@ function IntelligencePanel({ client, messages, onSend }: {
             onChange={e => setInput(e.target.value)}
             placeholder={`Ask about ${client.name}…`}
             disabled={sending}
+            tabIndex={-1}
             className="flex-1 bg-transparent border-none outline-none py-2.5 text-[12px]"
             style={{ color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}
           />
@@ -362,26 +366,135 @@ function IntelligencePanel({ client, messages, onSend }: {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(' ')
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return parts[0].slice(0, 2).toUpperCase()
+}
+
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
-  const client = SAMPLE_CLIENTS[params.id] ?? null
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [client, setClient] = useState<ClientData | null | 'loading'>('loading')
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0
+    }
+    const parent = document.querySelector('main')
+    if (parent) parent.scrollTop = 0
+    const scrollContainers = document.querySelectorAll('.overflow-y-auto')
+    scrollContainers.forEach(el => { (el as HTMLElement).scrollTop = 0 })
+  }, [])
+
+  useEffect(() => {
+    const SAMPLE_IDS = ['sample-1', 'sample-2', 'sample-3']
+
+    if (SAMPLE_IDS.includes(params.id)) {
+      setClient(SAMPLE_CLIENTS[params.id] ?? null)
+      return
+    }
+
+    async function fetchClient() {
+      const supabase = createClient()
+
+      const { data: row, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', params.id)
+        .single()
+
+      if (error || !row) {
+        setClient(null)
+        return
+      }
+
+      const [{ data: priorityRows }, { data: meetingRows }] = await Promise.all([
+        supabase.from('client_priorities').select('*').eq('client_id', params.id),
+        supabase.from('client_meetings').select('*').eq('client_id', params.id).order('number', { ascending: true }),
+      ])
+
+      const priorities: Priority[] = (priorityRows ?? []).map((p: Record<string, string>) => ({
+        text: p.text,
+        status: (p.status as PriorityStatus) ?? 'unresolved',
+      }))
+
+      const meetings: MeetingItem[] = (meetingRows ?? []).map((m: Record<string, unknown>) => ({
+        number: (m.number as number) ?? 0,
+        title: m.title as string,
+        completed: Boolean(m.completed),
+      }))
+
+      const completedCount = meetings.filter(m => m.completed).length
+
+      const happiness: Happiness =
+        row.happiness === 'yellow' || row.happiness === 'red' ? row.happiness : 'green'
+
+      setClient({
+        id: row.id,
+        name: row.name,
+        initials: getInitials(row.name),
+        project_type: row.project_type ?? '',
+        project_value: row.project_value ?? 0,
+        location: row.location ?? '',
+        start_date: row.start_date ?? '',
+        happiness,
+        meetings_completed: completedCount,
+        total_meetings: row.total_meetings ?? 40,
+        owner: row.owner ?? '',
+        personality_tags: Array.isArray(row.personality_tags) ? row.personality_tags : [],
+        communication_style: row.communication_style ?? 'No communication style added yet.',
+        key_interests: row.key_interests ?? 'No interests added yet.',
+        ai_tip: row.ai_tip ?? 'Add personality details to get AI communication tips.',
+        priorities,
+        meetings,
+      })
+    }
+
+    fetchClient()
+  }, [params.id])
 
   async function handleChatSend(userMsg: string) {
     const newMessages = [...chatMessages, { role: 'user' as const, content: userMsg }]
     setChatMessages(newMessages)
 
     try {
-      const contextPrefix = client
-        ? `You are CASK Intelligence, an AI assistant for CASK Construction. You have context about a client named ${client.name}. Their project is a ${client.project_type} in ${client.location} valued at ${formatCurrency(client.project_value)}. Communication style: ${client.communication_style} Key interests: ${client.key_interests}. AI tip: ${client.ai_tip}\n\nUser question: `
-        : ''
+      const clientSystemMsg = client && client !== 'loading'
+        ? {
+            role: 'system' as const,
+            content: `You are CASK Hub AI helping the CASK Construction sales team.
+You have full context on this client:
+
+CLIENT PROFILE:
+Name: ${client.name}
+Project: ${client.project_type}
+Value: $${client.project_value}
+Location: ${client.location}
+Happiness: ${client.happiness}
+Owner: ${client.owner}
+
+PERSONALITY:
+Tags: ${client.personality_tags?.join(', ') || 'None added'}
+Communication style: ${client.communication_style}
+Key interests: ${client.key_interests}
+
+KEY PRIORITIES:
+${client.priorities.map(p => `- ${p.text}: ${p.status}`).join('\n') || 'None added'}
+
+MEETING PROGRESS:
+${client.meetings.map(m => `- Meeting ${m.number}: ${m.title} — ${m.completed ? 'DONE' : 'PENDING'}`).join('\n') || 'No meetings yet'}
+
+Use this information to give specific, actionable advice about how to work with ${client.name.split(' ')[0]}. Always refer to the client by their first name. Be concise and practical.`,
+          }
+        : null
 
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [
-            ...newMessages.slice(0, -1),
-            { role: 'user', content: contextPrefix + userMsg },
+            ...(clientSystemMsg ? [clientSystemMsg] : []),
+            ...newMessages,
           ],
         }),
       })
@@ -398,6 +511,21 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     } catch {
       setChatMessages([...newMessages, { role: 'assistant', content: 'Unable to get a response right now. Please try again.' }])
     }
+  }
+
+  if (client === 'loading') {
+    return (
+      <>
+        <TopBar title="Loading…" subtitle="Customer Journey" />
+        <div className="flex-1 overflow-y-auto p-7">
+          <div className="rounded-[10px] h-[148px] shimmer mb-3.5" style={{ border: '1px solid var(--border)' }} />
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="rounded-lg h-[200px] shimmer" style={{ border: '1px solid var(--border)' }} />
+            <div className="rounded-lg h-[200px] shimmer" style={{ border: '1px solid var(--border)' }} />
+          </div>
+        </div>
+      </>
+    )
   }
 
   if (!client) {
@@ -419,7 +547,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     <>
       <TopBar title={client.name} subtitle="Customer Journey" />
 
-      <div className="flex-1 overflow-y-auto p-7 animate-page-in">
+      <div ref={containerRef} className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ scrollbarGutter: 'stable' }}>
         <BackLink />
 
         {/* ── Hero Card ─────────────────────────────────────────────────── */}
