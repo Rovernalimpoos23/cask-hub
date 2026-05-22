@@ -10,7 +10,7 @@ import { TopBar } from '@/components/ui'
 const PHASES = [
   {
     number: 1,
-    label: 'Sales & Discovery',
+    label: 'Preconstruction',
     color: '#2563eb',
     bgColor: '#eff6ff',
     borderColor: '#bfdbfe',
