@@ -172,7 +172,7 @@ function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
           strokeLinecap="round"
           strokeLinejoin="round"
           style={{
-            shrink: 0,
+            flexShrink: 0,
             transition: 'transform 200ms ease',
             transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
             opacity: 0.7,
