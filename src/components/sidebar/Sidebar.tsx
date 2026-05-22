@@ -13,7 +13,6 @@ const NAV_SECTIONS = [
   {
     label: 'ActionCOACH',
     items: [
-      { href: '/dashboard', icon: '▣', label: 'Dashboard', locked: false },
       { href: '/sessions', icon: '◈', label: 'Sessions', locked: false },
       { href: '/generate', icon: '✦', label: 'Generate Agenda', locked: false },
       { href: '/actions', icon: '◎', label: 'Action Items', locked: false },
@@ -93,27 +92,27 @@ function getSubtitle(user: User | null): string {
   return meta?.role ?? meta?.title ?? user.email ?? ''
 }
 
-function SideNavLink({ href, icon, label, isActive }: { href: string; icon: string; label: string; isActive: boolean }) {
+function SideNavLink({ href, icon, label, isActive, standalone }: { href: string; icon: string; label: string; isActive: boolean; standalone?: boolean }) {
   const [hovered, setHovered] = useState(false)
   return (
     <Link
       href={href}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="flex items-center gap-[9px] rounded-[6px] font-sans text-[13px] font-medium tracking-[-0.1px] no-underline"
+      className={`flex items-center gap-[9px] rounded-[6px] font-sans font-medium tracking-[-0.1px] no-underline ${standalone ? 'text-[14px]' : 'text-[13px]'}`}
       style={{
-        paddingTop: '8px',
-        paddingBottom: '8px',
+        paddingTop: standalone ? '9px' : '8px',
+        paddingBottom: standalone ? '9px' : '8px',
         paddingRight: '10px',
         paddingLeft: isActive ? '10px' : hovered ? '14px' : '10px',
         background: isActive ? 'rgba(255,255,255,0.08)' : hovered ? 'rgba(255,255,255,0.07)' : 'transparent',
-        color: isActive ? 'rgba(255,255,255,0.95)' : hovered ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.75)',
+        color: isActive ? 'rgba(255,255,255,0.95)' : hovered ? 'rgba(255,255,255,0.92)' : standalone ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.75)',
         transition: 'padding-left 180ms ease, background 180ms ease, color 180ms ease',
       }}
     >
       <span
-        className="text-[13px] w-4 text-center shrink-0"
-        style={{ opacity: isActive ? 0.9 : 0.5 }}
+        className={`${standalone ? 'text-[14px]' : 'text-[13px]'} w-4 text-center shrink-0`}
+        style={{ opacity: isActive ? 0.9 : standalone ? 0.65 : 0.5 }}
       >
         {icon}
       </span>
@@ -232,6 +231,16 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-2.5 overflow-y-auto flex flex-col gap-px">
+        {/* Standalone Dashboard */}
+        <SideNavLink
+          href="/dashboard"
+          icon="▣"
+          label="Dashboard"
+          isActive={pathname === '/dashboard'}
+          standalone
+        />
+        <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
+
         {NAV_SECTIONS.map((section) => (
           <div key={section.label}>
             <div
