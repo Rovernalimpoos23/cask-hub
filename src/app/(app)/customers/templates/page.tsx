@@ -23,7 +23,7 @@ interface Phase {
 const PHASES: Phase[] = [
   {
     number: 1,
-    label: 'Pre-Design',
+    label: 'Pre-Construction Pre-Design',
     color: '#2563eb',
     bgColor: '#eff6ff',
     borderColor: '#bfdbfe',
