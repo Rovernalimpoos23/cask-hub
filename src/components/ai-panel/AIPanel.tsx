@@ -89,7 +89,7 @@ export default function AIPanel() {
       setUserName(firstName)
 
       const hour = new Date().getHours()
-      const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+      const timeGreeting = (hour >= 5 && hour < 12) ? 'Good morning' : (hour >= 12 && hour < 17) ? 'Good afternoon' : 'Good evening'
       setMessages([
         {
           role: 'assistant',
