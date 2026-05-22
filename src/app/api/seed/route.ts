@@ -1,25 +1,28 @@
-// src/app/api/seed/route.ts
-// Run once: POST /api/seed to populate Supabase with all real meeting data
-// Protect this with a secret in production!
-
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createServerClient } from '@/lib/supabase-server'
+import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { MEETINGS } from '@/lib/seed-data'
 
-export async function POST(req: NextRequest) {
-  // Simple protection - require a secret header
-  const secret = req.headers.get('x-seed-secret')
-  if (secret !== process.env.SEED_SECRET && process.env.NODE_ENV === 'production') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+export const dynamic = 'force-dynamic'
 
+export async function GET() {
+  return await seedData()
+}
+
+export async function POST() {
+  return await seedData()
+}
+
+async function seedData() {
   try {
-    const supabase = createServerClient()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+
     const results = []
 
     for (const meeting of MEETINGS) {
-      // Insert meeting (without action_items as separate table entries)
-      const { data: meetingData, error: meetingError } = await supabase
+      const { error } = await supabase
         .from('meetings')
         .upsert({
           id: meeting.id,
@@ -29,57 +32,31 @@ export async function POST(req: NextRequest) {
           time_end: meeting.time_end,
           attendees: meeting.attendees,
           summary: meeting.summary,
-          action_items: meeting.action_items, // stored as jsonb too
+          action_items: meeting.action_items,
           key_decisions: meeting.key_decisions,
           full_transcript: meeting.full_transcript,
           meeting_type: meeting.meeting_type,
           owner: meeting.owner,
           module: meeting.module,
-        })
-        .select()
-        .single()
+        }, { onConflict: 'id' })
 
-      if (meetingError) {
-        results.push({ meeting: meeting.title, error: meetingError.message })
-        continue
-      }
-
-      // Insert action items to the separate table
-      for (const item of meeting.action_items) {
-        await supabase
-          .from('action_items')
-          .upsert({
-            id: item.id,
-            meeting_id: meeting.id,
-            task: item.task,
-            owner: item.owner,
-            due_date: item.due_date,
-            done: item.done,
-          })
-      }
-
-      results.push({ meeting: meeting.title, status: 'seeded' })
+      results.push({
+        title: meeting.title,
+        status: error ? 'error' : 'seeded',
+        error: error?.message
+      })
     }
-
-    // Seed initial user
-    await supabase.from('users').upsert({
-      id: '00000000-0000-0000-0000-000000000001',
-      name: 'Rovern Alimpoos',
-      email: 'rovern@caskconstruction.com',
-      role: 'ai_specialist',
-      avatar_initials: 'RA',
-    })
 
     return NextResponse.json({
       success: true,
-      results,
-      message: `Seeded ${MEETINGS.length} meetings successfully.`,
+      total: MEETINGS.length,
+      results
     })
-  } catch (error) {
-    console.error('Seed error:', error)
-    return NextResponse.json(
-      { error: 'Seed failed', details: String(error) },
-      { status: 500 }
-    )
+
+  } catch (err) {
+    return NextResponse.json({
+      success: false,
+      error: String(err)
+    }, { status: 500 })
   }
 }
