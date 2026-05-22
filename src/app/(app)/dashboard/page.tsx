@@ -132,7 +132,7 @@ export default function DashboardPage() {
                 {greeting}{firstName ? `, ${firstName}.` : '.'}
               </h1>
               <p className="text-[13px] mt-1.5" style={{ color: 'var(--text3)' }}>
-                Here&apos;s your ActionCOACH intelligence overview — {getCurrentMonthYear()}.
+                Here&apos;s your CASK Construction intelligence overview — {getCurrentMonthYear()}.
               </p>
             </div>
             <div className="text-[12px] font-medium shrink-0 mt-1" style={{ color: 'var(--text3)' }}>
