@@ -17,6 +17,7 @@ interface Priority {
 }
 
 interface MeetingItem {
+  id?: string
   number: number
   title: string
   completed: boolean
@@ -375,6 +376,7 @@ function getInitials(name: string): string {
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [client, setClient] = useState<ClientData | null | 'loading'>('loading')
+  const [localMeetings, setLocalMeetings] = useState<MeetingItem[]>([])
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
 
   useEffect(() => {
@@ -420,6 +422,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       }))
 
       const meetings: MeetingItem[] = (meetingRows ?? []).map((m: Record<string, unknown>) => ({
+        id: m.id as string,
         number: (m.number as number) ?? 0,
         title: m.title as string,
         completed: Boolean(m.completed),
@@ -453,6 +456,38 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
     fetchClient()
   }, [params.id])
+
+  // Sync localMeetings when client data loads
+  useEffect(() => {
+    if (client && client !== 'loading') {
+      setLocalMeetings(client.meetings)
+    }
+  }, [client])
+
+  async function toggleMeeting(index: number) {
+    const meeting = localMeetings[index]
+    const updated = localMeetings.map((m, i) =>
+      i === index ? { ...m, completed: !m.completed } : m
+    )
+    setLocalMeetings(updated)
+
+    const isSample = ['sample-1', 'sample-2', 'sample-3'].includes(params.id)
+    if (isSample) return
+
+    const supabase = createClient()
+    if (meeting.id) {
+      await supabase
+        .from('client_meetings')
+        .update({ completed: !meeting.completed })
+        .eq('id', meeting.id)
+    }
+
+    const completedCount = updated.filter(m => m.completed).length
+    await supabase
+      .from('clients')
+      .update({ meetings_completed: completedCount })
+      .eq('id', params.id)
+  }
 
   async function handleChatSend(userMsg: string) {
     const newMessages = [...chatMessages, { role: 'user' as const, content: userMsg }]
@@ -799,33 +834,41 @@ Use this information to give specific, actionable advice about how to work with 
           <SectionLabel icon="📋">Meeting Journey</SectionLabel>
 
           {/* Progress summary + bar */}
-          <div className="mb-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[13px] font-medium" style={{ color: 'var(--text2)' }}>
-                {client.meetings_completed} of {client.total_meetings} meetings completed
-              </span>
-              <span className="text-[12px] font-semibold" style={{ color: happiness.accent }}>
-                {pct}%
-              </span>
-            </div>
-            <div
-              className="h-[5px] rounded-full overflow-hidden"
-              style={{ background: 'var(--border)' }}
-            >
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${pct}%`,
-                  background: happiness.accent,
-                  transition: 'width 600ms ease',
-                }}
-              />
-            </div>
-          </div>
+          {(() => {
+            const completedCount = localMeetings.filter(m => m.completed).length
+            const livePct = client.total_meetings > 0
+              ? Math.round((completedCount / client.total_meetings) * 100)
+              : 0
+            return (
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[13px] font-medium" style={{ color: 'var(--text2)' }}>
+                    {completedCount} of {client.total_meetings} meetings completed
+                  </span>
+                  <span className="text-[12px] font-semibold" style={{ color: happiness.accent }}>
+                    {livePct}%
+                  </span>
+                </div>
+                <div
+                  className="h-[5px] rounded-full overflow-hidden"
+                  style={{ background: 'var(--border)' }}
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${livePct}%`,
+                      background: happiness.accent,
+                      transition: 'width 400ms ease',
+                    }}
+                  />
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Meeting list */}
           <div className="flex flex-col gap-0">
-            {client.meetings.map((m, i) => (
+            {localMeetings.map((m, i) => (
               <div
                 key={m.number}
                 className="flex items-center gap-3 py-2.5"
@@ -848,25 +891,36 @@ Use this information to give specific, actionable advice about how to work with 
                     color: m.completed ? 'var(--text3)' : 'var(--text)',
                     textDecoration: m.completed ? 'line-through' : 'none',
                     fontWeight: m.completed ? 400 : 500,
+                    transition: 'color 150ms ease',
                   }}
                 >
                   {m.title}
                 </span>
 
                 {/* Checkbox */}
-                <div
+                <button
+                  type="button"
+                  onClick={() => toggleMeeting(i)}
                   className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
                   style={{
                     background: m.completed ? '#F0FDF4' : 'var(--surface2, #f5f5f5)',
                     border: `1.5px solid ${m.completed ? '#16a34a' : 'var(--border)'}`,
+                    cursor: 'pointer',
+                    transition: 'background 150ms ease, border-color 150ms ease, transform 150ms ease',
+                    transform: 'scale(1)',
+                    padding: 0,
                   }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.15)' }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
+                  onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.9)' }}
+                  onMouseUp={e => { e.currentTarget.style.transform = 'scale(1.15)' }}
                 >
                   {m.completed && (
                     <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
                       <path d="M2 6l3 3 5-5" stroke="#16a34a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   )}
-                </div>
+                </button>
               </div>
             ))}
           </div>
