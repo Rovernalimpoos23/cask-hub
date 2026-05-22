@@ -2,30 +2,94 @@
 // src/app/(app)/customers/templates/page.tsx
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { TopBar } from '@/components/ui'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
-const PHASES = [
+type MeetingEntry = string | { code: string; title: string; type: 'meeting' | 'email'; agenda?: string[] }
+
+interface Phase {
+  number: number
+  label: string
+  color: string
+  bgColor: string
+  borderColor: string
+  meetings: MeetingEntry[]
+  startIndex: number
+}
+
+const PHASES: Phase[] = [
   {
     number: 1,
-    label: 'Preconstruction',
+    label: 'Pre-Design',
     color: '#2563eb',
     bgColor: '#eff6ff',
     borderColor: '#bfdbfe',
     meetings: [
-      'Pre-Design',
-      'Design',
-      'Permit',
-      'Selections',
-      'Bid Management',
+      {
+        code: 'PR1m',
+        title: 'Internal Sales to Pre-Con Pass-Off',
+        type: 'meeting',
+        agenda: [
+          'Customer Introduction',
+          'Topographic Survey and Plans',
+          'Customer Avatar',
+          'ADU Checklist',
+          'Property Analysis',
+          'NPS Survey Handout',
+        ],
+      },
+      {
+        code: 'PR2e',
+        title: 'Initial Alignment Scheduling to Customer',
+        type: 'email',
+      },
+      {
+        code: 'PR3m',
+        title: 'Initial Alignment Meeting Agenda',
+        type: 'meeting',
+        agenda: [
+          'Purpose: Review project expectations, budget alignment, site limitations, communication flow',
+          'Project Timeline: Design 2-3 months, Permitting 2-3 months, Construction 4-7 months',
+          'Floor Plan & Design Ideas',
+          'Interior Design & Layout',
+          'Mechanical & Utility Options',
+          'Exterior & Structural Features',
+          'Scheduling & Coordination',
+          'Customer Goal',
+          'NPS Survey Handout',
+        ],
+      },
+      {
+        code: 'PR4e',
+        title: 'Alignment Meeting Recap to Customer',
+        type: 'email',
+      },
+      {
+        code: 'PR5m',
+        title: 'On Site Flag with Customer',
+        type: 'meeting',
+        agenda: [
+          'Welcome & Introductions',
+          'Project Footprint Walkthrough',
+          'Utility Location Review',
+          'Next Steps',
+          'Q&A / Customer Feedback',
+          'NPS Survey Handout',
+        ],
+      },
+      {
+        code: 'PR6e',
+        title: 'Flag Meeting Recap to Customer',
+        type: 'email',
+      },
     ],
     startIndex: 1,
   },
   {
     number: 2,
-    label: 'Foundation & Framing',
+    label: 'Pre-Construction Design',
     color: '#d97706',
     bgColor: '#fffbeb',
     borderColor: '#fde68a',
@@ -39,11 +103,11 @@ const PHASES = [
       'Drywall Walkthrough',
       'Paint & Finishes Selection',
     ],
-    startIndex: 9,
+    startIndex: 6,
   },
   {
     number: 3,
-    label: 'Interior & Finishes',
+    label: 'Pre-Construction Permit',
     color: '#7c3aed',
     bgColor: '#f5f3ff',
     borderColor: '#ddd6fe',
@@ -57,11 +121,11 @@ const PHASES = [
       'Lighting Review',
       'Interior Paint Final Review',
     ],
-    startIndex: 17,
+    startIndex: 14,
   },
   {
     number: 4,
-    label: 'Exterior & Landscaping',
+    label: 'Pre-Construction Selections',
     color: '#16a34a',
     bgColor: '#f0fdf4',
     borderColor: '#bbf7d0',
@@ -75,11 +139,11 @@ const PHASES = [
       'Garage Door & Entry Review',
       'Exterior Final Walkthrough',
     ],
-    startIndex: 25,
+    startIndex: 22,
   },
   {
     number: 5,
-    label: 'Closeout & Handover',
+    label: 'Pre-Construction Bid Management',
     color: '#c8311a',
     bgColor: '#fdf2f0',
     borderColor: '#f5c9c2',
@@ -93,7 +157,7 @@ const PHASES = [
       'Client Orientation & Handover',
       '30-Day Follow-up Meeting',
     ],
-    startIndex: 33,
+    startIndex: 30,
   },
 ]
 
@@ -104,9 +168,308 @@ const STATS = [
   { value: '100%', label: 'Consistent' },
 ]
 
+// ── Agenda modal data ─────────────────────────────────────────────────────────
+
+interface AgendaItem {
+  text: string
+  sub?: string[]
+}
+
+interface AgendaSection {
+  title?: string
+  numbered?: boolean
+  items: (string | AgendaItem)[]
+}
+
+interface AgendaContent {
+  header: string
+  subheader: string
+  sections: AgendaSection[]
+  nps?: boolean
+}
+
+const NPS_QUESTIONS = [
+  'How happy are you on a scale of 1-10?',
+  'How do you feel our communication has been?',
+  'How is the pace of the construction journey going?',
+  'What could we improve or what made your journey enjoyable?',
+]
+
+const AGENDAS: Record<string, AgendaContent> = {
+  PR1m: {
+    header: 'PR1m — Internal Sales to Pre-Con Pass-Off',
+    subheader: 'Phase 1: Pre-Design · Meeting',
+    sections: [
+      {
+        items: [
+          'Customer Introduction',
+          'Topographic Survey and Plans (If Applicable)',
+          'Customer Avatar',
+          {
+            text: 'ADU Checklist',
+            sub: [
+              'Structure Type, Flood Zone, Historic designation',
+              'Exterior materials, roofing, construction prep',
+              'Ceiling height, style, roof pitch',
+              'Utilities: electric meter, water meter, gas',
+              'Appliances: refrigerator, dishwasher, stove, hood',
+              'Electrical: recessed lighting, fans, outlets',
+              'Driveway and parking options',
+              'Outdoor space and garage options',
+            ],
+          },
+          'Property Analysis',
+        ],
+      },
+    ],
+    nps: true,
+  },
+  PR3m: {
+    header: 'PR3m — Initial Alignment Meeting',
+    subheader: 'Phase 1: Pre-Design · Meeting',
+    sections: [
+      {
+        title: 'PURPOSE OF VISIT',
+        items: [
+          'Review overall project expectations',
+          'Discuss budget alignment and scope',
+          'Identify site limitations and considerations',
+          'Establish communication flow and milestone tracking',
+        ],
+      },
+      {
+        title: 'PROJECT TIMELINE',
+        items: [
+          'Design Phase: 2-3 months',
+          'Permitting Phase: 2-3 months',
+          'Estimated Construction: 4-7 months',
+        ],
+      },
+      {
+        title: 'FLOOR PLAN & DESIGN IDEAS',
+        items: [
+          'Open layout preference',
+          'Room separation preference',
+          'Kitchen placement',
+          'Number of bedrooms/workspaces',
+        ],
+      },
+      {
+        title: 'INTERIOR DESIGN & LAYOUT',
+        items: [
+          'Ceiling Height: 8ft (standard), 9ft ($), 10ft ($$)',
+          'Ceiling Style: Flat or Vaulted ($)',
+          'Laundry Location: Upstairs, Garage, or None',
+          'Air Condition Handler: Attic or Mini-Split',
+        ],
+      },
+      {
+        title: 'MECHANICAL & UTILITY OPTIONS',
+        items: [
+          'Electric Meter: Separate or shared',
+          'Water Meter: Separate or shared',
+          'Gas Meter: Separate, not separate, or none',
+        ],
+      },
+      {
+        title: 'EXTERIOR & STRUCTURAL',
+        items: [
+          'Driveway: Crushed Limestone, Concrete ($), Brick Pavers ($$)',
+          'Parking Options',
+          'Outdoor Space / Deck',
+          'Garage Door Height: 7ft or 8ft ($$)',
+        ],
+      },
+      {
+        title: 'SCHEDULING',
+        items: [
+          'Buildertrend Record Photo',
+          'Midway Design Meeting scheduled',
+        ],
+      },
+      {
+        title: 'CUSTOMER GOAL',
+        items: ['What inspired this project?'],
+      },
+    ],
+    nps: true,
+  },
+  PR5m: {
+    header: 'PR5m — On Site Flag with Customer',
+    subheader: 'Phase 1: Pre-Design · Meeting',
+    sections: [
+      {
+        title: 'OBJECTIVE',
+        items: [
+          'Review the flagged property to outline the project footprint',
+          'Confirm utility locations with the Project Manager',
+        ],
+      },
+      {
+        title: 'ATTENDEES',
+        items: ['Customer', 'Project Manager'],
+      },
+      {
+        title: 'AGENDA',
+        numbered: true,
+        items: [
+          { text: 'Welcome & Introductions', sub: ['Quick overview of today\'s site visit and purpose'] },
+          { text: 'Project Footprint Walkthrough', sub: ['Review flagged areas marking the layout', 'Answer questions regarding boundaries and placement'] },
+          { text: 'Utility Location Review', sub: ['Discuss identified utility locations', 'Confirm any adjustments needed for safety and access'] },
+          { text: 'Next Steps', sub: ['Summarize outcomes of the site visit', 'Outline what will happen leading into the next stage'] },
+          { text: 'Q&A / Customer Feedback', sub: ['Open discussion for customer questions and concerns'] },
+        ],
+      },
+    ],
+    nps: true,
+  },
+}
+
+// ── Agenda modal ──────────────────────────────────────────────────────────────
+
+function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
+  const agenda = AGENDAS[code]
+
+  const close = useCallback(onClose, [onClose])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [close])
+
+  if (!agenda) return null
+
+  function renderItem(item: string | AgendaItem, index: number, numbered?: boolean) {
+    const isObj = typeof item === 'object'
+    const text = isObj ? item.text : item
+    const sub = isObj ? item.sub : undefined
+    const marker = numbered ? `${index + 1}.` : '•'
+
+    return (
+      <li key={index} style={{ marginBottom: sub ? 8 : 5, listStyle: 'none' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <span style={{ color: 'var(--red, #c8311a)', fontWeight: 600, fontSize: 12, flexShrink: 0, minWidth: 16 }}>{marker}</span>
+          <span style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{text}</span>
+        </div>
+        {sub && (
+          <ul style={{ margin: '5px 0 0 24px', padding: 0 }}>
+            {sub.map((s, si) => (
+              <li key={si} style={{ listStyle: 'none', marginBottom: 3, display: 'flex', gap: 8 }}>
+                <span style={{ color: 'var(--text3)', fontSize: 12, flexShrink: 0 }}>›</span>
+                <span style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>{s}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </li>
+    )
+  }
+
+  return (
+    <div
+      onClick={close}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 10000,
+        background: 'rgba(0,0,0,0.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+        animation: 'overlayIn 0.2s ease forwards',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 600, maxHeight: '80vh',
+          background: 'var(--surface)',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.3)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+          animation: 'modalIn 0.25s ease forwards',
+        }}
+      >
+        {/* Modal header */}
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
+          <div>
+            <h2
+              style={{
+                fontFamily: 'var(--font-instrument-serif, Georgia, serif)',
+                fontSize: 18, fontWeight: 400,
+                color: 'var(--text)', margin: 0, lineHeight: 1.3, letterSpacing: '-0.2px',
+              }}
+            >
+              {agenda.header}
+            </h2>
+            <p style={{ fontSize: 12, color: 'var(--text3)', margin: '4px 0 0' }}>
+              {agenda.subheader}
+            </p>
+          </div>
+          <button
+            onClick={close}
+            style={{
+              width: 30, height: 30, borderRadius: 8,
+              border: '1px solid var(--border)', background: 'transparent',
+              color: 'var(--text3)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 18, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)'; e.currentTarget.style.color = 'var(--text)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {agenda.sections.map((section, si) => (
+            <div key={si} style={{ marginBottom: 22 }}>
+              {section.title && (
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: 'var(--red, #c8311a)', marginBottom: 10 }}>
+                  {section.title}
+                </div>
+              )}
+              <ul style={{ margin: 0, padding: 0 }}>
+                {section.items.map((item, ii) => renderItem(item, ii, section.numbered))}
+              </ul>
+            </div>
+          ))}
+
+          {/* NPS section */}
+          {agenda.nps && (
+            <>
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0 20px' }} />
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: 'var(--red, #c8311a)', marginBottom: 10 }}>
+                NPS SURVEY
+              </div>
+              <ul style={{ margin: 0, padding: 0 }}>
+                {NPS_QUESTIONS.map((q, qi) => (
+                  <li key={qi} style={{ listStyle: 'none', marginBottom: 5, display: 'flex', gap: 8 }}>
+                    <span style={{ color: 'var(--red, #c8311a)', fontWeight: 600, fontSize: 12, flexShrink: 0 }}>•</span>
+                    <span style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{q}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, textAlign: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            CASK Construction · caskconstruction.com · 727-201-2551
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Phase accordion ───────────────────────────────────────────────────────────
 
-function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
+function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code: string) => void }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -114,17 +477,12 @@ function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
       className="rounded-[10px] overflow-hidden"
       style={{ border: `1px solid ${phase.borderColor}` }}
     >
-      {/* Phase header — clickable */}
+      {/* Clickable header */}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-3 px-5 py-4 text-left"
-        style={{
-          background: phase.bgColor,
-          border: 'none',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-        }}
+        style={{ background: phase.bgColor, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
       >
         {/* Phase number badge */}
         <div
@@ -136,21 +494,15 @@ function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
 
         {/* Label */}
         <div className="flex-1 min-w-0">
-          <div
-            className="text-[13px] font-semibold tracking-[-0.1px]"
-            style={{ color: phase.color }}
-          >
+          <div className="text-[13px] font-semibold tracking-[-0.1px]" style={{ color: phase.color }}>
             Phase {phase.number} — {phase.label}
           </div>
-          <div
-            className="text-[11px] mt-0.5"
-            style={{ color: phase.color, opacity: 0.65 }}
-          >
+          <div className="text-[11px] mt-0.5" style={{ color: phase.color, opacity: 0.65 }}>
             Meetings {phase.startIndex}–{phase.startIndex + phase.meetings.length - 1}
           </div>
         </div>
 
-        {/* Meeting count chip */}
+        {/* Count chip */}
         <span
           className="text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0"
           style={{ background: phase.color, color: '#fff', opacity: 0.85 }}
@@ -160,20 +512,9 @@ function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
 
         {/* Chevron */}
         <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke={phase.color}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{
-            flexShrink: 0,
-            transition: 'transform 200ms ease',
-            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
-            opacity: 0.7,
-          }}
+          width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke={phase.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          style={{ flexShrink: 0, transition: 'transform 200ms ease', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', opacity: 0.7 }}
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
@@ -182,48 +523,106 @@ function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
       {/* Meeting rows */}
       {open && (
         <div style={{ background: 'var(--white)', borderTop: `1px solid ${phase.borderColor}` }}>
-          {phase.meetings.map((title, i) => {
+          {phase.meetings.map((item, i) => {
             const num = phase.startIndex + i
+            const isObj = typeof item === 'object'
+            const title = isObj ? item.title : item
+            const code = isObj ? item.code : null
+            const type = isObj ? item.type : null
+
+            const isEmail = type === 'email'
+
             return (
               <div
-                key={num}
-                className="flex items-center gap-3 px-5 py-3"
+                key={`${num}-${code ?? i}`}
+                className="flex items-center gap-3 py-2.5"
                 style={{
                   borderBottom: i < phase.meetings.length - 1 ? '1px solid var(--border)' : 'none',
+                  paddingLeft: isEmail ? 28 : 20,
+                  paddingRight: 20,
+                  background: isEmail ? 'var(--surface2, #fafafa)' : 'var(--white)',
+                  opacity: isEmail ? 0.85 : 1,
                 }}
               >
-                {/* Number */}
-                <div
-                  className="text-[11px] font-semibold w-6 text-center shrink-0"
-                  style={{ color: 'var(--text3)' }}
-                >
-                  {num}
-                </div>
+                {/* Number — hide for email rows, show mail icon instead */}
+                {isEmail ? (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}>
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <polyline points="2,4 12,13 22,4" />
+                  </svg>
+                ) : (
+                  <div className="text-[11px] font-semibold w-6 text-center shrink-0" style={{ color: 'var(--text3)' }}>
+                    {num}
+                  </div>
+                )}
+
+                {/* Code */}
+                {code && (
+                  <span
+                    className="text-[10px] font-bold tracking-[0.4px] shrink-0"
+                    style={{ color: isEmail ? '#d97706' : phase.color, opacity: 0.75, minWidth: 36 }}
+                  >
+                    {code}
+                  </span>
+                )}
 
                 {/* Title */}
                 <span
-                  className="flex-1 text-[13px] font-medium"
-                  style={{ color: 'var(--text)' }}
+                  className="flex-1 text-[13px]"
+                  style={{
+                    color: isEmail ? 'var(--text2)' : 'var(--text)',
+                    fontWeight: isEmail ? 400 : 500,
+                    fontStyle: isEmail ? 'italic' : 'normal',
+                  }}
                 >
                   {title}
                 </span>
 
-                {/* View Agenda button */}
-                <button
-                  type="button"
-                  className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
-                  style={{
-                    background: phase.bgColor,
-                    color: phase.color,
-                    border: `1px solid ${phase.borderColor}`,
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
-                  onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
-                >
-                  View Agenda
-                </button>
+                {/* Auto Email label for email rows */}
+                {isEmail && (
+                  <span
+                    className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: '#fef3c7', color: '#92400e' }}
+                    title="Automated email template"
+                  >
+                    Auto Email
+                  </span>
+                )}
+
+                {/* M / E badge */}
+                {type && (
+                  <span
+                    className="shrink-0 text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{
+                      background: isEmail ? '#fef3c7' : '#dbeafe',
+                      color: isEmail ? '#92400e' : '#1d4ed8',
+                    }}
+                    title={isEmail ? 'Automated email template' : 'Meeting — has agenda'}
+                  >
+                    {isEmail ? 'E' : 'M'}
+                  </span>
+                )}
+
+                {/* Action button */}
+                {!isEmail && (
+                  <button
+                    type="button"
+                    className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
+                    style={{
+                      background: phase.bgColor,
+                      color: phase.color,
+                      border: `1px solid ${phase.borderColor}`,
+                      cursor: code && AGENDAS[code] ? 'pointer' : 'default',
+                      fontFamily: 'inherit',
+                      opacity: code && AGENDAS[code] ? 1 : 0.4,
+                    }}
+                    onClick={() => { if (code && AGENDAS[code]) onViewAgenda(code) }}
+                    onMouseEnter={e => { if (code && AGENDAS[code]) e.currentTarget.style.opacity = '0.75' }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = code && AGENDAS[code] ? '1' : '0.4' }}
+                  >
+                    View Agenda
+                  </button>
+                )}
               </div>
             )
           })}
@@ -236,8 +635,11 @@ function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ClientTemplatesPage() {
+  const [activeAgenda, setActiveAgenda] = useState<string | null>(null)
+
   return (
     <>
+      {activeAgenda && <AgendaModal code={activeAgenda} onClose={() => setActiveAgenda(null)} />}
       <TopBar title="Client Templates" subtitle="Customer Journey" />
 
       <div className="flex-1 overflow-y-auto animate-page-in">
@@ -304,7 +706,7 @@ export default function ClientTemplatesPage() {
           {/* Phase accordions */}
           <div className="flex flex-col gap-3 mb-10">
             {PHASES.map(phase => (
-              <PhaseBlock key={phase.number} phase={phase} />
+              <PhaseBlock key={phase.number} phase={phase} onViewAgenda={setActiveAgenda} />
             ))}
           </div>
 
