@@ -15,14 +15,11 @@ const PHASES = [
     bgColor: '#eff6ff',
     borderColor: '#bfdbfe',
     meetings: [
-      'First In-Person Sales Meeting',
-      'Budget & Financing Discussion',
-      'Floor Plan Selection',
-      'Design Center Walkthrough',
-      'Contract Signing',
-      'Pre-Construction Meeting',
-      'Permit Submission Review',
-      'Construction Timeline Review',
+      'Pre-Design',
+      'Design',
+      'Permit',
+      'Selections',
+      'Bid Management',
     ],
     startIndex: 1,
   },
@@ -149,7 +146,7 @@ function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
             className="text-[11px] mt-0.5"
             style={{ color: phase.color, opacity: 0.65 }}
           >
-            Meetings {phase.startIndex}–{phase.startIndex + 7}
+            Meetings {phase.startIndex}–{phase.startIndex + phase.meetings.length - 1}
           </div>
         </div>
 
@@ -158,7 +155,7 @@ function PhaseBlock({ phase }: { phase: typeof PHASES[number] }) {
           className="text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0"
           style={{ background: phase.color, color: '#fff', opacity: 0.85 }}
         >
-          8 meetings
+          {phase.meetings.length} meetings
         </span>
 
         {/* Chevron */}
