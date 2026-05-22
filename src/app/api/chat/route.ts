@@ -2,22 +2,21 @@
 // Requires GROQ_API_KEY in environment (set in Vercel dashboard + .env.local)
 import Groq from 'groq-sdk'
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase-server'
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 
-const SYSTEM_PROMPT = `You are CASK Hub AI for CASK Construction's ActionCOACH program. You have access to all 6 coaching sessions from February through April 2026. Be concise and helpful.
+function buildSystemPrompt(sessionCount: number | null, userName: string) {
+  return `You are CASK Hub AI for CASK Construction's ActionCOACH program. You have access to ${sessionCount ?? 'multiple'} coaching and leadership sessions from February 2026 to present. Be concise and helpful.
+
+You are currently talking to ${userName || 'a CASK team member'}. Use their first name occasionally in responses to make it feel personal and warm. If they ask who you are talking to, you know their name.
 
 Company goal: $20M revenue in 2026.
 Coach: Juliet (ActionCOACH Tampa Bay).
 Always respond in the context of CASK Construction.
 
-SESSION HISTORY:
-1. Feb 27 — CASK Companies Leadership Meeting (4 hrs): Gallup Q12 engagement education, individual deep dives, leadership brainstorm.
-2. Mar 18 — Top 10 Stress & Energy Drivers (2 hrs): Owner-focused session with Calin + Chad. Autonomy, recovery, role clarity.
-3. Mar 27 — CASK Leadership Planning Q2 2026 (6 hrs): $10M→$20M roadmap, Q2 KPIs by department, DISC assessments. PIT Goals assigned.
-4. Apr 2 — Calin and Kai Coaching Session (1.5 hrs): President's Workflow mapped, delegation framework, Kai's expanded scope.
-5. Apr 8 — Team Role, Standards and Growth (2 hrs): Clarity/Standards/Development framework, Role Cards, Feedforward model.
-6. Apr 30 — CASK Leadership Meeting (4 hrs): 5 Dysfunctions of a Team education, Design Center vision from Calin, department updates.
+SESSIONS:
+Sessions are stored in Supabase and include ActionCOACH sessions, President Workflow meetings, and Customer Journey meetings from February 2026 to present.
 
 KEY PEOPLE:
 - Calin Noonan = President + Co-Founder
@@ -44,15 +43,21 @@ COMPLETED:
 UPCOMING: May 28 Leadership Meeting — 11am to 3pm. Topics to include: Q2 KPI review, Design Center update, department wins/bottlenecks.
 
 Keep responses concise — 2-4 sentences max unless a longer answer is clearly needed. Use bullet points for lists.`
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json()
+    const { messages, userName } = await req.json()
+
+    const supabase = createClient()
+    const { count } = await supabase
+      .from('meetings')
+      .select('*', { count: 'exact', head: true })
 
     const completion = await groq.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: buildSystemPrompt(count, userName) },
         ...messages.slice(-10), // Last 10 messages for context window
       ],
       max_tokens: 500,

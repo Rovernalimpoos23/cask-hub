@@ -3,17 +3,13 @@
 
 import { useState, useRef, useEffect } from 'react'
 import type { AIMessage } from '@/types'
+import { createClient } from '@/lib/supabase'
 
-const SUGGESTED_QUESTIONS = [
-  'Last meeting summary',
-  'Open action items',
-  'May 28th agenda',
-  'Design Center update',
-]
-
-const INITIAL_MESSAGE: AIMessage = {
-  role: 'assistant',
-  content: 'Good morning. I have full context on all 6 ActionCOACH sessions — Feb through April 2026. What would you like to know?',
+const SUGGESTED_QUESTIONS: Record<string, string[]> = {
+  Calin:   ['My open actions', 'Last leadership meeting', 'May 28th agenda', 'Design Center update'],
+  Kai:     ["Calin's action items", 'Prep for May 28', 'Last meeting summary', 'Due today'],
+  Rovern:  ['All sessions', 'Open action items', 'Generate agenda', 'Latest session'],
+  default: ['Last meeting summary', 'Open action items', 'May 28th agenda', 'Design Center update'],
 }
 
 function SoundWave() {
@@ -51,7 +47,11 @@ function SoundWave() {
 }
 
 export default function AIPanel() {
-  const [messages, setMessages] = useState<AIMessage[]>([INITIAL_MESSAGE])
+  const [sessionCount, setSessionCount] = useState<number | null>(null)
+  const [userName, setUserName] = useState('there')
+  const [messages, setMessages] = useState<AIMessage[]>([
+    { role: 'assistant', content: 'Good morning. Loading session data...' },
+  ])
   const [input, setInput] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const [voiceEnabled, setVoiceEnabled] = useState(false)
@@ -64,6 +64,42 @@ export default function AIPanel() {
   // FIX 1: Keep a ref so speakText always reads the CURRENT voiceEnabled,
   // regardless of which render closure captured it.
   const voiceEnabledRef = useRef(false)
+
+  // Fetch session count + user name, then set personalised greeting
+  useEffect(() => {
+    const supabase = createClient()
+
+    async function init() {
+      const [{ count }, { data: { user } }] = await Promise.all([
+        supabase.from('meetings').select('*', { count: 'exact', head: true }),
+        supabase.auth.getUser(),
+      ])
+
+      let firstName = 'there'
+      if (user?.email) {
+        const { data } = await supabase
+          .from('users')
+          .select('name')
+          .eq('email', user.email)
+          .single()
+        if (data?.name) firstName = data.name.split(' ')[0]
+      }
+
+      setSessionCount(count)
+      setUserName(firstName)
+
+      const hour = new Date().getHours()
+      const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+      setMessages([
+        {
+          role: 'assistant',
+          content: `${timeGreeting}, ${firstName}. I have full context on all ${count} sessions recorded in CASK Hub. What would you like to know?`,
+        },
+      ])
+    }
+
+    init()
+  }, [])
 
   // Restore voice preference from localStorage
   useEffect(() => {
@@ -168,6 +204,7 @@ export default function AIPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: nextMessages.map(m => ({ role: m.role, content: m.content })),
+          userName,
         }),
       })
 
@@ -184,7 +221,7 @@ export default function AIPanel() {
       speakText(aiContent, newMessages.length - 1)
 
     } catch {
-      const fallback = 'I have full access to all 6 ActionCOACH sessions. Ask me about specific meetings, action items, coaching themes, or the May 28th agenda.'
+      const fallback = `I have full access to all ${sessionCount ?? 'recorded'} sessions in CASK Hub. Ask me about specific meetings, action items, coaching themes, or the May 28th agenda.`
       const newMessages: AIMessage[] = [...nextMessages, { role: 'assistant', content: fallback }]
       setMessages(newMessages)
       speakText(fallback, newMessages.length - 1)
@@ -234,7 +271,7 @@ export default function AIPanel() {
               style={{ background: '#10b981', boxShadow: '0 0 6px rgba(16,185,129,0.4)' }}
             />
             <span className="text-[11px]" style={{ color: 'var(--text3)' }}>
-              6 sessions loaded
+              {sessionCount !== null ? `${sessionCount} sessions loaded` : 'Loading sessions...'}
             </span>
           </div>
         </div>
@@ -366,7 +403,7 @@ export default function AIPanel() {
       {/* Suggested questions */}
       {messages.length <= 1 && (
         <div className="px-3 pb-2 flex flex-wrap gap-1.5">
-          {SUGGESTED_QUESTIONS.map((q) => (
+          {(SUGGESTED_QUESTIONS[userName] ?? SUGGESTED_QUESTIONS.default).map((q) => (
             <button
               key={q}
               onClick={() => sendMessage(q)}

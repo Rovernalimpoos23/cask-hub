@@ -15,14 +15,6 @@ import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting } from '@/types'
 
-function getGreeting(): string {
-  const hour = new Date().getHours()
-  if (hour >= 5 && hour < 12) return 'Good morning'
-  if (hour >= 12 && hour < 17) return 'Good afternoon'
-  return 'Good evening'
-}
-
-
 function getCurrentMonthYear(): string {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
@@ -74,6 +66,14 @@ export default function DashboardPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
   const [firstName, setFirstName] = useState('')
+  const [greeting, setGreeting] = useState('Good morning')
+
+  useEffect(() => {
+    const hour = new Date().getHours()
+    if (hour < 12) setGreeting('Good morning')
+    else if (hour < 17) setGreeting('Good afternoon')
+    else setGreeting('Good evening')
+  }, [])
 
   useEffect(() => {
     fetchAllMeetings().then(data => {
@@ -120,7 +120,7 @@ export default function DashboardPage() {
                 className="font-serif text-[32px] font-normal tracking-[-0.5px] leading-[1.1]"
                 style={{ color: 'var(--text)' }}
               >
-                {getGreeting()}{firstName ? `, ${firstName}.` : '!'}
+                {greeting}{firstName ? `, ${firstName}.` : '.'}
               </h1>
               <p className="text-[13px] mt-1.5" style={{ color: 'var(--text3)' }}>
                 Here&apos;s your ActionCOACH intelligence overview — {getCurrentMonthYear()}.
