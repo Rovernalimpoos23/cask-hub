@@ -582,35 +582,83 @@ const AGENDAS: Record<string, AgendaContent> = {
     subheader: 'Phase 2: Pre-Construction Design · Meeting',
     sections: [
       {
-        title: 'INITIAL SITE PLAN LAYOUT',
+        title: 'INITIAL SITE PLAN LAYOUT — TREES',
+        items: [
+          '1. Distance of tree(s) to building:',
+          '2. Size of tree(s):',
+        ],
+      },
+      {
+        title: 'INITIAL SITE PLAN LAYOUT — UTILITIES',
         items: [
           {
-            text: 'Trees',
+            text: '1. Determine overhead electrical lines',
             sub: [
-              'Distance of tree(s) to building',
-              'Size of tree(s)',
+              'Does power to the main house need to be moved to construct the ADU?',
+              '→ Yes: Method of moving electrical lines — Double meter can / Moving line on main / Duke service line',
+              '→ No',
+              'Does the owner want a separate electric meter for the ADU?',
+              '→ Yes: Location of meter on ADU; Cost implications',
+              '→ No: Location for ADU panel; Trenching needed from main house panel (Yes/No); Is main house power sufficient for ADU (Yes/No)',
             ],
           },
           {
-            text: 'Utilities',
+            text: '2. Schedule for sanitary line to be located',
             sub: [
-              '(1) Overhead electrical lines — Does power need to be moved for ADU? Does owner want separate electric meter?',
-              '(2) Sanitary line location — Is sanitary line under new ADU? Does homeowner want to replace existing line?',
-              '(3) Water line size and connection point — Waterline location; Need for new meter and cost implications',
-              '(4) Natural gas availability — What appliances need gas? Where will it be fed? Separate meter needed?',
+              'Is the sanitary line under the new ADU?',
+              '→ Yes: Sections of sanitary that must be replaced',
+              '→ No',
+              'Does the homeowner want to replace the existing sanitary line?',
+              '→ Yes: Routing of new line: ___',
+              '→ No: Nothing further needed.',
             ],
           },
-          'Establish location of parking',
-          'If historic — send customer email to clarify expectations',
-          'Establish exterior dimensions',
-          'Wall layout (furniture flow and functionality)',
           {
-            text: 'Kitchen layout',
+            text: '3. Identify size of water line and where it ties into the main house',
             sub: [
-              'Owner approves area of kitchen',
-              'Special features of kitchen',
+              'If tied into existing house meter: Waterline location — where does ADU water line tie into main house water line?',
+              'If not tied into home meter: Need for a new meter (Yes/No); Cost implications:',
             ],
           },
+          {
+            text: '4. Is there natural gas available on your property currently?',
+            sub: [
+              '→ Yes: What appliances do you want gas to service? / Where will it be fed? / Will it get a separate meter?',
+              '→ No',
+            ],
+          },
+        ],
+      },
+      {
+        title: 'ESTABLISH LOCATION OF PARKING',
+        items: [
+          'Parking Location:',
+        ],
+      },
+      {
+        title: 'IF HISTORIC — SEND CUSTOMER EMAIL TO CLARIFY EXPECTATIONS',
+        items: [
+          'Yes (Explain to client for clarifications)',
+          'No',
+        ],
+      },
+      {
+        title: 'ESTABLISH EXTERIOR DIMENSIONS',
+        items: [
+          'Dimensions:',
+        ],
+      },
+      {
+        title: 'WALL LAYOUT',
+        items: [
+          'Preferred layout of furniture (use to understand functionality and flow of space)',
+        ],
+      },
+      {
+        title: 'KITCHEN LAYOUT',
+        items: [
+          'Owner approves area of kitchen',
+          'Special features of kitchen',
         ],
       },
     ],
@@ -621,32 +669,27 @@ const AGENDAS: Record<string, AgendaContent> = {
     subheader: 'Phase 2: Pre-Construction Design · Meeting',
     sections: [
       {
-        title: 'MEP LAYOUT',
+        title: 'MEP LAYOUT — ELECTRICAL LAYOUT',
         items: [
-          {
-            text: 'Electrical Layout',
-            sub: [
-              '(1) Outdoor lighting if necessary',
-              '(2) Indoor lighting options',
-            ],
-          },
-          {
-            text: 'Plumbing',
-            sub: [
-              '(1) Locate hose bibs',
-              '(2) Location of water heater',
-              '(3) Tub or shower selection',
-              '(4) Location of shower valve (preferred not on exterior wall)',
-            ],
-          },
-          {
-            text: 'Mechanical',
-            sub: [
-              '(1) Location of air handler',
-              '(2) Location of condenser',
-              '(3) Determine if range hood exhaust is vented to outside',
-            ],
-          },
+          '1. Outdoor lighting if necessary',
+          '2. Indoor lighting options',
+        ],
+      },
+      {
+        title: 'MEP LAYOUT — PLUMBING',
+        items: [
+          '1. Locate hose bibs',
+          '2. Location of water heater',
+          '3. Tub or shower selection',
+          '4. Location of shower valve (preferred not on exterior wall)',
+        ],
+      },
+      {
+        title: 'MEP LAYOUT — MECHANICAL',
+        items: [
+          '1. Location of air handler',
+          '2. Location of condenser',
+          '3. Determine if range hood exhaust is vented to outside',
         ],
       },
       {
