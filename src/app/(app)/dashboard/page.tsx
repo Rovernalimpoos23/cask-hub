@@ -1,7 +1,8 @@
 'use client'
 // src/app/(app)/dashboard/page.tsx
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   TopBar,
   PillGreen,
@@ -63,6 +64,7 @@ function IconCheck() {
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
   const [firstName, setFirstName] = useState('')
@@ -75,11 +77,15 @@ export default function DashboardPage() {
     else setGreeting('Good evening')
   }, [])
 
-  useEffect(() => {
+  const loadMeetings = useCallback(() => {
     fetchAllMeetings().then(data => {
       setMeetings(data)
       setLoading(false)
     })
+  }, [])
+
+  useEffect(() => {
+    loadMeetings()
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user?.email) return
@@ -91,7 +97,10 @@ export default function DashboardPage() {
       const name = userData?.name?.split(' ')[0] || ''
       setFirstName(name)
     })
-  }, [])
+    const handler = () => { loadMeetings(); router.refresh() }
+    window.addEventListener('cask-meeting-saved', handler)
+    return () => window.removeEventListener('cask-meeting-saved', handler)
+  }, [loadMeetings, router])
 
   const allActions = meetings.flatMap(m => m.action_items)
   const openActions = allActions.filter(a => !a.done)

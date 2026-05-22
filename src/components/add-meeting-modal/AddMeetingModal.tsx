@@ -2,6 +2,7 @@
 // src/components/add-meeting-modal/AddMeetingModal.tsx
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { MeetingType } from '@/types'
 
@@ -40,6 +41,19 @@ const OWNERS = ['Calin', 'Chad', 'Kai', 'Rovern', 'Lamont', 'Jeff', 'Kait', 'Mat
 
 function newItem(): ActionItemForm {
   return { id: crypto.randomUUID(), task: '', owner: '', due_date: '', done: false }
+}
+
+function sanitizeDate(value: string): string | null {
+  if (!value ||
+      value.toLowerCase() === 'not specified' ||
+      value.toLowerCase() === 'n/a' ||
+      value.toLowerCase() === 'unknown' ||
+      value.trim() === '') {
+    return null
+  }
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return null
+  return date.toISOString().split('T')[0]
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
@@ -236,6 +250,7 @@ function AttendeeInput({ attendees, onChange }: AttendeeInputProps) {
 // ─── Main modal ───────────────────────────────────────────────────────────────
 
 export default function AddMeetingModal() {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [exiting, setExiting] = useState(false)
 
@@ -365,7 +380,9 @@ export default function AddMeetingModal() {
   async function handleSave(e: React.FormEvent, isDraft = false) {
     e.preventDefault()
 
-    if (!title.trim() || !date) {
+    const cleanDate = sanitizeDate(date) ?? new Date().toISOString().split('T')[0]
+
+    if (!title.trim() || !cleanDate) {
       setToast({ message: 'Meeting title and date are required.', type: 'error' })
       return
     }
@@ -376,7 +393,7 @@ export default function AddMeetingModal() {
       id: crypto.randomUUID(),
       title: title.trim(),
       meeting_type: meetingType,
-      date,
+      date: cleanDate,
       owner,
       time_start: timeStart,
       time_end: timeEnd,
@@ -386,37 +403,26 @@ export default function AddMeetingModal() {
       key_decisions: [] as string[],
       action_items: actionItems
         .filter(i => i.task.trim())
-        .map(i => ({ id: i.id, task: i.task.trim(), owner: i.owner, due_date: i.due_date, done: i.done })),
+        .map(i => ({ id: i.id, task: i.task.trim(), owner: i.owner, due_date: sanitizeDate(i.due_date), done: i.done })),
       module,
       ...(isDraft ? { draft: true } : {}),
     }
 
-    let saved = false
-
-    try {
-      const { error } = await createClient().from('meetings').insert(meeting)
-      if (!error) saved = true
-    } catch { /* fall through */ }
-
-    if (!saved) {
-      try {
-        const existing: unknown[] = JSON.parse(localStorage.getItem('cask_meetings') ?? '[]')
-        existing.push(meeting)
-        localStorage.setItem('cask_meetings', JSON.stringify(existing))
-        saved = true
-      } catch { /* both failed */ }
-    }
+    const { error } = await createClient().from('meetings').insert(meeting)
 
     setSaving(false)
 
-    if (saved) {
-      setToast({ message: isDraft ? 'Draft saved.' : 'Meeting saved successfully!', type: 'success' })
-      window.dispatchEvent(new Event('cask-meeting-saved'))
-      resetForm()
-      closeModal()
-    } else {
+    if (error) {
+      console.error('Save error:', error)
       setToast({ message: 'Failed to save. Please try again.', type: 'error' })
+      return
     }
+
+    setToast({ message: isDraft ? 'Draft saved.' : 'Meeting saved successfully!', type: 'success' })
+    window.dispatchEvent(new Event('cask-meeting-saved'))
+    router.refresh()
+    resetForm()
+    closeModal()
   }
 
   // ─────────────────────────────────────────────────────────────────────────

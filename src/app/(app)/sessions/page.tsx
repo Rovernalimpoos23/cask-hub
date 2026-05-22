@@ -2,6 +2,7 @@
 // src/app/(app)/sessions/page.tsx
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   TopBar,
   PillGreen,
@@ -21,6 +22,7 @@ const FILTER_TABS = [
 ]
 
 export default function SessionsPage() {
+  const router = useRouter()
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
@@ -35,9 +37,10 @@ export default function SessionsPage() {
 
   useEffect(() => {
     loadMeetings()
-    window.addEventListener('cask-meeting-saved', loadMeetings)
-    return () => window.removeEventListener('cask-meeting-saved', loadMeetings)
-  }, [loadMeetings])
+    const handler = () => { loadMeetings(); router.refresh() }
+    window.addEventListener('cask-meeting-saved', handler)
+    return () => window.removeEventListener('cask-meeting-saved', handler)
+  }, [loadMeetings, router])
 
   const filtered = filter === 'all'
     ? meetings
