@@ -172,7 +172,15 @@ function LoginForm() {
                   {error && <p className="lp-error">{error}</p>}
 
                   <button type="submit" disabled={loading} className="lp-btn">
-                    {loading ? 'Signing in…' : 'Sign In'}
+                    {loading ? (
+                      <span className="lp-btn-loading">
+                        <svg className="lp-spinner" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                          <circle cx="8" cy="8" r="6" stroke="rgba(255,255,255,0.3)" strokeWidth="2" />
+                          <path d="M8 2a6 6 0 0 1 6 6" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                        Signing in…
+                      </span>
+                    ) : 'Sign In'}
                   </button>
                 </form>
 
@@ -271,33 +279,28 @@ function LoginForm() {
         .lp-ov-vignette {
           background: radial-gradient(ellipse 120% 80% at 30% 50%, transparent 55%, rgba(4,4,4,0.30) 100%);
         }
-        /* Right fade: photo fully clear until 84%, compressed ramp at the very edge */
+        /* Right fade: photo fully clear until 88%, compressed ramp at the very edge */
         .lp-ov-right {
           background: linear-gradient(
             to right,
             transparent        0%,
-            transparent        84%,
-            rgba(8,8,7,0.20)   89%,
-            rgba(8,8,7,0.65)   94%,
-            rgba(8,8,7,0.94)   98%,
+            transparent        88%,
+            rgba(8,8,7,0.15)   92%,
+            rgba(8,8,7,0.55)   96%,
+            rgba(8,8,7,0.90)   99%,
             #0c0c0b           100%
           );
         }
-        /* Bottom fade */
+        /* Bottom fade — keeps tagline readable */
         .lp-ov-bottom {
-          background: linear-gradient(
-            to top,
-            rgba(8,8,7,0.80)  0%,
-            rgba(8,8,7,0.30)  22%,
-            transparent       45%
-          );
+          background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%);
         }
 
         /* Caption */
         .lp-caption {
           position: absolute;
-          bottom: 44px;
-          left: 48px;
+          bottom: 32px;
+          left: 32px;
           right: 64px;
         }
         .lp-caption-text {
@@ -389,8 +392,9 @@ function LoginForm() {
         .lp-card {
           background: rgba(17, 17, 16, 0.82);
           border: 1px solid rgba(255, 255, 255, 0.08);
+          border-top: 2px solid rgba(200, 49, 26, 0.5);
           border-radius: 16px;
-          padding: 32px;
+          padding: 36px;
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
           box-shadow:
@@ -400,9 +404,10 @@ function LoginForm() {
             0 8px 16px rgba(0,0,0,0.35);
         }
         .lp-card-title {
-          font-size: 17px;
-          font-weight: 600;
-          letter-spacing: -0.025em;
+          font-size: 24px;
+          font-family: 'Instrument Serif', Georgia, serif;
+          font-weight: 400;
+          letter-spacing: -0.01em;
           color: #ffffff;
           text-align: center;
           margin: 0 0 6px 0;
@@ -496,6 +501,7 @@ function LoginForm() {
         }
         .lp-btn:hover:not(:disabled) {
           background: #b32a15;
+          transform: scale(1.02);
         }
         .lp-btn:active:not(:disabled) {
           transform: scale(0.99);
@@ -585,6 +591,21 @@ function LoginForm() {
           font-size: 11.5px;
           color: rgba(255, 255, 255, 0.2);
           margin: 10px 0 0 0;
+        }
+
+        /* ─── Spinner ──────────────────────────────────────── */
+        .lp-btn-loading {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+        .lp-spinner {
+          animation: spin 0.8s linear infinite;
+          flex-shrink: 0;
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
 
         /* ─── Responsive ────────────────────────────────────── */
