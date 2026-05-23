@@ -126,7 +126,7 @@ function LoginForm() {
               priority
             />
             <div className="lp-brand-hub">Hub</div>
-            <div className="lp-brand-sub">ActionCOACH Leadership Intelligence</div>
+            <div className="lp-brand-sub">CASK Construction Command Center</div>
           </div>
 
           {/* Glass card */}
