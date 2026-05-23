@@ -115,7 +115,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <TopBar title="Dashboard" subtitle="ActionCOACH Intelligence">
+      <TopBar title="Dashboard" subtitle="CASK Construction Command Center">
         <PillGreen>Claude AI Active</PillGreen>
         <PillRed>{loading ? '…' : `${meetings.length} Sessions`}</PillRed>
       </TopBar>
