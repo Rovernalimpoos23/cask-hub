@@ -180,9 +180,57 @@ export default function DashboardPage() {
 
         {/* Recent Sessions */}
         <div className="mb-8">
-          <SectionLabel action="View all →" href="/sessions">
+          <div
+            className="text-[11px] font-semibold tracking-[1px] uppercase flex items-center justify-between mb-3"
+            style={{
+              color: 'var(--text2)',
+              borderLeft: '3px solid var(--red)',
+              paddingLeft: '10px',
+            }}
+          >
             Recent Sessions
-          </SectionLabel>
+            <div className="flex items-center gap-2">
+              <a
+                href="/sessions"
+                className="text-[12px] font-medium normal-case tracking-normal no-underline"
+                style={{
+                  color: 'var(--text2)',
+                  padding: '3px 9px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border2)',
+                  lineHeight: '1.4',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--surface2)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent' }}
+              >
+                View all
+              </a>
+              <button
+                onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '3px 9px',
+                  borderRadius: 6,
+                  background: 'var(--red)',
+                  color: 'white',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  letterSpacing: 'normal',
+                  textTransform: 'none',
+                  lineHeight: '1.4',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+              >
+                + New Session
+              </button>
+            </div>
+          </div>
           {loading ? (
             <div className="flex flex-col gap-2">
               {[0, 1, 2].map(i => (

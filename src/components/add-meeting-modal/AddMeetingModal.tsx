@@ -438,46 +438,6 @@ export default function AddMeetingModal() {
         />
       )}
 
-      {/* FAB */}
-      <button
-        onClick={openModal}
-        aria-label="Add new meeting"
-        style={{
-          position: 'fixed',
-          bottom: 32,
-          right: 32,
-          width: 56,
-          height: 56,
-          borderRadius: '50%',
-          background: 'var(--red)',
-          color: 'white',
-          border: 'none',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          boxShadow: '0 4px 20px rgba(200,49,26,0.4)',
-          transition: 'transform 150ms ease, box-shadow 150ms ease',
-          fontFamily: 'inherit',
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.transform = 'scale(1.08)'
-          e.currentTarget.style.boxShadow = '0 6px 28px rgba(200,49,26,0.5)'
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.transform = 'scale(1)'
-          e.currentTarget.style.boxShadow = '0 4px 20px rgba(200,49,26,0.4)'
-        }}
-        onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.95)' }}
-        onMouseUp={e => { e.currentTarget.style.transform = 'scale(1.08)' }}
-      >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
-
       {/* Overlay + Modal */}
       {open && (
         <div
