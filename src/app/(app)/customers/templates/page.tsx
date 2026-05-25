@@ -2452,7 +2452,7 @@ function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code
                 {/* Teams link — PR1m only */}
                 {code === 'PR1m' && (
                   <a
-                    href="https://teams.microsoft.com/l/message/19:jZT8rtLatXk0N_ceno2ALMyHLeo4cUXzLUpZa4P15_M1@thread.tacv2/1779735287626?tenantId=8ded34ac-88f6-49ed-a8a0-99a7a33e66d5&groupId=2f1d450b-779a-41c6-8872-4d03c3eaba55&parentMessageId=1779735287626&teamName=Customer%20Journey&channelName=Pre-Con%20Pre-Design&createdTime=1779735287626"
+                    href="https://teams.microsoft.com/l/meetup-join/19%3ameeting_NDQwNjY1ODctNTY0YS00NDMzLThmNjYtMWQ1NmY3YWU2Y2E4%40thread.v2/0?context=%7b%22Tid%22%3a%228ded34ac-88f6-49ed-a8a0-99a7a33e66d5%22%2c%22Oid%22%3a%22a389c8f1-871e-4958-8875-8bc7166c2322%22%7d"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
