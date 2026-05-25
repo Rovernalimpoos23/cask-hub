@@ -199,6 +199,19 @@ const PHASES: Phase[] = [
     ],
     startIndex: 46,
   },
+  {
+    number: 9,
+    label: 'Construction Finish',
+    color: '#0d9488',
+    bgColor: '#f0fdfa',
+    borderColor: '#99f6e4',
+    meetings: [
+      { code: 'CF1.a', title: 'Internal Sub Meeting (Internal)', type: 'internal' },
+      { code: 'CF1m', title: 'Finishes with Customer', type: 'meeting' },
+      { code: 'CF2e', title: 'Finish Meeting Recap to Customer', type: 'email' },
+    ],
+    startIndex: 49,
+  },
 ]
 
 const STATS = [
@@ -1372,6 +1385,155 @@ const AGENDAS: Record<string, AgendaContent> = {
           'Going to walk the project next week with Calin to discuss details and scope so everyone is on the same page.',
           'Let me know if you guys have any questions or concerns!',
           'Thank you, Eric Bressler',
+        ],
+      },
+    ],
+  },
+  CF2e: {
+    header: 'CF2e — Finish Meeting Recap to Customer',
+    subheader: 'Phase 9: Construction Finish · Email',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: Finish Stage Meeting Recap & What\'s Next – [Project Address or Name]',
+          'From: [Project Manager Name]',
+          'To: [Customer Name]',
+          'Cc: Superintendent, Selections Manager, Relevant Subcontractors',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Hi [Customer Name],',
+          'It was such a pleasure meeting with you today on-site! We\'re officially in the finish stage—a huge milestone where your vision really starts coming to life. Thanks again for your time, input, and partnership throughout this journey.',
+          'Here\'s a quick recap of what we discussed and what you can expect next:',
+        ],
+      },
+      {
+        title: 'MEETING NOTES',
+        items: [
+          '[Project Manager to input key discussion points here]',
+          '–',
+          '–',
+          '–',
+        ],
+      },
+      {
+        title: 'WHAT\'S COMING UP',
+        items: [
+          '– We\'ll be wrapping up drywall and beginning finish installations very soon',
+          '– Your job box has been updated with your full selections packet and QR code sheet for quick reference',
+          '– You\'ll start seeing more trades on-site, and we\'ll continue sending progress updates along the way',
+          'Please don\'t hesitate to reach out if anything else comes to mind—we want every detail to reflect your style and goals. We\'re so excited to see this next chapter unfold!',
+          'To help us continue delivering a top-tier construction experience, we\'d appreciate it if you could take a minute to answer our Construction Phase Feedback Survey. Your input goes a long way in helping us improve!',
+          'CUSTOMER JOURNEY SURVEY HANDOUT',
+          'Thanks again for letting us build this with you. We\'re almost there!',
+        ],
+      },
+    ],
+  },
+  CF1m: {
+    header: 'CF1m — Finishes with Customer',
+    subheader: 'Phase 9: Construction Finish · Meeting',
+    sections: [
+      {
+        title: 'ITEMS TO PREPARE AHEAD OF MEETING',
+        items: [
+          'Updated field set of drawings',
+          'Bring selections packet (vanities, lighting fixtures, plumbing fixtures)',
+          'Updated kitchen layout',
+          'Updated ID drawing',
+        ],
+      },
+      {
+        title: 'ATTENDANCE',
+        items: [
+          'Project Manager',
+          'Superintendent',
+          'Selections Manager',
+          'Customer',
+        ],
+      },
+      {
+        title: 'MEETING FLOW',
+        numbered: true,
+        items: [
+          {
+            text: 'Welcome & Milestone Acknowledgment',
+            sub: [
+              'Congratulate customer for reaching this stage',
+              'Celebrate the near completion of customer project',
+            ],
+          },
+          {
+            text: 'Buildertrend Schedule Review',
+            sub: [
+              'Set expectations for drywall hanging and items scheduled after',
+              'Start of customer-selected finishes',
+            ],
+          },
+          {
+            text: 'Selections & Finish Confirmation',
+            sub: [
+              'Review the selections packet',
+              'Walk through each finish scope, room by room:',
+              'Bedroom: Flooring, Ceiling Fans, Paint, Tile Route, Trim, Fixtures',
+              'Kitchen: Flooring, Cabinets, Under Cabinet lighting, Paint, Tile Route, Grout, Trim, Fixtures',
+              'Bathroom: Flooring, Vanity, Paint, Tile on Walls, Shower Flooring, Bathroom Flooring, Trim, Fixtures, Niche, Schluter, Grout',
+              'Living Room: Lighting, Fans, Flooring, Stair Tread Finish',
+              'Garage: Wall Finishes, Utility Area, Lighting, Flooring',
+              'Outside Area: Wall Finishes, Wall Lighting, Walkways',
+              'Porch: Ceiling Finish, Fans, Lighting, Flooring/Decking Finish, Railings/Handrail, Stair Tread Finish',
+              'Confirm timeline and sequence of installations',
+            ],
+          },
+          {
+            text: 'Field Drawing Updates',
+            sub: [
+              'Update/mark field drawings with final selections',
+              'Ensure clarity for subcontractor execution',
+            ],
+          },
+          {
+            text: 'Site Access & Communication',
+            sub: [
+              'Verify construction sign is posted',
+              'Confirm job box is stocked with QR code sheet and selections packet',
+              'Review communication protocols for the finish stage',
+            ],
+          },
+          {
+            text: 'Q&A and Next Steps',
+            sub: [
+              'Address any questions from the customer',
+              'Review expected completion window',
+              'Note any open selections or action items',
+            ],
+          },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  'CF1.a': {
+    header: 'CF1.a — Internal Sub Meeting',
+    subheader: 'Phase 9: Construction Finish · Internal',
+    sections: [
+      {
+        title: 'ATTENDANCE',
+        items: [
+          'Superintendent',
+          'Subcontractors',
+        ],
+      },
+      {
+        title: 'AGENDA',
+        numbered: true,
+        items: [
+          'Review finishes with subs that will be performing the installs',
+          'Review the BT schedule with subs, highlighting the next steps in the construction journey, along with the selections packet, kitchen layout, and bathroom layout',
+          'Update field drawings to reflect all finishes that will be installed',
         ],
       },
     ],
