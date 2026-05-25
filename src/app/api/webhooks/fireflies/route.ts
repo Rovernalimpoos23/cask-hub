@@ -42,12 +42,6 @@ const EXTRACTION_PROMPT = `You are an AI assistant for CASK Construction. Extrac
   "key_decisions": ["string array"]
 }`
 
-function supabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 export async function POST(req: NextRequest) {
   // Return 200 immediately so Fireflies doesn't retry
@@ -107,8 +101,14 @@ export async function POST(req: NextRequest) {
     })
 
     const groqData = await groqRes.json()
+    console.log('Groq full response:', JSON.stringify(groqData, null, 2))
+
     const rawContent = groqData?.choices?.[0]?.message?.content ?? ''
-    console.log('Groq raw response:', rawContent)
+    console.log('Groq raw content:', rawContent)
+
+    if (!rawContent) {
+      console.error('Groq returned empty content. Response:', JSON.stringify(groqData, null, 2))
+    }
 
     let extracted: Record<string, unknown> = {}
     try {
@@ -118,7 +118,10 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Save to Supabase
-    const supabase = supabaseAdmin()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
     const { error } = await supabase.from('meetings').insert({
       title: extracted.title ?? transcript.title,
       date: meetingDate,
