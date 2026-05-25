@@ -2449,24 +2449,25 @@ function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code
                   </button>
                 )}
 
-                {/* Teams link — PR1m only */}
+                {/* Teams join — PR1m only */}
                 {code === 'PR1m' && (
                   <a
                     href="https://teams.microsoft.com/l/meetup-join/19%3ameeting_NDQwNjY1ODctNTY0YS00NDMzLThmNjYtMWQ1NmY3YWU2Y2E4%40thread.v2/0?context=%7b%22Tid%22%3a%228ded34ac-88f6-49ed-a8a0-99a7a33e66d5%22%2c%22Oid%22%3a%22a389c8f1-871e-4958-8875-8bc7166c2322%22%7d"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
+                    className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
                     style={{
-                      background: phase.bgColor,
-                      color: phase.color,
-                      border: `1px solid ${phase.borderColor}`,
+                      background: '#ede9fe',
+                      color: '#6d28d9',
+                      border: '1px solid #c4b5fd',
                       fontFamily: 'inherit',
                       textDecoration: 'none',
                     }}
                     onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.75' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1' }}
                   >
-                    Teams
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="15" height="10" rx="2"/><path d="m17 9 5-3v12l-5-3"/></svg>
+                    Join Teams
                   </a>
                 )}
               </div>
