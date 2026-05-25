@@ -21,7 +21,7 @@ const NAV_SECTIONS = [
   {
     label: 'President Workflow',
     items: [
-      { href: '/president/overview', icon: '▤', label: 'Overview', locked: false },
+      { href: '/president/overview', icon: '▤', label: "President's Meetings", locked: false },
       { href: '/president/daily', icon: '📅', label: 'Daily Meetings', locked: false },
       { href: '/president/coaching', icon: '🎯', label: 'Coaching Sessions', locked: false },
       { href: '/president/alignment', icon: '🏢', label: 'Department Alignment', locked: false },
