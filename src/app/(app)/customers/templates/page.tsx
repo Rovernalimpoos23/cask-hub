@@ -173,6 +173,19 @@ const PHASES: Phase[] = [
     ],
     startIndex: 36,
   },
+  {
+    number: 7,
+    label: 'Construction Structure',
+    color: '#6366f1',
+    bgColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+    meetings: [
+      { code: 'CS1e', title: 'Structure Stage Expectations Recap to Customer', type: 'email' },
+      { code: 'CS2m', title: 'Structure Complete Celebration with Customer', type: 'meeting' },
+      { code: 'CS3e', title: 'Structure Complete Celebration Meeting Recap with Customer', type: 'email' },
+    ],
+    startIndex: 43,
+  },
 ]
 
 const STATS = [
@@ -1158,6 +1171,194 @@ const AGENDAS: Record<string, AgendaContent> = {
           'If you have any follow-up thoughts — please don\'t hesitate to reach out. Our goal is to keep everything clear, efficient, and aligned with your expectations from start to finish.',
           'Survey: Construction Phase Feedback Survey (Customer Journey Survey Handout)',
           'We\'re excited to bring your vision across the finish line!',
+        ],
+      },
+    ],
+  },
+  CS1e: {
+    header: 'CS1e — Structure Stage Expectations Recap to Customer',
+    subheader: 'Phase 7: Construction Structure · Email Template',
+    sections: [
+      {
+        title: 'EMAIL HEADER',
+        items: [
+          'Subject: Structure Stage Preview & Celebration – [Project Address]',
+          'From: [Project Manager Name]',
+          'To: [Customer Name]',
+          'Cc: Superintendent, Framing Team, Concrete Team',
+        ],
+      },
+      {
+        title: 'OPENING',
+        items: [
+          'Hi [Customer Name],',
+          'We\'re very excited to start the structure stage of your project! This is when your vision starts to come to reality. After this stage, you will be able to walk in your future rooms to see the plans you designed with us in action!',
+          'As we approach the structure phase for [Project Address], please review the following expectations, schedules, and coordination items:',
+        ],
+      },
+      {
+        title: "WHAT'S COMING UP (BASED ON BUILDERTREND SCHEDULE)",
+        items: [
+          'Framing progression',
+          'Roof setup and inspections',
+          'Wall sheathing installation',
+          'Prep for Mechanical, Electrical, Plumbing (MEP) rough-ins',
+        ],
+      },
+      {
+        title: "WHO YOU'LL SEE ON-SITE",
+        items: [
+          'Our framing crew',
+          'Concrete specialists (if applicable)',
+          'Structural inspectors',
+          'Underground plumbing and electrical if applicable',
+        ],
+      },
+      {
+        title: 'BEST PRACTICES',
+        items: [
+          'We\'ll notify nearby neighbors about increased site activity',
+          'All teams have been made aware of special conditions regarding parking and storing of material',
+          'Let us know if you have any questions, conflicts, or ideas — we\'re here to make this process as smooth and exciting as possible.',
+        ],
+      },
+      {
+        title: 'WHAT TO LOOK FORWARD TO: STRUCTURE COMPLETE CELEBRATION',
+        items: [
+          'We\'d love to mark this milestone with you!',
+          'Please confirm a date/time that works best for your Structure Complete Meeting.',
+          'Suggested Date: [Insert Proposed Date]',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Survey: Construction Phase Feedback Survey (Customer Journey Survey Handout)',
+          'Looking forward to celebrating this big step with you!',
+        ],
+      },
+    ],
+  },
+  CS2m: {
+    header: 'CS2m — Structure Complete Celebration with Customer',
+    subheader: 'Phase 7: Construction Structure · Meeting',
+    sections: [
+      {
+        title: 'ITEMS TO PREPARE AHEAD OF MEETING',
+        items: [
+          'Updated field set of drawings',
+          'Bring selections packet (vanities, lighting fixtures, plumbing fixtures)',
+          'Final kitchen layout – dimensions included on updated field set of plans',
+          'Updated ID drawing',
+        ],
+      },
+      {
+        title: 'PROJECT DETAILS',
+        items: [
+          'Date:',
+          'Time:',
+          'Location:',
+          { text: 'Attendees:', sub: ['Project Manager', 'Superintendent', 'Customer', 'Other:'] },
+        ],
+      },
+      {
+        title: 'MEETING FLOW',
+        numbered: true,
+        items: [
+          { text: 'Welcome & Overview', sub: ['Celebrate structure milestone', 'Set expectations for the next construction phase'] },
+          { text: 'BuilderTrend Schedule Review', sub: ['Review updated schedule', 'Highlight upcoming stages: Rough-In (MEP), Inspections, Drywall'] },
+          {
+            text: 'Plan Set & Field Markup Review — Confirm details for Electrical, Plumbing, HVAC layout',
+            sub: [
+              'Bedroom: Lighting locations, Switch locations, Outlet locations, Fans, Lights (Yes/No)',
+              'Bathroom: Lighting locations, Switch locations, Outlet locations, Vanity type, Plumbing for vanity, Fans, Lights (Yes/No)',
+              'Kitchen: Lighting locations, Switch locations, Outlet locations, Under cabinet lighting, Hood, Garbage disposal, Dishwasher, Ice maker water line box, Fans, Lights (Yes/No)',
+              'Living Room: Lighting locations, Switch locations, Outlet locations, Fans, Lights (Yes/No)',
+              'Outside Area: Lighting locations, Switch locations, Outlet locations, Hose bibs, Water heater location, Fans, Lights (Yes/No)',
+              'Garage: Lights, Outlets, Switches, Garage door controls',
+              'Misc: Laundry closet/utility area, Wet bar area if applicable, Inside/outside area if applicable',
+            ],
+          },
+          { text: 'Neighbor Communication', sub: ['Discuss any feedback or concerns raised by neighbors', 'Determine if formal communication from CASK is needed'] },
+          { text: 'Job Site Verification', sub: ['Confirm construction sign is posted', 'Confirm job box is in place', 'Ensure QR code sheet is available and links to updated plans'] },
+          { text: 'Q&A and Next Steps', sub: ['Address customer questions', 'Confirm what\'s coming next', 'Align on any follow-up action items'] },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  CS3e: {
+    header: 'CS3e — Structure Complete Celebration Meeting Recap to Customer',
+    subheader: 'Phase 7: Construction Structure · Email Template',
+    sections: [
+      {
+        title: 'OPENING',
+        items: [
+          'Good afternoon,',
+          'Here is my weekly recap of this week\'s progress at my projects:',
+        ],
+      },
+      {
+        title: 'THEE — CURRENT STATUS',
+        items: [
+          'Final electrical has been passed (3/20). All appliances are up and running including HVAC. Sod and irrigation completed. Final drainage was passed today as well. I uploaded final survey and blower door and Hazel has submitted our CO application. Final building is scheduled for Monday. Final paint is slated to be completed tomorrow.',
+        ],
+      },
+      {
+        title: 'THEE — UPCOMING WORK',
+        items: [
+          { text: 'Interior:', sub: ['Final clean scheduled for Monday', 'Shower glass is scheduled 3/27 between 11am-1pm', 'RP punch: Add switch plate to bedroom, Add floor outlet, One can light in living room not turning on, swap garage ceiling light (fixture onsite)', 'Punch list items are being added to Buildertrend'] },
+          { text: 'Exterior:', sub: ['Pressure wash deck, stairs, and siding'] },
+        ],
+      },
+      {
+        title: 'THEE — PRICING/SCOPE QUESTIONS',
+        items: [
+          'Irrigation guy is asking to get paid asap. He submitted his COI and W9.',
+        ],
+      },
+      {
+        title: 'THEE — RISK/AWARENESS',
+        items: [
+          'The fridge looks very funny with it being 24" in a 36" opening. Was this expectation set with homeowner? I will browse some options of what we can do for a 12" filler. Maybe some extra storage because I know that was a big goal of theirs with the cabinet design.',
+        ],
+      },
+      {
+        title: 'THEE — NEXT STEPS',
+        items: [
+          'Almost confident we will get CO next week! I plan on meeting the building inspector there Monday morning to push it through and address any questions he may have.',
+        ],
+      },
+      {
+        title: 'HERMANN — CURRENT STATUS',
+        items: [
+          'Bathroom is completed and fully operational. Just need to final out electrical inspection when they get back home and do an official punch walk.',
+        ],
+      },
+      {
+        title: 'HERMANN — UPCOMING WORK',
+        items: [
+          'Jacinto is scheduled to start 3/30. RP and Knotts are in queue to pull utilities off walls mid-end of next week.',
+        ],
+      },
+      {
+        title: 'HERMANN — PRICING/SCOPE QUESTIONS',
+        items: [
+          'There are some tricky details going on in the front porch, and I just want to communicate it to the homeowners prior so it is not a surprise. (trim sizes, sills, etc.)',
+        ],
+      },
+      {
+        title: 'HERMANN — RISK/AWARENESS',
+        items: [
+          'This is going to be a big job. There is a lot of moving parts so will require a lot of supervision and communication when/if something pops up. Still wondering if we need a sheathing inspection. Maybe an in-progress to get the approval of our installation? Just want to make sure we don\'t get hit at the end for not scheduling.',
+        ],
+      },
+      {
+        title: 'HERMANN — NEXT STEPS',
+        items: [
+          'Going to walk the project next week with Calin to discuss details and scope so everyone is on the same page.',
+          'Let me know if you guys have any questions or concerns!',
+          'Thank you, Eric Bressler',
         ],
       },
     ],
