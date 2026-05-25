@@ -186,6 +186,19 @@ const PHASES: Phase[] = [
     ],
     startIndex: 43,
   },
+  {
+    number: 8,
+    label: 'Construction Rough In',
+    color: '#ea580c',
+    bgColor: '#fff7ed',
+    borderColor: '#fed7aa',
+    meetings: [
+      { code: 'CR1.a', title: 'Internal Sub Meeting (Internal)', type: 'internal' },
+      { code: 'CR1m', title: 'Rough In with Customer', type: 'meeting' },
+      { code: 'CR2e', title: 'Release to Hang to Customer', type: 'email' },
+    ],
+    startIndex: 46,
+  },
 ]
 
 const STATS = [
@@ -1359,6 +1372,137 @@ const AGENDAS: Record<string, AgendaContent> = {
           'Going to walk the project next week with Calin to discuss details and scope so everyone is on the same page.',
           'Let me know if you guys have any questions or concerns!',
           'Thank you, Eric Bressler',
+        ],
+      },
+    ],
+  },
+  CR2e: {
+    header: 'CR2e — Release to Hang to Customer',
+    subheader: 'Phase 8: Construction Rough In · Email',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Project Manager',
+          'Cc: Superintendent',
+          'Subject: Your Project Is Ready for Drywall – Approved to Hang!',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Hi [Customer Name],',
+          'Congratulations! Your project has officially passed the insulation inspection, and we are released to hang drywall. Everything is moving along nicely and right on track.',
+          'The next step in your project will be to schedule the Finishes Meeting.',
+          'This process ensures that the:',
+        ],
+      },
+      {
+        items: [
+          'Schedule and selections packet are fully reviewed',
+          'All field drawings and finishes (including kitchen and bathroom layouts) are verified',
+          'Installation details are confirmed prior to moving forward',
+        ],
+      },
+      {
+        items: [
+          'Are you available during these timeslots?',
+          'Date and Time 1',
+          'Date and Time 2',
+          'Date and Time 3',
+          'To help us continue delivering a top-tier construction experience, we\'d appreciate it if you could take a minute to answer our Construction Phase Feedback Survey. Your input goes a long way to help us improve!',
+          'CUSTOMER JOURNEY SURVEY HANDOUT',
+          'If you have any questions or concerns at this stage of your project, please don\'t hesitate to reach out — I\'m here to support you every step of the way.',
+          'Thank you,',
+          '[Project Manager Name]',
+          'Phone: [Your Number]',
+          'Email: [Your Email]',
+        ],
+      },
+    ],
+  },
+  CR1m: {
+    header: 'CR1m — Rough In with Customer',
+    subheader: 'Phase 8: Construction Rough In · Meeting',
+    sections: [
+      {
+        title: 'ATTENDANCE',
+        items: [
+          'Superintendent',
+          'Customer',
+        ],
+      },
+      {
+        title: 'MEETING FLOW',
+        numbered: true,
+        items: [
+          {
+            text: 'Welcome & Purpose',
+            sub: [
+              'Set expectations for the rough-in phase',
+              'Confirm this meeting occurs prior to rough-in electrical inspection',
+            ],
+          },
+          {
+            text: 'BuilderTrend Schedule Review',
+            sub: [
+              'Review current schedule',
+              'Highlight next milestones leading into inspection and drywall phases',
+            ],
+          },
+          {
+            text: 'Field Plan & Installation Walkthrough',
+            sub: [
+              'Review permitted plans and marked-up field set',
+              'Confirm proper installation of: Electrical layout (Are we doing any dimmers?), Kitchen layout, Bathroom lighting and vanity, Plumbing, HVAC systems',
+            ],
+          },
+          {
+            text: 'Neighbor Considerations',
+            sub: [
+              'Address any known concerns raised by homeowner',
+              'Determine if direct communication from CASK is necessary',
+            ],
+          },
+          {
+            text: 'Job Site Signage & Plan Access',
+            sub: [
+              'Confirm construction sign is posted and visible',
+              'Confirm job box is in place',
+              'Verify QR code sheet is available and leads to most updated plans',
+            ],
+          },
+          {
+            text: 'Q&A and Next Steps',
+            sub: [
+              'Answer customer questions regarding installations or inspections',
+              'Confirm timing of inspection and drywall start',
+              'Note any follow-up tasks or adjustments needed',
+            ],
+          },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  'CR1.a': {
+    header: 'CR1.a — Internal Sub Meeting',
+    subheader: 'Phase 8: Construction Rough In · Internal',
+    sections: [
+      {
+        title: 'ATTENDANCE',
+        items: [
+          'Superintendent',
+          'Subcontractors',
+        ],
+      },
+      {
+        title: 'AGENDA',
+        numbered: true,
+        items: [
+          'Walk subs through the scope of work and updated field set of plans',
+          'Review the BT schedule with subs, highlighting the next steps in the construction journey',
+          'Review permitted set of plans and marked-up field plans with subs, focusing on installation of electrical layout, kitchen layout, bathroom lighting and vanity, plumbing, and HVAC',
         ],
       },
     ],
