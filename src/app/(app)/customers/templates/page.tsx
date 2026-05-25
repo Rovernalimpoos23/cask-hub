@@ -212,13 +212,29 @@ const PHASES: Phase[] = [
     ],
     startIndex: 49,
   },
+  {
+    number: 10,
+    label: 'Construction Closeout',
+    color: '#7c3aed',
+    bgColor: '#f5f3ff',
+    borderColor: '#ddd6fe',
+    meetings: [
+      { code: 'CC1e', title: 'Close Out Steps to Customer', type: 'email' },
+      { code: 'CC1e.1', title: 'Certificate of Occupancy to Customer', type: 'email' },
+      { code: 'CC2m', title: 'Punchlist Walkthrough with Customer', type: 'meeting' },
+      { code: 'CC3e', title: 'Punch List Walkthrough Meeting Recap to Customer', type: 'email' },
+      { code: 'CC4m', title: 'Final Walkthrough with Customer', type: 'meeting' },
+    ],
+    startIndex: 52,
+  },
 ]
 
 const STATS = [
-  { value: '33', label: 'Total Items' },
-  { value: '11', label: 'Meetings (M)' },
-  { value: '22', label: 'Email Templates (E)' },
-  { value: '5', label: 'Phases' },
+  { value: '56', label: 'Total Items' },
+  { value: '18', label: 'Meetings (M)' },
+  { value: '31', label: 'Email Templates (E)' },
+  { value: '5', label: 'Internal Files (P)' },
+  { value: '10', label: 'Phases' },
 ]
 
 // ── Agenda modal data ─────────────────────────────────────────────────────────
@@ -1389,6 +1405,356 @@ const AGENDAS: Record<string, AgendaContent> = {
       },
     ],
   },
+  CC4m: {
+    header: 'CC4m — Final Walkthrough with Customer',
+    subheader: 'Phase 10: Construction Closeout · Meeting',
+    sections: [
+      {
+        title: 'INTRODUCTION',
+        items: [
+          'Project Manager to start by explaining the status of Certification of Completion (CO) and closing out of Permit.',
+          'State the overall purpose of the meeting: to ensure the customer is confident and satisfied with the product, aiming for 100% satisfaction by the conclusion of the meeting.',
+        ],
+      },
+      {
+        title: 'INTERIOR WALKTHROUGH',
+        items: [
+          {
+            text: 'Doors and Windows',
+            sub: [
+              'Touch and test every door and window to ensure proper opening and closing.',
+              'Demonstrate how to open, close, and lock all windows.',
+            ],
+          },
+          {
+            text: 'Appliances',
+            sub: [
+              'Test all appliances to confirm they are working properly.',
+            ],
+          },
+          {
+            text: 'Walls and Rooms',
+            sub: [
+              'Ensure the customer sees every wall in each room to identify any punch list items and mark with blue tape where necessary.',
+            ],
+          },
+          {
+            text: 'Thermostat',
+            sub: [
+              'Operate thermostat with the homeowner to ensure proper function.',
+            ],
+          },
+        ],
+      },
+      {
+        title: 'EXTERIOR WALKTHROUGH',
+        items: [
+          {
+            text: 'Property Perimeter',
+            sub: [
+              'Walk around the outside of the property with the customer.',
+              'Point out all utility connections.',
+              'Identify any exterior punch list items.',
+            ],
+          },
+          {
+            text: 'Signage',
+            sub: [
+              'Remove any signage from the property.',
+            ],
+          },
+        ],
+      },
+      {
+        title: 'FINAL STEPS',
+        items: [
+          {
+            text: 'Punch List Review',
+            sub: [
+              'Review all punch list items with the customer to confirm nothing was missed.',
+            ],
+          },
+          {
+            text: 'ADU Best Practices Sheet',
+            sub: [
+              'Provide customer with the CASK ADU Best Practices sheet.',
+            ],
+          },
+        ],
+      },
+      {
+        title: 'FINAL MEETING SUMMARY',
+        items: [
+          'Confirm all major systems (electrical, plumbing, HVAC) were demonstrated and are in working order.',
+          'Ensure customer understands maintenance recommendations and best practices.',
+          'Provide any necessary warranty information and emergency contact details.',
+          'Answer any final questions or concerns.',
+        ],
+      },
+      {
+        title: 'CUSTOMER ACKNOWLEDGEMENT',
+        items: [
+          'I acknowledge that I have completed the final walkthrough and understand any remaining punch list items that are to be addressed post-meeting.',
+          'Customer Signature: _________________',
+          'Project Manager Signature: _________________',
+          'Date: _________________',
+        ],
+      },
+      {
+        title: 'CASK BEST PRACTICES',
+        items: [
+          {
+            text: 'General Maintenance',
+            sub: [
+              'Regular Cleaning: Keep surfaces, floors, and appliances clean to prevent early wear.',
+              'Moisture Control: Use exhaust fans in kitchens and bathrooms to avoid mold and mildew.',
+              'Pest Prevention: Seal all food and dispose of trash regularly; inspect for possible entry points.',
+              'Smoke Detectors: Test monthly and replace batteries every 6 months.',
+              'Minisplit Filters: Required to be cleaned once every month to preserve your air handler and keep it in good operating condition.',
+            ],
+          },
+          {
+            text: 'Doors, Windows, and Appliances',
+            sub: [
+              'Windows: Keep tracks clean to ensure smooth operation.',
+              'Doors: Avoid slamming; check hinges yearly and apply lubricant if needed.',
+              'Appliances: Refer to each manufacturer\'s manual; most warranties are managed directly with them.',
+            ],
+          },
+          {
+            text: 'Walls and Thermostat',
+            sub: [
+              'Walls: Use proper anchors for hanging objects—no heavy items on drywall without stud support.',
+              'Thermostat: Program it for energy efficiency. For issues, refer to the manual or contact your project manager.',
+            ],
+          },
+          {
+            text: 'Appliance Warranty and Service Questions - Famous Tate',
+            sub: [
+              'Who to Contact: Visit FamousTate.com/warranty or contact their Warranty Department directly.',
+              'Warranty Items: You\'ll receive a warranty sheet detailing what\'s covered and how long coverage lasts.',
+            ],
+          },
+          {
+            text: 'Final Documents & Registrations',
+            sub: [
+              'Certificate of Occupancy: Your PM will provide this once city approval is completed.',
+              'Post Office Setup: Visit your local post office to register the address for mail delivery.',
+              'Water & Trash Setup: Contact the City of St. Pete to set up or confirm water and trash services if needed.',
+            ],
+          },
+          {
+            text: 'Utility Transfer & Owner Actions',
+            sub: [
+              'Electric Service (Duke Energy): You\'re responsible for transferring the electric service. Your PM will confirm when to take action.',
+              'Ongoing Utility Billing: After project closeout, all utility billing will be under your name.',
+            ],
+          },
+          {
+            text: 'If You\'re Renting Your Space',
+            sub: [
+              'City Confirmation Letter: After the Certificate of Occupancy (COO) is issued, the City of St. Pete or Pinellas County will send you a letter confirming the approved use.',
+              'Homestead Exemption Impact: If the space is intended to be rented, this may impact your homestead exemption.',
+            ],
+          },
+          {
+            text: 'What Happens After Today',
+            sub: [
+              'Our CASK Construction Creative Director will reach out to schedule your testimonial and final photos.',
+              'Please take a moment to leave us an Online Review (link provided by the PM).',
+              'Refer a Friend - Earn $1,000! Know someone dreaming of starting their own project? If they sign with CASK and start their project, you\'ll receive a $1,000 referral bonus.',
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  CC3e: {
+    header: 'CC3e — Punch List Walkthrough Meeting Recap to Customer',
+    subheader: 'Phase 10: Construction Closeout · Email',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: Punch List Walkthrough Recap & Next Steps – [Project Address or Name]',
+          'From: [Project Manager Name]',
+          'To: [Customer Name]',
+          'Cc: Superintendent, Marketing Manager',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Hi [Customer Name],',
+          'Thank you for walking around the site with us today during your Punch List Walkthrough at [Project Address]. We\'re grateful for your time and attention to detail as we work toward wrapping up your project with confidence.',
+          'Below is a summary of what we reviewed and what to expect moving forward:',
+        ],
+      },
+      {
+        title: 'MEETING NOTES',
+        items: [
+          '[Project Manager provides the meeting notes]',
+          '-',
+          '-',
+          '-',
+        ],
+      },
+      {
+        title: 'WHAT\'S NEXT',
+        items: [
+          '– Our team will begin addressing all outstanding items immediately',
+          '– You\'ll receive updates via Buildertrend as items are completed',
+          '– Once all punch list items are marked as complete, we\'ll schedule the Final Walkthrough',
+          'If you have any follow-up concerns or items to add, feel free to reach out—we want to ensure that everything meets your expectations before the project closes out.',
+          'To help us continue delivering a top-tier construction experience, we\'d appreciate it if you could take a minute to answer our Construction Phase Feedback Survey. Your input goes a long way in helping us improve!',
+          'CUSTOMER JOURNEY SURVEY HANDOUT',
+          'We\'re almost there! Thank you for your partnership and trust throughout this journey.',
+        ],
+      },
+    ],
+  },
+  CC2m: {
+    header: 'CC2m — Punchlist Walkthrough with Customer',
+    subheader: 'Phase 10: Construction Closeout · Meeting',
+    sections: [
+      {
+        title: 'ITEMS TO PREPARE AHEAD OF MEETING',
+        items: [
+          'Updated field set of drawings',
+          'Bring selections packet (vanities, lighting fixtures, plumbing fixtures)',
+          'Updated kitchen layout',
+          'Updated ID drawing',
+          'Customer and superintendent Buildertrend punch list',
+        ],
+      },
+      {
+        title: 'ATTENDANCE',
+        items: [
+          'Project Manager',
+          'Superintendent',
+          'Customer',
+        ],
+      },
+      {
+        title: 'MEETING FLOW',
+        numbered: true,
+        items: [
+          {
+            text: 'Welcome & Meeting Purpose',
+            sub: [
+              'Explain the goal of the walkthrough: verify completion and identify final punch items',
+              'Confirm all teams are aligned on the close-out timeline',
+            ],
+          },
+          {
+            text: 'Site Walkthrough – Punch Item Review',
+            sub: [
+              'Walk each room/zone of the project',
+              'Identify and document: Missing Items, Items needing repair or touch-up, Items requiring adjustment (e.g., hardware alignment, paint touchups, etc.)',
+            ],
+          },
+          {
+            text: 'Live Updates to Punch List',
+            sub: [
+              'Log all noted issues into Buildertrend or project tracker',
+              'Assign responsible trades/subs',
+              'Set target dates for resolution',
+            ],
+          },
+          {
+            text: 'Customer Sign-Off',
+            sub: [
+              'Final inspections (if applicable)',
+              'Schedule turnover meeting',
+              'Final site cleanup',
+            ],
+          },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  'CC1e.1': {
+    header: 'CC1e.1 — Certificate of Occupancy to Customer',
+    subheader: 'Phase 10: Construction Closeout · Email',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Project Manager',
+          'Cc: Superintendent',
+          'Subject: Congratulations! Your Project Has Received Its Certificate of Occupancy',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Hi [Customer Name],',
+          'Great news — your project has officially received its Certificate of Occupancy! This is a major milestone, and it means your space has passed all final inspections and is approved for use.',
+          'Your project has come a long way, and we\'re thrilled to reach this important completion stage with you.',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          'Final Walkthrough: I will be reaching out to schedule a final walkthrough to ensure everything is complete and meets your expectations.',
+          'Closeout Documents: We will provide any remaining documentation related to your project, including warranties, manuals, and final photos (if applicable).',
+          'Final Invoice: If there are any outstanding balances, our team will issue the final invoice for your review.',
+          'If you have any questions as we wrap things up or need anything clarified, please feel free to reach out at any time.',
+        ],
+      },
+    ],
+  },
+  CC1e: {
+    header: 'CC1e — Close Out Steps to Customer',
+    subheader: 'Phase 10: Construction Closeout · Email',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: Final Steps & Punch List Walkthrough – [Project Address or Name]',
+          'From: [Project Manager Name]',
+          'To: [Customer Name]',
+          'Cc: Superintendent',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Hi [Customer Name],',
+          'As we approach the final stretch of your project at [Project Address], we\'re excited to begin the close-out process and schedule your punch list walkthrough. This is where we tie up final details and prepare for project turnover.',
+        ],
+      },
+      {
+        title: 'AVAILABLE TIMES FOR PUNCH LIST WALKTHROUGH',
+        items: [
+          'Please let us know which of the following dates and times work best for you:',
+          '– [Option 1: Date & Time]',
+          '– [Option 2: Date & Time]',
+          '– [Option 3: Date & Time]',
+          'This walkthrough gives us a chance to walk the space with you, note any outstanding items, and ensure everything is to your satisfaction before final turnover.',
+        ],
+      },
+      {
+        title: 'WHAT HAPPENS DURING CLOSE-OUT',
+        items: [
+          'Here\'s what to expect in the coming days:',
+          '– Punch List Creation: We\'ll document any touch-ups or final items to be completed',
+          '– Permitting & Final Inspections: We\'ll manage the final steps to close out permits with the city',
+          '– Turnover: Once all punch list items are completed, we\'ll schedule your final hand-off and provide any necessary documents or warranty info',
+          'If you have any questions before the walkthrough or would like to request something in advance, feel free to reach out. We\'re here to make this final stage smooth and exciting!',
+        ],
+      },
+      {
+        title: 'HELP US IMPROVE',
+        items: [
+          'To help us continue delivering a top-tier construction experience, we\'d appreciate it if you could take a minute to answer our Construction Phase Feedback Survey. Your input goes a long way in helping us improve!',
+          'CUSTOMER JOURNEY SURVEY HANDOUT',
+          'Looking forward to wrapping up strong and handing over your beautiful space soon!',
+        ],
+      },
+    ],
+  },
   CF2e: {
     header: 'CF2e — Finish Meeting Recap to Customer',
     subheader: 'Phase 9: Construction Finish · Email',
@@ -2116,7 +2482,7 @@ export default function ClientTemplatesPage() {
                 Client Templates
               </h1>
               <p style={{ fontSize: 14, color: 'var(--text3)', margin: 0, maxWidth: 520 }}>
-                Standard workflow for every CASK Construction client — 40 meetings from first contact to closeout
+                Standard workflow for every CASK Construction client — 56 items from first contact to closeout
               </p>
             </div>
 
@@ -2142,7 +2508,7 @@ export default function ClientTemplatesPage() {
           </div>
 
           {/* Stats row */}
-          <div className="grid grid-cols-4 gap-3 mb-7">
+          <div className="grid grid-cols-5 gap-3 mb-7">
             {STATS.map(s => (
               <div
                 key={s.label}
