@@ -664,6 +664,259 @@ const AGENDAS: Record<string, AgendaContent> = {
     ],
     nps: true,
   },
+  PS2m: {
+    header: 'PS2m — In-Person 1st Selections with Customer',
+    subheader: 'Phase 4: Pre-Construction Selections · Meeting',
+    sections: [
+      {
+        title: 'ATTENDEES',
+        items: ['Customer', 'Selections Manager', 'Project Manager'],
+      },
+      {
+        title: 'OBJECTIVES',
+        items: [
+          'Review 3D rendering and identify any design changes',
+          'Capture customer insights and preferences',
+          'Flag any design elements that may impact other selections',
+          'Obtain customer approval to move forward',
+          'Provide customer with design packet (digital & print) for continued review prior to 2nd meeting',
+        ],
+      },
+      {
+        title: 'AGENDA',
+        numbered: true,
+        items: [
+          { text: 'Welcome & Purpose of Meeting', sub: [] },
+          { text: 'Review of 3D Rendering', sub: ['Walkthrough of design', 'Discuss potential changes', 'Gather customer input'] },
+          { text: 'Design Impacts & Considerations', sub: ['Identify any elements that affect other selections (kitchen, bath, finishes, etc.)'] },
+          { text: 'Customer Approval & Next Steps', sub: ['Confirm agreement to move forward', 'Provide design packet for review prior to 2nd selections meeting'] },
+          { text: 'Q&A and Open Discussion', sub: [] },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  PS4m: {
+    header: 'PS4m — In-Person 2nd Selections with Customer',
+    subheader: 'Phase 4: Pre-Construction Selections · Meeting',
+    sections: [
+      {
+        title: 'ATTENDEES',
+        items: ['Customer', 'Selections Manager', 'Project Manager'],
+      },
+      {
+        title: 'OBJECTIVES',
+        items: [
+          'Review customer selections from Part 1 of the design book (focus on kitchen)',
+          'Review any items the customer is sourcing independently',
+          'Discuss kitchen layout, flow, and selections in detail',
+        ],
+      },
+      {
+        title: 'AGENDA',
+        numbered: true,
+        items: [
+          { text: 'Welcome & Purpose of Meeting', sub: [] },
+          { text: 'Review of Customer Selections', sub: ['Confirm Part 1 design book choices', 'Capture feedback and adjustments'] },
+          { text: 'Kitchen Layout & Flow Discussion', sub: ['Walkthrough of layout', 'Review functionality and design flow'] },
+          { text: 'Customer-Sourced Items', sub: ['Confirm details of items being sourced directly by customer', 'Review potential impacts on design or scheduling'] },
+          { text: 'Approval & Next Steps', sub: ['Summarize today\'s selections and approvals', 'Outline preparations for next selections meeting'] },
+          { text: 'Q&A / Open Discussion', sub: [] },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  PS6m: {
+    header: 'PS6m — In-Person 3rd Selections with Customer',
+    subheader: 'Phase 4: Pre-Construction Selections · Meeting',
+    sections: [
+      {
+        title: 'ATTENDEES',
+        items: ['Customer', 'Selections Manager', 'Project Manager'],
+      },
+      {
+        title: 'OBJECTIVES',
+        items: [
+          'Receive approval of Section 1 (Kitchen)',
+          'Review any items customer is sourcing themselves',
+          'Discuss bathroom layout, flow, and selections',
+        ],
+      },
+      {
+        title: 'AGENDA',
+        numbered: true,
+        items: [
+          { text: 'Welcome & Purpose of Meeting', sub: [] },
+          { text: 'Kitchen Final Review & Approval (Section 1)', sub: [] },
+          { text: 'Bathroom Layout & Flow Discussion', sub: [] },
+          { text: 'Customer-Sourced Items', sub: [] },
+          { text: 'Next Steps & Homework Assignments', sub: [] },
+          { text: 'Q&A / Open Discussion', sub: [] },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  PS8m: {
+    header: 'PS8m — In-Person 4th Selections with Customer',
+    subheader: 'Phase 4: Pre-Construction Selections · Meeting',
+    sections: [
+      {
+        title: 'ATTENDEES',
+        items: ['Customer', 'Selections Manager', 'Project Manager'],
+      },
+      {
+        title: 'OBJECTIVES',
+        items: [
+          'Review and approve Section 2 (Bathroom)',
+          'Review any items customer is sourcing themselves',
+          'Cover miscellaneous selections',
+        ],
+      },
+      {
+        title: 'AGENDA',
+        numbered: true,
+        items: [
+          { text: 'Welcome & Purpose of Meeting', sub: [] },
+          { text: 'Bathroom Selections – Final Review & Approval (Section 2)', sub: [] },
+          { text: 'Miscellaneous Selections Review', sub: [] },
+          { text: 'Customer-Sourced Items', sub: [] },
+          { text: 'Next Steps & Wrap-Up', sub: [] },
+          { text: 'Q&A / Open Discussion', sub: [] },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  PB2m: {
+    header: 'PB2m — In-Person Sewage and Water Inspection',
+    subheader: 'Phase 5: Pre-Construction Bid Management · Meeting',
+    sections: [
+      {
+        title: 'PROJECT DETAILS',
+        items: [
+          'Date:',
+          'Project Name:',
+          'Customer Contact:',
+          'Project Manager Assign:',
+        ],
+      },
+      {
+        title: 'WATERLINE — MARK ON PLANS',
+        items: [
+          'Position Water Meter Main House on the plan',
+          'Position Main Shut Off valve close to the main house (T point for ADU)',
+        ],
+      },
+      {
+        title: 'WATERLINE — NOTES',
+        items: [
+          'Pipe Material:',
+          'Any problem that could occur during construction (Possible Tree/Roots, Pavers, etc.):',
+          'Notes & Recommendation:',
+        ],
+      },
+      {
+        title: 'SEWER — MARK ON PLANS',
+        items: [
+          'Position Sewer Tap',
+          'Where Sewer run on the plan',
+          'Any Clean out if present',
+        ],
+      },
+      {
+        title: 'SEWER — NOTES',
+        items: [
+          'Sewer Material and Condition:',
+          'Notes & Recommendation:',
+        ],
+      },
+      {
+        title: 'ATTACHMENTS',
+        items: ['Please attach any pictures'],
+      },
+    ],
+    nps: true,
+  },
+  PB5m: {
+    header: 'PB5m — Contract Review with Customer',
+    subheader: 'Phase 5: Pre-Construction Bid Management · Meeting',
+    sections: [
+      {
+        title: 'CONTRACT REVIEW WORKFLOW',
+        numbered: true,
+        items: [
+          {
+            text: 'Receive Contract Draft',
+            sub: [
+              'From internal legal/contracts team or directly from client',
+              'Save and version the document',
+            ],
+          },
+          {
+            text: 'Initial Review by Project Manager',
+            sub: [
+              'Review scope of work',
+              'Verify schedule and milestones',
+              'Confirm payment structure',
+              'Identify risks, liabilities, and special clauses',
+            ],
+          },
+          {
+            text: 'Flag Issues & Draft Comments',
+            sub: [
+              'Note inconsistencies, vague language, or missing items',
+              'Coordinate with Legal for legal/insurance terms',
+              'Coordinate with Estimating for cost implications',
+              'Coordinate with Scheduling for timeline feasibility',
+            ],
+          },
+          {
+            text: 'Internal Team Review & Alignment',
+            sub: [
+              'Meet with Contracts/Legal',
+              'Meet with Estimating/Finance',
+              'Meet with Executive/Director (if needed)',
+              'Finalize your team\'s position on edits',
+            ],
+          },
+          {
+            text: 'Share Feedback with Client',
+            sub: [
+              'Return redlined contract or comment summary',
+              'Schedule a review meeting to walk through changes',
+              'Aim for mutual agreement on scope, schedule, and terms',
+            ],
+          },
+          {
+            text: 'Final Contract Revisions',
+            sub: [
+              'Incorporate agreed edits',
+              'Confirm all terms are updated accurately',
+              'Legal/PM do final internal check',
+            ],
+          },
+          {
+            text: 'Execute Contract',
+            sub: [
+              'Both parties sign the finalized contract (digital or hard copy)',
+              'Distribute fully executed copy to stakeholders',
+            ],
+          },
+          {
+            text: 'Project Kickoff',
+            sub: [
+              'Hold internal kickoff meeting',
+              'Share contract details with delivery team',
+              'Launch project planning and mobilization',
+            ],
+          },
+        ],
+      },
+    ],
+    nps: true,
+  },
   PD4m: {
     header: 'PD4m — 75% Floor Plan with Customer',
     subheader: 'Phase 2: Pre-Construction Design · Meeting',
@@ -726,12 +979,12 @@ function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
     const marker = numbered ? `${index + 1}.` : '•'
 
     return (
-      <li key={index} style={{ marginBottom: sub ? 8 : 5, listStyle: 'none' }}>
+      <li key={index} style={{ marginBottom: sub?.length ? 8 : 5, listStyle: 'none' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <span style={{ color: 'var(--red, #c8311a)', fontWeight: 600, fontSize: 12, flexShrink: 0, minWidth: 16 }}>{marker}</span>
           <span style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{text}</span>
         </div>
-        {sub && (
+        {sub?.length ? (
           <ul style={{ margin: '5px 0 0 24px', padding: 0 }}>
             {sub.map((s, si) => (
               <li key={si} style={{ listStyle: 'none', marginBottom: 3, display: 'flex', gap: 8 }}>
@@ -740,7 +993,7 @@ function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </li>
     )
   }
