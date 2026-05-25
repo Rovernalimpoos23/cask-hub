@@ -7,7 +7,7 @@ import { TopBar } from '@/components/ui'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
-type MeetingEntry = string | { code: string; title: string; type: 'meeting' | 'email'; agenda?: string[] }
+type MeetingEntry = string | { code: string; title: string; type: 'meeting' | 'email' | 'internal'; agenda?: string[] }
 
 interface Phase {
   number: number
@@ -155,6 +155,23 @@ const PHASES: Phase[] = [
       { code: 'PB6e', title: 'Contract Approval to Customer', type: 'email' },
     ],
     startIndex: 30,
+  },
+  {
+    number: 6,
+    label: 'Construction Groundbreaking',
+    color: '#0891b2',
+    bgColor: '#ecfeff',
+    borderColor: '#a5f3fc',
+    meetings: [
+      { code: 'CG1m', title: 'Kickoff with Customer', type: 'meeting' },
+      { code: 'CG2.a', title: 'Demo If Needed (Internal)', type: 'internal' },
+      { code: 'CG2.b', title: 'Site Survey Layout (Internal)', type: 'internal' },
+      { code: 'CG2e', title: 'Kickoff Meeting Recap to Customer', type: 'email' },
+      { code: 'CG3.a', title: 'Internal Sub Meeting (Internal)', type: 'internal' },
+      { code: 'CG3m', title: 'Foundation and Slab On Grade with Customer', type: 'meeting' },
+      { code: 'CG4e', title: 'Foundation and Slab On Grade Meeting Recap', type: 'email' },
+    ],
+    startIndex: 36,
   },
 ]
 
@@ -917,6 +934,234 @@ const AGENDAS: Record<string, AgendaContent> = {
     ],
     nps: true,
   },
+  CG1m: {
+    header: 'CG1m — Kickoff with Customer',
+    subheader: 'Phase 6: Construction Groundbreaking · Meeting',
+    sections: [
+      {
+        title: 'ITEMS TO PREPARE AHEAD OF MEETING',
+        items: [
+          'Create As-Built Folder on server',
+          'Updated field set of drawings',
+          'Cabinet layout',
+          'Updated BuilderTrend schedule',
+          'Window Spec. RO and sizes',
+          'Selection Packet',
+        ],
+      },
+      {
+        title: 'PROJECT DETAILS',
+        items: [
+          'Date:',
+          'Time:',
+          'Location:',
+          { text: 'Attendees:', sub: ['Project Manager', 'Superintendent', 'Customer', 'Other:'] },
+        ],
+      },
+      {
+        title: 'MEETING FLOW',
+        numbered: true,
+        items: [
+          { text: 'Welcome and Introductions', sub: ['Brief intro of all attendees', 'Meeting objectives overview'] },
+          { text: 'Review of Site Plan', sub: ['Presentation of site plan', 'Questions/concerns addressed'] },
+          { text: 'Insulation in Walls and Ceilings', sub: ['Walls insulation type:', 'Ceilings insulation type:', 'Areas without insulation:'] },
+          { text: 'Wall and Ceiling Finishes', sub: ['Areas without drywall:', 'Drywall finish type:'] },
+          { text: 'Electrical Layout', sub: ['Layout plan reviewed', 'Placement of: Light fixtures, Switches, Outlets', 'Special requirements:'] },
+          { text: 'Kitchen Layout', sub: ['Changes to wall/window layout: Yes / No', 'Layout reviewed', 'Appliances and cabinet placement:', 'Special features/customizations:'] },
+          { text: 'Bathroom Layout and Floors', sub: ['Tile pattern/layout reviewed', 'Niche/valve/vanity/mirror placement:', 'Plumbing fixtures & lighting confirmed', 'Flooring pattern/direction:'] },
+          { text: 'Plumbing Layout', sub: ['Plumbing plan reviewed', 'Centerline of all plumbing fixtures', 'Hose bibs & water heater location:', 'Special plumbing requirements:'] },
+          { text: 'HVAC Layout', sub: ['HVAC plan reviewed', 'Placement of: Air handlers, Condensers, Vents', 'Special HVAC requirements:'] },
+          { text: 'Window and Door Placement', sub: ['Window layout reviewed and sizes / RO', 'Bathroom door 2-8 size minimum', 'Special window placement requirements:'] },
+          { text: 'Wall Finishes', sub: ['Interior type of finishes discussed', 'Exterior wall finish', 'Special wall finish requirements:'] },
+          { text: 'BuilderTrend Schedule', sub: ['Schedule/timeline reviewed', 'Milestones and deadlines discussed', 'Scheduling concerns:'] },
+          { text: 'Backyard Construction Space', sub: ['Space coordination with owner', 'Temporary fencing needed? Yes / No'] },
+          { text: 'Demo (if applicable)', sub: ['Demo plan reviewed', 'Power shutoff procedure', 'Special demo requirements:'] },
+          { text: 'Q&A and Next Steps', sub: ['All attendee questions addressed', 'Outline of next construction steps', 'Next meeting scheduled:'] },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  'CG2.a': {
+    header: 'CG2.a — Demo (If Needed)',
+    subheader: 'Phase 6: Construction Groundbreaking · Internal',
+    sections: [
+      {
+        title: 'SUPERINTENDENT CHECKLIST',
+        items: [
+          'Disconnect all necessary utilities prior to demo',
+          'Contact 811 Dig to mark underground utilities',
+          'Prepare demo site by clearing access, securing the work area, and confirming equipment readiness',
+          'Remove required items from the area such as fencing, debris, or obstructions',
+          'Confirm safe site conditions for demo in line with guidelines',
+        ],
+      },
+    ],
+  },
+  'CG2.b': {
+    header: 'CG2.b — Site Survey Layout',
+    subheader: 'Phase 6: Construction Groundbreaking · Internal',
+    sections: [
+      {
+        title: 'SUPERINTENDENT CHECKLIST',
+        items: [
+          'Schedule survey with surveyor',
+          'Request pinning of building corners and blue-top elevation',
+          'Verify setbacks are accurate for side, rear, front, and stairs if applicable',
+          'Confirm survey pins and layout match permitted plans',
+        ],
+      },
+    ],
+  },
+  CG2e: {
+    header: 'CG2e — Kickoff Meeting Recap to Customer',
+    subheader: 'Phase 6: Construction Groundbreaking · Email Template',
+    sections: [
+      {
+        title: 'EMAIL HEADER',
+        items: [
+          'Subject: Kick-Off Meeting Recap & Next Steps – [Project Address or Name]',
+          'From: [Project Manager]',
+          'To: [Customer Name]',
+          'Cc: [Superintendent]',
+        ],
+      },
+      {
+        title: 'OPENING',
+        items: [
+          'Hi [Customer Name],',
+          'It was a pleasure meeting with you and discussing your vision for the project at [Project Address]. We truly appreciate your time and input, and we\'re excited to move forward together. Below is a quick recap of our conversation and what to expect next.',
+        ],
+      },
+      {
+        title: 'MEETING NOTES',
+        items: [
+          '[Project Manager to input key discussion points here]',
+          '–',
+          '–',
+          '–',
+        ],
+      },
+      {
+        title: 'SCHEDULING & UPCOMING MILESTONES',
+        items: [
+          'Next Meeting: Foundation & Slab-on-Grade Meeting',
+          'Date & Time: [Insert details]',
+          'Next Milestone: We\'ll be reaching out soon with updates regarding: [Insert Next Milestone]',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Please don\'t hesitate to reach out if anything comes to mind — questions, ideas, or clarifications.',
+          'Survey: Construction Phase Feedback Survey (Customer Journey Survey Handout)',
+          'We\'re looking forward to building something great with you!',
+        ],
+      },
+    ],
+  },
+  'CG3.a': {
+    header: 'CG3.a — Internal Sub Meeting',
+    subheader: 'Phase 6: Construction Groundbreaking · Internal',
+    sections: [
+      {
+        title: 'ATTENDANCE',
+        items: ['Superintendent:', 'Subcontractors:'],
+      },
+      {
+        title: 'AGENDA',
+        items: [
+          'Email field set of plans to subcontractors',
+          'Walk the job site with subs and review scope of work for each trade',
+          'Framer – review any changes to elevation, double check window, door, and garage door openings, wall finishes, and truss layout',
+          'Concrete – review any changes to elevation, double check window, door, and garage door openings, wall finishes, and truss layout',
+          'Electrician – review installation plan and double check all underground',
+          'Plumber – review installation plan and double check all underground',
+        ],
+      },
+    ],
+  },
+  CG3m: {
+    header: 'CG3m — Foundation and Slab On Grade with Customer',
+    subheader: 'Phase 6: Construction Groundbreaking · Meeting',
+    sections: [
+      {
+        title: 'ITEMS TO PREPARE AHEAD OF MEETING',
+        items: [
+          { text: 'Updated field set of drawings', sub: ['Cabinet layout', 'Review window location and elevations (window rough openings)', 'Window specs and quote from supplier'] },
+          'Lot needs to be pinned and blue top',
+          'Sanitary line needs to be scoped, and condition of sanitary line should be determined by plumber',
+        ],
+      },
+      {
+        title: 'PROJECT DETAILS',
+        items: [
+          'Date:',
+          'Time:',
+          'Location:',
+          { text: 'Attendees:', sub: ['Superintendent', 'Customer', 'Other:'] },
+        ],
+      },
+      {
+        title: 'MEETING FLOW',
+        numbered: true,
+        items: [
+          { text: 'Welcome and Introductions', sub: ['Quick overview of meeting objectives', 'Set expectations for entering the structural phase'] },
+          { text: 'BuilderTrend Schedule Review', sub: ['Review structural milestones in BuilderTrend', 'Confirm projected dates for: Concrete pour, Formwork, Inspections', 'Identify any permitting/demo delays'] },
+          { text: 'Site Walkthrough – Key Verifications', sub: ['Verify window sizes', 'Verify window locations', 'Verify siding finish material (i.e. if finished block needs be called out)', 'Corners of building clearly marked', 'Rear setback verified', 'Side setback verified', 'Front setback verified', 'Stair location reviewed (if applicable)', 'Stair zoning setbacks confirmed (if applicable)', 'Slab-on-grade elevation validated', 'Sanitary/sewer line condition assessed — Replacement required? Yes / No'] },
+          { text: 'Q&A and Next Steps', sub: ['Address any remaining questions or concerns', 'Confirm understanding of next steps', 'Schedule formwork, inspection, and pour', 'Log updates into BuilderTrend', 'Coordinate any follow-up items with customer'] },
+        ],
+      },
+    ],
+    nps: true,
+  },
+  CG4e: {
+    header: 'CG4e — Foundation and Slab On Grade Meeting Recap',
+    subheader: 'Phase 6: Construction Groundbreaking · Email Template',
+    sections: [
+      {
+        title: 'EMAIL HEADER',
+        items: [
+          'Subject: Foundation & Slab-on-Grade Meeting Recap & Next Steps – [Project Address or Name]',
+          'From: [Project Manager]',
+          'To: [Customer Name]',
+          'Cc: [Superintendent]',
+        ],
+      },
+      {
+        title: 'OPENING',
+        items: [
+          'Hi [Customer Name],',
+          'It was great spending time with you during the walkthrough at [Project Address] and reviewing the final stages of your project. We\'re grateful for your feedback and collaboration throughout this process. Below is a summary of our discussion along with what\'s coming next.',
+        ],
+      },
+      {
+        title: 'MEETING NOTES',
+        items: [
+          '[Project Manager to input key discussion points here]',
+          '–',
+          '–',
+          '–',
+        ],
+      },
+      {
+        title: 'SCHEDULING & UPCOMING MILESTONES',
+        items: [
+          'Next Meeting: (Meeting Title)',
+          'Date & Time: [Insert details]',
+          'Next Milestone: We\'ll be reaching out soon with updates regarding: [Insert Next Milestone]',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'If you have any follow-up thoughts — please don\'t hesitate to reach out. Our goal is to keep everything clear, efficient, and aligned with your expectations from start to finish.',
+          'Survey: Construction Phase Feedback Survey (Customer Journey Survey Handout)',
+          'We\'re excited to bring your vision across the finish line!',
+        ],
+      },
+    ],
+  },
   PD4m: {
     header: 'PD4m — 75% Floor Plan with Customer',
     subheader: 'Phase 2: Pre-Construction Design · Meeting',
@@ -1181,6 +1426,7 @@ function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code
             const type = isObj ? item.type : null
 
             const isEmail = type === 'email'
+            const isInternal = type === 'internal'
 
             return (
               <div
@@ -1188,17 +1434,22 @@ function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code
                 className="flex items-center gap-3 py-2.5"
                 style={{
                   borderBottom: i < phase.meetings.length - 1 ? '1px solid var(--border)' : 'none',
-                  paddingLeft: isEmail ? 28 : 20,
+                  paddingLeft: isEmail || isInternal ? 28 : 20,
                   paddingRight: 20,
-                  background: isEmail ? 'var(--surface2, #fafafa)' : 'var(--white)',
-                  opacity: isEmail ? 0.85 : 1,
+                  background: isEmail || isInternal ? 'var(--surface2, #fafafa)' : 'var(--white)',
+                  opacity: isEmail || isInternal ? 0.85 : 1,
                 }}
               >
-                {/* Number — hide for email rows, show mail icon instead */}
+                {/* Number — hide for email/internal rows, show type icon instead */}
                 {isEmail ? (
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}>
                     <rect x="2" y="4" width="20" height="16" rx="2" />
                     <polyline points="2,4 12,13 22,4" />
+                  </svg>
+                ) : isInternal ? (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
                   </svg>
                 ) : (
                   <div className="text-[11px] font-semibold w-6 text-center shrink-0" style={{ color: 'var(--text3)' }}>
@@ -1210,7 +1461,7 @@ function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code
                 {code && (
                   <span
                     className="text-[10px] font-bold tracking-[0.4px] shrink-0"
-                    style={{ color: isEmail ? '#d97706' : phase.color, opacity: 0.75, minWidth: 36 }}
+                    style={{ color: isEmail ? '#d97706' : isInternal ? '#64748b' : phase.color, opacity: 0.75, minWidth: 36 }}
                   >
                     {code}
                   </span>
@@ -1220,15 +1471,15 @@ function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code
                 <span
                   className="flex-1 text-[13px]"
                   style={{
-                    color: isEmail ? 'var(--text2)' : 'var(--text)',
-                    fontWeight: isEmail ? 400 : 500,
-                    fontStyle: isEmail ? 'italic' : 'normal',
+                    color: isEmail || isInternal ? 'var(--text2)' : 'var(--text)',
+                    fontWeight: isEmail || isInternal ? 400 : 500,
+                    fontStyle: isEmail || isInternal ? 'italic' : 'normal',
                   }}
                 >
                   {title}
                 </span>
 
-                {/* Auto Email label for email rows */}
+                {/* Type chip */}
                 {isEmail && (
                   <span
                     className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full"
@@ -1238,23 +1489,74 @@ function PhaseBlock({ phase, onViewAgenda }: { phase: Phase; onViewAgenda: (code
                     Auto Email
                   </span>
                 )}
+                {isInternal && (
+                  <span
+                    className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: '#f1f5f9', color: '#475569' }}
+                    title="Internal reference document"
+                  >
+                    Internal
+                  </span>
+                )}
 
-                {/* M / E badge */}
+                {/* M / E / P badge */}
                 {type && (
                   <span
                     className="shrink-0 text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center"
                     style={{
-                      background: isEmail ? '#fef3c7' : '#dbeafe',
-                      color: isEmail ? '#92400e' : '#1d4ed8',
+                      background: isEmail ? '#fef3c7' : isInternal ? '#f1f5f9' : '#dbeafe',
+                      color: isEmail ? '#92400e' : isInternal ? '#475569' : '#1d4ed8',
                     }}
-                    title={isEmail ? 'Automated email template' : 'Meeting — has agenda'}
+                    title={isEmail ? 'Automated email template' : isInternal ? 'Internal reference document' : 'Meeting — has agenda'}
                   >
-                    {isEmail ? 'E' : 'M'}
+                    {isEmail ? 'E' : isInternal ? 'P' : 'M'}
                   </span>
                 )}
 
-                {/* Action button */}
-                {!isEmail && (
+                {/* View Email button — email templates with content */}
+                {isEmail && (
+                  <button
+                    type="button"
+                    className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
+                    style={{
+                      background: '#fef3c7',
+                      color: '#92400e',
+                      border: '1px solid #fde68a',
+                      cursor: code && AGENDAS[code] ? 'pointer' : 'default',
+                      fontFamily: 'inherit',
+                      opacity: code && AGENDAS[code] ? 1 : 0.4,
+                    }}
+                    onClick={() => { if (code && AGENDAS[code]) onViewAgenda(code) }}
+                    onMouseEnter={e => { if (code && AGENDAS[code]) e.currentTarget.style.opacity = '0.75' }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = code && AGENDAS[code] ? '1' : '0.4' }}
+                  >
+                    View Email
+                  </button>
+                )}
+
+                {/* View File button — internal docs */}
+                {isInternal && (
+                  <button
+                    type="button"
+                    className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
+                    style={{
+                      background: '#f1f5f9',
+                      color: '#475569',
+                      border: '1px solid #cbd5e1',
+                      cursor: code && AGENDAS[code] ? 'pointer' : 'default',
+                      fontFamily: 'inherit',
+                      opacity: code && AGENDAS[code] ? 1 : 0.4,
+                    }}
+                    onClick={() => { if (code && AGENDAS[code]) onViewAgenda(code) }}
+                    onMouseEnter={e => { if (code && AGENDAS[code]) e.currentTarget.style.opacity = '0.75' }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = code && AGENDAS[code] ? '1' : '0.4' }}
+                  >
+                    View File
+                  </button>
+                )}
+
+                {/* Action button — meetings only */}
+                {!isEmail && !isInternal && (
                   <button
                     type="button"
                     className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
