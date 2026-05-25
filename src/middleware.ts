@@ -35,8 +35,9 @@ export async function middleware(request: NextRequest) {
   // Allow authenticated users to access reset-password (recovery session must land here)
   const isPasswordReset = pathname === '/auth/reset-password'
   const isSeedRoute = pathname === '/api/seed'
+  const isWebhook = pathname.startsWith('/api/webhooks/')
 
-  if (!user && !isAuthPage && !isSeedRoute) {
+  if (!user && !isAuthPage && !isSeedRoute && !isWebhook) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/auth/login'
     return NextResponse.redirect(loginUrl)
