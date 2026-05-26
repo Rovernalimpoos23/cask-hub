@@ -342,6 +342,128 @@ const PIT_INACTIVE = [
   { name: 'Jeff Azcona',      pits: 1, depts: ['Sales', 'Marketing'] },
 ]
 
+interface PitGoalEntry {
+  person: string
+  dept: string
+  description: string
+  status: 'PIT Submitted' | 'PS Submitted' | 'Department Team Review' | 'Department Team Approval' | 'SOP Created'
+  urgency: 'Critical' | 'Moderate' | 'Low'
+  leverage: 'People and Education' | 'Systems and Technology' | 'Delivery and Distribution' | 'Testing and Measuring'
+  quarter: 'Q1' | 'Q2' | 'Q3' | 'Q4'
+  days: number
+}
+
+const PIT_STATUS_STYLES: Record<string, { color: string; bg: string; border: string }> = {
+  'PIT Submitted':            { color: '#64748b', bg: '#f8fafc', border: '#cbd5e1' },
+  'PS Submitted':             { color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  'Department Team Review':   { color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
+  'Department Team Approval': { color: '#c2410c', bg: '#fff7ed', border: '#fed7aa' },
+  'SOP Created':              { color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
+}
+
+const PIT_URGENCY_STYLES: Record<string, { color: string; bg: string; border: string }> = {
+  Critical: { color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+  Moderate: { color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
+  Low:      { color: '#64748b', bg: '#f8fafc', border: '#cbd5e1' },
+}
+
+const PIT_LEVERAGE_STYLES: Record<string, { color: string; bg: string; border: string }> = {
+  'People and Education':      { color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+  'Systems and Technology':    { color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  'Delivery and Distribution': { color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc' },
+  'Testing and Measuring':     { color: '#92400e', bg: '#fef3c7', border: '#fcd34d' },
+}
+
+const PIT_ALL_GOALS: PitGoalEntry[] = [
+  // Kait Grunenberg
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'Finalize and roll out PM Onboarding Training', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q1', days: 114 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'Set and schedule monthly employee trainings for Q1', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q1', days: 114 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'Plan and execute March Quarterly Employee Event', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q1', days: 114 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'Begin transition into recruiting responsibilities', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q1', days: 114 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'SOP Hiring-General', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 36 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'SOP General Onboarding', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 36 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'Formal Performance Notice & 30-Day Improvement Plan', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 36 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'Ordering Business Cards', status: 'PIT Submitted', urgency: 'Low', leverage: 'Systems and Technology', quarter: 'Q4', days: 36 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'SOP for Person being fired/quit', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q3', days: 36 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'Employee Review tracking system', status: 'Department Team Review', urgency: 'Critical', leverage: 'People and Education', quarter: 'Q2', days: 34 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'SOP for employee reviews', status: 'Department Team Review', urgency: 'Critical', leverage: 'People and Education', quarter: 'Q2', days: 34 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'SOP on document control', status: 'PIT Submitted', urgency: 'Critical', leverage: 'People and Education', quarter: 'Q2', days: 34 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'Request Hiring Process', status: 'PIT Submitted', urgency: 'Critical', leverage: 'People and Education', quarter: 'Q3', days: 34 },
+  { person: 'Kait Grunenberg', dept: 'Preconstruction', description: 'SOP for when trades are working weekends', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 14 },
+  // Jeff Azcona
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Updated proposal range pricing for new home builds up to 6K sq ft', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Updated sales workflow outlining 2 lead funnels', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Outline Scorecard for business development manager', status: 'Department Team Review', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q2', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Update sales questionnaire', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Revise sales process to support smaller upfront precon cost', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Architect and referral partner questionnaire', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Internal project scorecard criteria', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Add option for customer to purchase on website', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Create co-branding marketing packet for referral partners', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Revise and update website for new home builds', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Update sales materials for contract execution', status: 'PS Submitted', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q2', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Standard book to review with prospect architects', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Onboard John with Acana marketing strategy', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Hire marketing VA for digital ads', status: 'Department Team Review', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q3', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'New precon and construction signage', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: 'Establish tracker for co-branding marketing referral partners', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 114 },
+  { person: 'Jeff Azcona', dept: 'Sales', description: '2nd In-person Meeting Template', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q2', days: 4 },
+  // Lamont Gilyot
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Centralized AP Infrastructure - Launch shared AP inbox', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Centralized AP Infrastructure - Formalize intake and routing workflow', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Centralized AP Infrastructure - Remove ad hoc invoice routing', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Centralized AP Infrastructure - Reduce executive-level email dependence', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Centralized AP Infrastructure - Position AP for scalable delegation', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Forecasting System Upgrade - Beta version of enhanced forecasting model', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Forecasting System Upgrade - Defined cross-department reporting inputs', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Forecasting System Upgrade - Recurring forecast meeting cadence', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Forecasting System Upgrade - Identification of automation opportunities', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Forecasting System Upgrade - Reduction of manual information relay', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Customer Journey Financial Control - Verify documentation timing', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Testing and Measuring', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Customer Journey Financial Control - Confirm compliance triggers', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Testing and Measuring', quarter: 'Q1', days: 114 },
+  { person: 'Lamont Gilyot', dept: 'Finance', description: 'Customer Journey Financial Control - Ensure financial risk mitigation', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Testing and Measuring', quarter: 'Q1', days: 114 },
+  // Calin Noonan
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Have a consistent PIT meeting set up', status: 'SOP Created', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q1', days: 114 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Develop an Architect List', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 114 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Develop a Contractor List', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 114 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Develop an Outreach Process for both lists', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q2', days: 114 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Align with Strategic Partners', status: 'Department Team Approval', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 114 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Standered DWG 3 new builds and ADUs', status: 'PS Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 63 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Standered DWG section and templates', status: 'PS Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 61 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Standered DWG contracts', status: 'PS Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 61 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Estimating process and Hire VA', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q2', days: 61 },
+  { person: 'Calin Noonan', dept: 'Administrative', description: 'Bid/takeoff process and Hire VA', status: 'PS Submitted', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q2', days: 61 },
+  // Matteo Carpani
+  { person: 'Matteo Carpani', dept: 'Preconstruction', description: 'Hiring 1 PM', status: 'Department Team Review', urgency: 'Critical', leverage: 'People and Education', quarter: 'Q1', days: 114 },
+  { person: 'Matteo Carpani', dept: 'Preconstruction', description: 'ACE Finalize it', status: 'SOP Created', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Matteo Carpani', dept: 'Preconstruction', description: 'CRM for Precon', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Matteo Carpani', dept: 'Preconstruction', description: 'Selection Pre Made it', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 114 },
+  { person: 'Matteo Carpani', dept: 'Preconstruction', description: 'Quality Control Position', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q3', days: 49 },
+  { person: 'Matteo Carpani', dept: 'Preconstruction', description: 'HIRING VA for BID', status: 'Department Team Approval', urgency: 'Critical', leverage: 'People and Education', quarter: 'Q2', days: 49 },
+  { person: 'Matteo Carpani', dept: 'Preconstruction', description: 'Hiring 1 New Expert PM', status: 'Department Team Review', urgency: 'Critical', leverage: 'People and Education', quarter: 'Q2', days: 49 },
+  { person: 'Matteo Carpani', dept: 'Preconstruction', description: 'ESTIMATOR/BID DEPARTMENT', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 49 },
+  // Chad Holman
+  { person: 'Chad Holman', dept: 'Preconstruction', description: 'Disengaged Customer Process', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 70 },
+  { person: 'Chad Holman', dept: 'Preconstruction', description: 'TOPO Survey Communication', status: 'PIT Submitted', urgency: 'Critical', leverage: 'Delivery and Distribution', quarter: 'Q2', days: 15 },
+  // Tim Ritschel
+  { person: 'Tim Ritschel', dept: 'Construction', description: 'Construction and Financial Closeout', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 106 },
+  { person: 'Tim Ritschel', dept: 'Construction', description: 'As-Built Uniformity', status: 'PS Submitted', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 63 },
+  { person: 'Tim Ritschel', dept: 'Construction', description: 'Add Best Practices Checklist to Buildertrend', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Testing and Measuring', quarter: 'Q2', days: 20 },
+  // Kelly Cuffel
+  { person: 'Kelly Cuffel', dept: 'Preconstruction', description: 'CASK facing portion of the customer journey', status: 'Department Team Review', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q2', days: 55 },
+  { person: 'Kelly Cuffel', dept: 'Preconstruction', description: 'Selections Issues Tracker', status: 'SOP Created', urgency: 'Critical', leverage: 'Systems and Technology', quarter: 'Q2', days: 55 },
+  // Others
+  { person: 'Douglas Mertens',        dept: 'Construction',   description: 'Pre construction meeting at Footer stage', status: 'SOP Created', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q1', days: 111 },
+  { person: 'Eric Bressler',          dept: 'Construction',   description: 'Superintendents', status: 'Department Team Approval', urgency: 'Critical', leverage: 'People and Education', quarter: 'Q1', days: 104 },
+  { person: 'Peter Deutelmoser',      dept: 'Construction',   description: 'Kimal Lumber free pick up of extra materials', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Delivery and Distribution', quarter: 'Q1', days: 101 },
+  { person: 'Jessica Zientarski',     dept: 'Sales',          description: 'SOP for 2nd In Person Meeting', status: 'SOP Created', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q1', days: 88 },
+  { person: 'Jasmin Salangsang',      dept: 'Finance',        description: 'Centralized AP email', status: 'PS Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q1', days: 84 },
+  { person: 'Kevin Joshua Balmaceda', dept: 'Sales',          description: 'Sales to Precon Standardized Alignment', status: 'Department Team Review', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 34 },
+  { person: 'Kai Mapoy',              dept: 'Administrative', description: 'Virtual Assistants Onboarding Process', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'People and Education', quarter: 'Q2', days: 29 },
+  { person: 'Cooper Hermansen',       dept: 'Construction',   description: 'Changing the OOO SOP', status: 'PIT Submitted', urgency: 'Moderate', leverage: 'Systems and Technology', quarter: 'Q2', days: 28 },
+  { person: 'Joseph Estelloso',       dept: 'Sales',          description: 'BT – Sales and Marketing File (Semi-Automatic Process)', status: 'PS Submitted', urgency: 'Critical', leverage: 'Systems and Technology', quarter: 'Q2', days: 19 },
+]
+
 type PitTab = 'all' | 'q1' | 'q2'
 
 function PitDeptBadge({ dept }: { dept: string }) {
@@ -358,6 +480,19 @@ function PitDeptBadge({ dept }: { dept: string }) {
 
 function PitModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<PitTab>('all')
+  const [fPerson,   setFPerson]   = useState('')
+  const [fDept,     setFDept]     = useState('')
+  const [fStatus,   setFStatus]   = useState('')
+  const [fQuarter,  setFQuarter]  = useState('')
+  const [fUrgency,  setFUrgency]  = useState('')
+
+  const filteredGoals = PIT_ALL_GOALS.filter(g =>
+    (!fPerson  || g.person  === fPerson)  &&
+    (!fDept    || g.dept    === fDept)    &&
+    (!fStatus  || g.status  === fStatus)  &&
+    (!fQuarter || g.quarter === fQuarter) &&
+    (!fUrgency || g.urgency === fUrgency)
+  )
 
   const qDepts  = tab === 'q1' ? PIT_Q1_DEPTS  : tab === 'q2' ? PIT_Q2_DEPTS  : null
   const qActual = tab === 'q1' ? 41 : tab === 'q2' ? 23 : null
@@ -516,6 +651,110 @@ function PitModal({ onClose }: { onClose: () => void }) {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* ── Individual PIT Goals ── */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="text-[10px] font-semibold tracking-[1.2px] uppercase" style={{ color: 'var(--text3)' }}>Individual PIT Goals</div>
+                <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-[3px]" style={{ background: 'var(--surface2)', color: 'var(--text3)', border: '1px solid var(--border)' }}>
+                  {filteredGoals.length} of {PIT_ALL_GOALS.length}
+                </span>
+              </div>
+              {(fPerson || fDept || fStatus || fQuarter || fUrgency) && (
+                <button
+                  type="button"
+                  className="text-[10px] font-semibold"
+                  style={{ color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                  onClick={() => { setFPerson(''); setFDept(''); setFStatus(''); setFQuarter(''); setFUrgency('') }}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+
+            {/* Filters */}
+            <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+              {([
+                ['Person',     fPerson,   setFPerson,   ['Jeff Azcona','Kait Grunenberg','Lamont Gilyot','Calin Noonan','Matteo Carpani','Chad Holman','Tim Ritschel','Kelly Cuffel','Douglas Mertens','Eric Bressler','Peter Deutelmoser','Jessica Zientarski','Jasmin Salangsang','Kevin Joshua Balmaceda','Kai Mapoy','Cooper Hermansen','Joseph Estelloso']],
+                ['Dept',       fDept,     setFDept,     ['Sales','Marketing','Preconstruction','Construction','Finance','Administrative']],
+                ['Status',     fStatus,   setFStatus,   ['PIT Submitted','PS Submitted','Department Team Review','Department Team Approval','SOP Created']],
+                ['Quarter',    fQuarter,  setFQuarter,  ['Q1','Q2','Q3','Q4']],
+                ['Urgency',    fUrgency,  setFUrgency,  ['Critical','Moderate','Low']],
+              ] as [string, string, (v: string) => void, string[]][]).map(([label, val, setter, opts]) => (
+                <select
+                  key={label}
+                  value={val}
+                  onChange={e => setter(e.target.value)}
+                  className="text-[10.5px] font-medium rounded-[6px] px-2 py-1.5 w-full"
+                  style={{
+                    background: 'var(--surface2)',
+                    color: val ? 'var(--text)' : 'var(--text3)',
+                    border: val ? '1px solid #2563eb' : '1px solid var(--border)',
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    appearance: 'auto',
+                  }}
+                >
+                  <option value="">All {label}s</option>
+                  {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ))}
+            </div>
+
+            {/* Table */}
+            {filteredGoals.length === 0 ? (
+              <div className="text-center py-6 text-[12px]" style={{ color: 'var(--text3)' }}>No goals match the current filters.</div>
+            ) : (
+              <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+                {/* Header */}
+                <div
+                  className="grid text-[9.5px] font-semibold px-3 py-2 gap-2"
+                  style={{ gridTemplateColumns: '100px 1fr 118px 60px 90px 28px 38px', background: 'var(--surface2)', color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
+                >
+                  <span>Person</span>
+                  <span>PIT Goal</span>
+                  <span>Status</span>
+                  <span>Urgency</span>
+                  <span>Leverage</span>
+                  <span>Q</span>
+                  <span className="text-right">Days</span>
+                </div>
+                {/* Rows */}
+                {filteredGoals.map((g, i) => {
+                  const ss = PIT_STATUS_STYLES[g.status]
+                  const us = PIT_URGENCY_STYLES[g.urgency]
+                  const ls = PIT_LEVERAGE_STYLES[g.leverage]
+                  const dc = PIT_DEPT_COLORS[g.dept] ?? PIT_DEPT_COLORS.Administrative
+                  return (
+                    <div
+                      key={i}
+                      className="grid items-start px-3 py-2 gap-2"
+                      style={{ gridTemplateColumns: '100px 1fr 118px 60px 90px 28px 38px', borderBottom: i < filteredGoals.length - 1 ? '1px solid var(--border)' : 'none' }}
+                    >
+                      {/* Person + Dept */}
+                      <div className="flex flex-col gap-1 pt-0.5">
+                        <span className="text-[11px] font-medium leading-tight" style={{ color: 'var(--text)' }}>{g.person}</span>
+                        <span className="text-[8.5px] font-semibold px-1.5 py-0.5 rounded-[3px] uppercase self-start" style={{ background: dc.bg, color: dc.color, border: `1px solid ${dc.border}` }}>{g.dept}</span>
+                      </div>
+                      {/* Description */}
+                      <span className="text-[11.5px] leading-snug pt-0.5" style={{ color: 'var(--text2)' }}>{g.description}</span>
+                      {/* Status */}
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-[3px] self-start mt-0.5 leading-tight text-center" style={{ background: ss.bg, color: ss.color, border: `1px solid ${ss.border}` }}>{g.status}</span>
+                      {/* Urgency */}
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-[3px] self-start mt-0.5" style={{ background: us.bg, color: us.color, border: `1px solid ${us.border}` }}>{g.urgency}</span>
+                      {/* Leverage */}
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-[3px] self-start mt-0.5 leading-tight" style={{ background: ls.bg, color: ls.color, border: `1px solid ${ls.border}` }}>{g.leverage}</span>
+                      {/* Quarter */}
+                      <span className="text-[10.5px] font-semibold pt-0.5" style={{ color: 'var(--text3)' }}>{g.quarter}</span>
+                      {/* Days */}
+                      <span className="text-[10.5px] font-semibold text-right pt-0.5" style={{ color: 'var(--text3)' }}>{g.days}d</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* ── Inactive PITs ── */}
