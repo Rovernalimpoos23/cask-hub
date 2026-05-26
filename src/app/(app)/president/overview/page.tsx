@@ -21,11 +21,12 @@ interface MeetingLevel { title: string; freq: Freq; subItems?: SubItem[]; modalK
 
 const LEVELS: MeetingLevel[] = [
   { title: 'Annual Strategy Meeting', freq: 'annual', modalKey: 'annual-strategy' },
-  { title: 'Yearly Company Strategic Alignment', freq: 'annual' },
-  { title: 'Quarterly Meetings', freq: 'quarterly' },
+  { title: 'Yearly Company Strategic Alignment', freq: 'annual', modalKey: 'yearly-strategic-alignment' },
+  { title: 'Quarterly Meetings', freq: 'quarterly', modalKey: 'quarterly-meetings' },
   {
     title: 'Monthly Check-ins',
     freq: 'monthly',
+    modalKey: 'monthly-check-ins',
     subItems: [{ title: 'DISC' }],
   },
   {
@@ -1219,6 +1220,641 @@ function AnnualStrategyModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+const TEAM_ALIGNMENT_RESPONSES = [
+  {
+    name: 'Calin',
+    paragraphs: [
+      "Hitting $20 million in revenue means our business model is proven, our systems are dialed in, and we have a foundation strong enough to not only recognize your individual goals but to start moving people into new roles and responsibilities.",
+      "What's just as important is that reaching this level of revenue means we've ironed out the kinks here at home and built a model we can repeat in other markets. That's where the bigger vision comes in—seeing how your own future plans align with CASK's growth, and being part of a company that's able to expand and offer those opportunities.",
+      "For me, I'm genuinely excited to support and work with all of you as you go after your big, long-term goals. The $20 million mark really is the first big step in making those ambitions a reality.",
+      "After reflecting on all this, I have two main thoughts on how we might move forward. Rather than simply revising the goal for this year, I think it makes sense to break it into two steps: First, starting January 1st, 2025, let's define how long it will take us to hit $20 million in revenue. Second, let's focus on achieving a rolling 12-month period where we maintain that level. This way, we keep our eyes on the $20 million target—which is so important for all our business and career goals—but take the pressure off the exact timing. It's more about getting there together and building something that lasts.",
+      "Additionally what else excites me about this new way of phrasing our goal is that we get to look at and dive deeper into what each department looks like in the next year or two as we're trying to achieve to hit this goal how do we streamline and make efficiency easier and better, what work flows need to change and will change, keeping an idea that is focused on what your department should look like — what are your biggest pain points in your work flows in each department and how do we solve them or make things easier so that a $20 million company is easier and more efficient to run is very important. In our meetings that we are constantly looking at how the business operates I'd like to keep these big goals in mind so that we can constructively plan on solve the problems that are in the future by building an easier faster process.",
+    ],
+  },
+  {
+    name: 'Kait',
+    paragraphs: [
+      "This goal motivates me because I see people I care about—friends and family—growing and succeeding in this business, and I want to be part of that journey. There's something really fulfilling about working toward a challenging goal and feeling proud of what we accomplish together. Being part of something that has the potential to positively impact not just our own lives, but our families and our community, is incredibly meaningful to me.",
+      "In past roles within large corporations, my job often felt like just a job. I didn't feel connected to something bigger. This is different. This goal represents more than just numbers—it's about growth, collaboration, and building something meaningful together. I'm motivated by the opportunity to learn, to stretch myself, and to be part of a team that's all in on the same mission. And yes, I'm a bit competitive too—I know other companies are hitting goals like this, but what sets us apart is our culture, our drive, and the genuine sense of family we have.",
+      "Achieving this goal would mean that I pushed past my comfort zone instead of holding back. It would mean I contributed in a way that helped move both the business and myself forward. I'm growing not just professionally, but personally—learning to be more thoughtful in my responses, stay calm under pressure, be intentional with my time, and lead in new ways. I'm also getting better at navigating difficult conversations, reading people, and communicating more effectively with clients, coworkers, and the people in my life.",
+      "Ultimately, reaching this milestone would represent stepping into a career I'm passionate about while continuing to learn and evolve. I'm genuinely excited about being part of building something that doesn't fully exist yet—and helping shape what it becomes.",
+    ],
+  },
+  {
+    name: 'Matteo',
+    paragraphs: [
+      "For me, the $20M goal is meaningful because of what it unlocks, both professionally and personally. From a business standpoint, it represents a level where we're no longer just operating, but truly leveraging structure, people, and systems to scale. In my role as Operations Manager, it challenges me to grow into a position where I'm not just solving problems myself, but building and guiding a team that can operate effectively together toward the same direction.",
+      "Personally, a big part of my motivation is the opportunity this creates outside of work. Achieving this level of growth supports my ability to build assets, including continuing to grow RAMA alongside CASK. To me, those aren't separate paths — they are connected, and both depend on building the right foundation here.",
+      "At the same time, I'm very aware that growth at this level comes with pressure. If I don't continue to work on myself, that pressure can easily carry over into my personal life and impact my family. So part of this journey for me is learning how to manage that — how to grow professionally while still protecting balance.",
+      "That ties directly into the person I'm working to become. I want to be a calmer, more grounded leader — someone who brings clarity, a different perspective, and stability when challenges come up, and who helps the team stay aligned and moving in the same direction. Also, like Chad mentioned, I see this milestone as part of a bigger transformation — not just for the company, but for how we think and operate as a team. That shift is something I want to be an active part of building.",
+      "From a career standpoint, hitting $20M would be a strong step in proving that I can operate at a higher level — not just managing tasks, but leading people, developing others, and creating leverage through the team.",
+      "For me, it's about growing in both directions — building something meaningful as a company, while also becoming someone capable of leading at that level without losing what matters outside of work.",
+    ],
+  },
+  {
+    name: 'Chad',
+    paragraphs: [
+      "For me, hitting $20M would have a meaningful impact on both my family and personal life, but probably not in the way people typically think. It's less about lifestyle changes, while those are nice and I will likely strive for them it's more about stability and options. I already feel like I have everything I need in life. I have amazing family and friends, live in a place that I love and have resources (financial and otherwise) to experience pretty much everything I want, and this came from a shift in my perspective not from the amount of money in my bank account or the number of KPIs I achieved. I have a natural drive to succeed in every aspect of my life (family, career, sports, go kart racing, top golf, etc) but I have had to learn that I have already achieved all the success I truly need and that the dopamine hit I get from hitting the next success marker shouldn't come at the expense of the people, experiences, and personal time that are currently in front of me.",
+      "On a personal career level, I think it pushes me to become someone who can operate at a higher level — more disciplined, better at delegating, and more focused on developing people rather than just solving problems myself. That ties directly into who I want to be for the team and for my family. I want to be someone who creates opportunities, not just for myself, but for others — someone who builds leaders, not just a business.",
+      "From a career perspective, $20M feels like a credibility milestone. It proves that we can build a scalable, structured operation, not just a scrappy, founder-led company. That opens the door to the bigger vision we've talked about — replicating this model, expanding geographically, and ultimately building toward that $1B goal. It shifts us from \"figuring it out\" to \"we've built something that works.\"",
+      "In terms of balance and boundaries, while I feel I do a good job with this that's something I will likely actively work on forever in my life. I think the biggest shift for me was recognizing that growth at this level can't come from just working more — it has to come from building better systems and stronger people. If I don't make that shift, the business will always compete with personal time instead of supporting it. So for me, maintaining boundaries is less about strict separation and more about building the kind of organization that doesn't rely on me being in everything.",
+      "At the end of the day, the goal is to build something that's successful enough to create freedom, but structured enough that it doesn't come at the expense of the things that actually matter.",
+    ],
+  },
+  {
+    name: 'Jeff',
+    paragraphs: [
+      "Personally, hitting the $20M goal is meaningful because it allows me to test and apply practices and frameworks I learned through business school and my experiences in corporate America — but in real-world scenarios. There's a big difference between theory and execution, and being part of scaling a company from $10M to $20M is the kind of environment where those ideas get pressure tested. Achieving that milestone would also strengthen my confidence in creating, and tracking, a proven sales process that can scale and sustain a $20M organization.",
+      "Professionally, a goal like this forces me to think differently about how we work with the team and our partners. It pushes me to dig deeper into individual motivations, both internally and externally, to better understand what drives people and where leverage opportunities exist. Unlocking those opportunities is what allows myself and team to grow faster and more efficiently.",
+      "2026 will likely come with a level of discomfort as we work through new challenges and unknowns while growing at this pace. Leaning into that discomfort and figuring things out along the way will be very valuable. The experience and lessons that come from building through those unknowns will create long-term stability for CASK Construction, and for my family and future generations.",
+    ],
+  },
+  {
+    name: 'Lamont',
+    paragraphs: [
+      "For me, hitting the $20M mark is meaningful in a lot of ways. About five years ago I made the decision to step away from something that was solid, consistent, and safe because I believed in what we were building here. I poured a lot into this company over those years and seeing us push toward this milestone reinforces that the decision to invest my time and energy here was the right one.",
+      "On a personal level, it also brings perspective to everything that has happened over the past few years. While going through one of the most difficult periods in my life during my divorce, I may not have always been as present or personable as I would have liked. The systems and structure we've been building allowed the business to continue moving forward even during that time. In many ways, that was a real test of whether what we were building had strength behind it.",
+      "What I've tried to stay focused on is continuing to build layers of systems, processes, and structure that allow the company to scale without everything relying on a few people at the top. For me personally, that means continuing to strengthen the financial visibility and systems that allow leadership to make faster, better decisions as the company grows.",
+      "At the same time, those systems have also allowed me to protect what matters outside of work. I've been able to be present for my daughters, spend time with family, and maintain balance while still helping push the company forward.",
+      "While people may not always see every detail of what happens behind the scenes, they do see how we show up — how we work, how we treat people, and the consistency we bring to the organization. That example matters not just for my daughters, but for the people around me here at CASK as well.",
+      "To me, reaching $20M is really a test of everything we've been building — the systems, the leadership structure, and the culture. It's like tending something over time and watching it grow stronger with the right care and attention. Seeing that growth happen is what makes the journey meaningful.",
+    ],
+  },
+]
+
+function TeamAlignmentModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 600,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              Team Alignment – Hitting Our $20M Goal
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              Weekly Meetings · Department Alignment
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Prompt */}
+        <div className="px-5 pt-4 pb-3 shrink-0" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+          <p className="text-[12px] font-medium leading-relaxed" style={{ color: 'var(--text2)' }}>
+            What motivates you personally about hitting the $20M goal this year? What does achieving that milestone mean to you — professionally or personally?
+          </p>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-6">
+          {TEAM_ALIGNMENT_RESPONSES.map((person, i) => (
+            <div key={person.name}>
+              <div
+                className="text-[11px] font-bold tracking-[1.4px] uppercase mb-3 pb-1.5"
+                style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)' }}
+              >
+                {person.name}
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {person.paragraphs.map((para, j) => (
+                  <p key={j} className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>
+                    {para}
+                  </p>
+                ))}
+              </div>
+              {i < TEAM_ALIGNMENT_RESPONSES.length - 1 && (
+                <div className="mt-6" style={{ borderBottom: '1px solid var(--border)' }} />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MonthlyCheckInsModal({ onClose }: { onClose: () => void }) {
+  const meetingFlow = [
+    { title: 'Big Vision Alignment', subItems: ['Connection to company vision', 'How current work supports direction'] },
+    { title: 'Department Wins & Progress', subItems: ['Key wins', 'Progress on goals / PIT items'] },
+    { title: 'Strategic Discussion (Work ON the Business)', subItems: ['Challenges / bottlenecks', 'Process / system improvements', 'Adjustments based on performance'] },
+    { title: 'Forward Planning & Risks', subItems: ['Upcoming risks / constraints', 'What needs to shift next month/quarter', 'Resource / support needs'] },
+    { title: 'Personal & Professional Alignment', subItems: ['Alignment with personal goals', 'Growth / development needs', 'Leadership support needed'] },
+    { title: 'Top Priorities', subItems: ['1–3 key focuses before next meeting', 'What matters most'] },
+    { title: 'Action Items & Commitments', subItems: ['Key action items', 'Ownership', 'Follow-ups'] },
+  ]
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 560,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              Monthly Department Alignment Meeting (1:1)
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              Participants: Calin + Department Heads · Timing: Monthly
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
+
+          {/* Prep Material */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Prep Material for the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Participants should review prior to the meeting:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Department KPIs / performance',
+                'Weekly meeting recaps (wins, blockers, action items)',
+                'Quarterly goals progress',
+                'Active PIT items',
+                'Key challenges / bottlenecks',
+                'Personal goals (professional growth)',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Links for the Meeting */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Links for the Meeting
+            </div>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'ChatGPT Channel specific to the Leader',
+                'Teams Channel for Management Team',
+                'KPI Dashboard',
+                'PIT Tracker',
+                'Weekly Meeting Notes',
+                'Company Vision / Strategic Plan',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Purpose Statement */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Purpose Statement of the Meeting
+            </div>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Align department with company big vision',
+                'Connect current work to strategic priorities',
+                'Identify risks, bottlenecks, and opportunities',
+                'Support department leader growth and alignment',
+                'Focus on working ON the business',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Meeting Flow */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Meeting Flow
+            </div>
+            <ul className="flex flex-col gap-3" style={{ marginLeft: 4 }}>
+              {meetingFlow.map(section => (
+                <li key={section.title}>
+                  <div className="flex items-start gap-2 mb-1.5">
+                    <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                    <span className="text-[12.5px] font-semibold leading-relaxed" style={{ color: 'var(--text)' }}>{section.title}</span>
+                  </div>
+                  <ul className="flex flex-col gap-1" style={{ marginLeft: 14 }}>
+                    {section.subItems.map(sub => (
+                      <li key={sub} className="flex items-start gap-2">
+                        <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 3, height: 3, background: 'var(--border2)', opacity: 0.6 }} />
+                        <span className="text-[12px] leading-relaxed" style={{ color: 'var(--text2)' }}>{sub}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Outcomes After the Meeting */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Outcomes After the Meeting
+            </div>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Alignment with company vision and direction',
+                'Clear top priorities for the next month',
+                'Identified risks and problem areas',
+                'Defined support needed by department head',
+                'Strengthened accountability and focus',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function QuarterlyMeetingsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 560,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              Quarterly Company Meeting Agenda
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              Participants: Leadership Team (Calin, Chad, Department Heads) · Timing: Before Quarter Starts
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
+
+          {/* Prep Material */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Prep Material for the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Participants should review and submit the following prior to the session:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Department Q[Previous] Recap',
+                'Department Wins',
+                'Department Challenges',
+                'Department Q[Next] Goals',
+                'Previous Quarterly Presentation',
+                'Blank Quarterly Presentation for this Q',
+                'Company Mission & Vision',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Links for the Meeting */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Links for the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Include links within the meeting document to the following materials:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Chat GPT channel — Company Planning GPT',
+                'Teams channel — Company Planning',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Purpose Statement */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Purpose Statement of the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Translate company strategy into quarterly execution by:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Reviewing performance from the previous quarter',
+                'Aligning on department wins and challenges',
+                'Defining goals for the upcoming quarter',
+                'Reinforcing company mission, vision, and priorities',
+                'Complete presentations for this Quarter',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Meeting Flow */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Meeting Flow
+            </div>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Company Direction Alignment (Mission, Vision, Priorities)',
+                'Department Recap (Previous Quarter)',
+                'Department Wins',
+                'Department Challenges',
+                'Department Goals (Next Quarter)',
+                'Company Focus Areas (PIT, NPS, Culture)',
+                'Presentation Alignment (Slides, Messaging, Gaps)',
+                'Next Steps & Ownership',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Outcomes After the Meeting */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Outcomes After the Meeting
+            </div>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Alignment on Q[Previous] performance across departments',
+                'Defined Q[Next] goals per department',
+                'Clear company priorities for the quarter',
+                'Completed inputs for Quarterly Company Presentation',
+                'Ownership and deadlines confirmed for final deliverables',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
+function YearlyStrategicAlignmentModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 560,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              Company Strategic Alignment Meeting
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              Participants: Calin, Chad, Department Heads · Timing: December (Annual Leadership Alignment)
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
+
+          {/* Prep Material */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Prep Material for the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Participants should review the following materials prior to the meeting:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Outcome from the last Executive Meeting with Calin and Chad',
+                'Review Company Big Vision (10-Year Vision)',
+                "Review Last Year's Strategic Goals",
+                'Review Strategic Priorities Defined in the Annual Executive Strategy Planning Session',
+                'Review Company Performance Metrics and KPI Dashboard',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[12px] mt-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              This ensures all department leaders arrive prepared and aligned on the current company direction before the meeting begins.
+            </p>
+          </div>
+
+          {/* Links for the Meeting */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Links for the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Include links within the meeting document to the following materials:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Chat GPT channel — Company Planning GPT',
+                'Teams channel — Company Planning',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Purpose Statement */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Purpose Statement of the Meeting
+            </div>
+            <p className="text-[12.5px] leading-relaxed mb-2" style={{ color: 'var(--text2)' }}>
+              The purpose of the Company Strategic Alignment Meeting is to ensure that department leaders fully understand and align with the company&apos;s strategic direction for the upcoming year.
+            </p>
+            <p className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>
+              This meeting translates the executive-level strategy defined by leadership into department-level direction, ensuring each department understands how they contribute to achieving company priorities.
+            </p>
+          </div>
+
+          {/* Outcomes After the Meeting */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Outcomes After the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              By the end of the meeting, the following outcomes should be achieved:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Actual goals due 30 days after the meeting',
+                "Department leaders understand the company's strategic priorities",
+                'Clear alignment on department roles in executing company initiatives',
+                'Identification of key initiatives each department will support',
+                'Alignment on cross-department collaboration',
+                'Clear expectations for department planning and execution for the upcoming year',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PlaceholderModal({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <div
@@ -1428,13 +2064,22 @@ function LevelCard({ level }: { level: MeetingLevel }) {
         <DailyCalinKaiModal onClose={() => setActiveSubModal(null)} />
       )}
       {activeSubModal === 'team-alignment' && (
-        <PlaceholderModal title="Team Alignment – Hitting Our $20M Goal" onClose={() => setActiveSubModal(null)} />
+        <TeamAlignmentModal onClose={() => setActiveSubModal(null)} />
       )}
       {activeSubModal === 'dept-roles' && (
         <PlaceholderModal title="Department Roles and Responsibilities" onClose={() => setActiveSubModal(null)} />
       )}
       {activeModal === 'annual-strategy' && (
         <AnnualStrategyModal onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === 'yearly-strategic-alignment' && (
+        <YearlyStrategicAlignmentModal onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === 'quarterly-meetings' && (
+        <QuarterlyMeetingsModal onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === 'monthly-check-ins' && (
+        <MonthlyCheckInsModal onClose={() => setActiveModal(null)} />
       )}
     </div>
   )
