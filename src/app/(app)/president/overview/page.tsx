@@ -271,22 +271,100 @@ function FileModal({ name, onClose }: { name: string; onClose: () => void }) {
 
 // ── PIT Goals modal ───────────────────────────────────────────────────────────
 
-const PIT_DEPARTMENTS = ['Sales', 'Preconstruction', 'Construction', 'Marketing', 'Administrative']
+const PIT_DEPT_COLORS: Record<string, { color: string; bg: string; border: string }> = {
+  Sales:           { color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  Marketing:       { color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+  Preconstruction: { color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
+  Construction:    { color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc' },
+  Finance:         { color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
+  Administrative:  { color: '#64748b', bg: '#f8fafc', border: '#cbd5e1' },
+}
 
-const PIT_ALL_TIME_MEMBERS = [
-  'Kait Grunenberg',
-  'Matteo & Chad',
-  'Jeff Azcona',
-  'Lamont Gilyot',
-  'Calin Noonan',
-  'Douglas Mertens',
-  'Tim Ritchel',
-  'Eric Bressler',
-  'Peter Deutelmoser',
-  'Jessica Ziemkoski',
+function pitStatus(pct: number) {
+  if (pct >= 100) return { color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0', bar: '#22c55e', icon: '✅' }
+  if (pct >= 75)  return { color: '#b45309', bg: '#fffbeb', border: '#fde68a', bar: '#f59e0b', icon: '🟡' }
+  return             { color: '#b91c1c', bg: '#fef2f2', border: '#fecaca', bar: '#ef4444', icon: '🔴' }
+}
+
+const PIT_SUMMARY_STATS = [
+  { label: 'PIT Submitted',      actual: 78, target: 61 },
+  { label: 'PS Submitted',       actual: 63, target: 63 },
+  { label: 'Dept Team Review',   actual: 55, target: 81 },
+  { label: 'Dept Team Approval', actual: 23, target: 25 },
+  { label: 'SOP Created',        actual:  5, target: 25 },
 ]
 
+const PIT_Q1_DEPTS = [
+  { dept: 'Finance',          count: 14 },
+  { dept: 'Preconstruction',  count: 10 },
+  { dept: 'Sales',            count:  7 },
+  { dept: 'Construction',     count:  5 },
+  { dept: 'Marketing',        count:  4 },
+  { dept: 'Administrative',   count:  1 },
+]
+
+const PIT_Q2_DEPTS = [
+  { dept: 'Administrative',   count: 10 },
+  { dept: 'Preconstruction',  count:  7 },
+  { dept: 'Construction',     count:  3 },
+  { dept: 'Sales',            count:  3 },
+  { dept: 'Marketing',        count:  0 },
+  { dept: 'Finance',          count:  0 },
+]
+
+const PIT_LEADERBOARD = [
+  { name: 'Jeff Azcona',            pits: 17, depts: ['Sales', 'Marketing'] },
+  { name: 'Kait Grunenberg',        pits: 14, depts: ['Preconstruction', 'Administrative', 'Construction'] },
+  { name: 'Lamont Gilyot',          pits: 13, depts: ['Finance'] },
+  { name: 'Calin Noonan',           pits: 10, depts: ['Administrative', 'Sales', 'Construction', 'Marketing', 'Preconstruction'] },
+  { name: 'Matteo Carpani',         pits:  4, depts: ['Preconstruction'] },
+  { name: 'Chad Holman',            pits:  2, depts: ['Preconstruction'] },
+  { name: 'Tim Ritschel',           pits:  2, depts: ['Construction', 'Preconstruction'] },
+  { name: 'Kelly Cuffel',           pits:  2, depts: ['Preconstruction'] },
+  { name: 'Douglas Mertens',        pits:  1, depts: ['Construction'] },
+  { name: 'Eric Bressler',          pits:  1, depts: ['Construction'] },
+  { name: 'Peter Deutelmoser',      pits:  1, depts: ['Construction'] },
+  { name: 'Jessica Zientarski',     pits:  1, depts: ['Sales'] },
+  { name: 'Jasmin Salangsang',      pits:  1, depts: ['Finance'] },
+  { name: 'Kevin Joshua Balmaceda', pits:  1, depts: ['Sales'] },
+  { name: 'Kai Mapoy',              pits:  1, depts: ['Administrative'] },
+  { name: 'Cooper Hermansen',       pits:  1, depts: ['Construction'] },
+  { name: 'Joseph Estelloso',       pits:  1, depts: ['Sales'] },
+]
+
+const PIT_INACTIVE = [
+  { name: 'Kait Grunenberg',  pits: 8, depts: ['Preconstruction', 'Administrative', 'Construction'] },
+  { name: 'Calin Noonan',     pits: 2, depts: ['Administrative', 'Preconstruction'] },
+  { name: 'Matteo Carpani',   pits: 1, depts: ['Preconstruction'] },
+  { name: 'Kai Mapoy',        pits: 1, depts: ['Administrative'] },
+  { name: 'Cooper Hermansen', pits: 1, depts: ['Construction'] },
+  { name: 'Chad Holman',      pits: 1, depts: ['Preconstruction'] },
+  { name: 'Jeff Azcona',      pits: 1, depts: ['Sales', 'Marketing'] },
+]
+
+type PitTab = 'all' | 'q1' | 'q2'
+
+function PitDeptBadge({ dept }: { dept: string }) {
+  const c = PIT_DEPT_COLORS[dept] ?? PIT_DEPT_COLORS.Administrative
+  return (
+    <span
+      className="text-[9px] font-semibold px-1.5 py-0.5 rounded-[3px] tracking-[0.3px] uppercase shrink-0"
+      style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}` }}
+    >
+      {dept}
+    </span>
+  )
+}
+
 function PitModal({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<PitTab>('all')
+
+  const qDepts  = tab === 'q1' ? PIT_Q1_DEPTS  : tab === 'q2' ? PIT_Q2_DEPTS  : null
+  const qActual = tab === 'q1' ? 41 : tab === 'q2' ? 23 : null
+  const qTarget = tab === 'q1' ? 25 : tab === 'q2' ? 36 : null
+  const qPct    = qActual != null && qTarget != null ? Math.round((qActual / qTarget) * 100) : null
+  const maxDept = qDepts ? Math.max(...qDepts.map(d => d.count), 1) : 1
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -298,29 +376,21 @@ function PitModal({ onClose }: { onClose: () => void }) {
         style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',
-          width: 560,
+          width: 680,
           maxWidth: 'calc(100vw - 48px)',
-          maxHeight: 'calc(100vh - 80px)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+          maxHeight: 'calc(100vh - 60px)',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.2)',
         }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div
-          className="flex items-center justify-between px-5 py-4 shrink-0"
-          style={{ borderBottom: '1px solid var(--border)' }}
-        >
+        <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
           <div>
-            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
-              PIT Goals — Task Tracker
-            </div>
-            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
-              Weekly Meetings · President Workflow
-            </div>
+            <div className="text-[15px] font-semibold tracking-[-0.3px]" style={{ color: 'var(--text)' }}>PIT Goals Dashboard</div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>Weekly Meetings · President Workflow</div>
           </div>
           <button
-            type="button"
-            onClick={onClose}
+            type="button" onClick={onClose}
             className="flex items-center justify-center rounded-[6px]"
             style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
@@ -332,140 +402,174 @@ function PitModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-6">
 
-          {/* Q2 2026 */}
+          {/* ── All-Time Summary Cards ── */}
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span
-                className="text-[10px] font-bold px-2 py-0.5 rounded-[4px] tracking-[0.5px] uppercase"
-                style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}
-              >
-                Q2 2026 — Current Quarter
-              </span>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-3" style={{ color: 'var(--text3)' }}>
+              All-Time Summary
             </div>
-            <div className="rounded-[7px] overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-              <div
-                className="grid text-[10.5px] font-semibold px-3 py-1.5"
-                style={{ gridTemplateColumns: '1fr auto', background: 'var(--surface2)', color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
-              >
-                <span>Department</span>
-                <span>PIT Tracking</span>
+            <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+              {PIT_SUMMARY_STATS.map(({ label, actual, target }) => {
+                const pct = Math.round((actual / target) * 100)
+                const s = pitStatus(pct)
+                return (
+                  <div key={label} className="rounded-[8px] px-3 pt-3 pb-2.5 flex flex-col gap-2" style={{ background: s.bg, border: `1px solid ${s.border}` }}>
+                    <div className="text-[10px] font-semibold leading-tight" style={{ color: s.color }}>{label}</div>
+                    <div className="flex items-end gap-1">
+                      <span className="text-[22px] font-bold leading-none tracking-[-0.5px]" style={{ color: s.color }}>{actual}</span>
+                      <span className="text-[10px] mb-0.5" style={{ color: s.color, opacity: 0.65 }}>/{target}</span>
+                    </div>
+                    <div className="rounded-full overflow-hidden" style={{ height: 3, background: 'rgba(0,0,0,0.08)' }}>
+                      <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: s.bar }} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold" style={{ color: s.color }}>{pct}%</span>
+                      <span className="text-[12px]">{s.icon}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* ── Quarter Tabs + Dept Breakdown ── */}
+          <div>
+            <div className="flex items-center gap-1 mb-4 p-1 rounded-[7px]" style={{ background: 'var(--surface2)', border: '1px solid var(--border)', width: 'fit-content' }}>
+                {([['all', 'All Time'], ['q1', 'Q1 2026'], ['q2', 'Q2 2026']] as [PitTab, string][]).map(([key, label]) => (
+                <button
+                  key={key} type="button"
+                  className="text-[11px] font-semibold px-3 py-1 rounded-[5px]"
+                  style={{
+                    background: tab === key ? 'var(--surface)' : 'transparent',
+                    color: tab === key ? 'var(--text)' : 'var(--text3)',
+                    border: tab === key ? '1px solid var(--border)' : '1px solid transparent',
+                    fontFamily: 'inherit', cursor: 'pointer',
+                    boxShadow: tab === key ? '0 1px 3px rgba(0,0,0,0.07)' : 'none',
+                  }}
+                  onClick={() => setTab(key)}
+                >{label}</button>
+              ))}
+            </div>
+
+            {qPct != null && qActual != null && qTarget != null ? (
+              <>
+                <div className="flex items-center justify-between px-4 py-3 rounded-[8px] mb-4" style={{ background: pitStatus(qPct).bg, border: `1px solid ${pitStatus(qPct).border}` }}>
+                  <div>
+                    <div className="text-[10px] font-semibold tracking-[0.8px] uppercase mb-0.5" style={{ color: pitStatus(qPct).color }}>
+                      {tab === 'q1' ? 'Q1 2026 — Previous Quarter' : 'Q2 2026 — Current Quarter'}
+                    </div>
+                    <div className="text-[12px]" style={{ color: pitStatus(qPct).color, opacity: 0.8 }}>
+                      {qActual} PITs submitted · Target: {qTarget}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[24px] font-bold tracking-[-0.5px]" style={{ color: pitStatus(qPct).color }}>{qPct}%</span>
+                    <span className="text-[16px]">{pitStatus(qPct).icon}</span>
+                  </div>
+                </div>
+                <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2.5" style={{ color: 'var(--text3)' }}>Department Breakdown</div>
+                <div className="flex flex-col gap-2">
+                  {qDepts!.map(({ dept, count }) => {
+                    const dc = PIT_DEPT_COLORS[dept] ?? PIT_DEPT_COLORS.Administrative
+                    return (
+                      <div key={dept} className="flex items-center gap-3">
+                        <div className="text-[11.5px] font-medium shrink-0" style={{ width: 118, color: 'var(--text2)' }}>{dept}</div>
+                        <div className="flex-1 rounded-full overflow-hidden" style={{ height: 6, background: 'var(--border)' }}>
+                          <div className="h-full rounded-full" style={{ width: `${Math.round((count / maxDept) * 100)}%`, background: dc.color }} />
+                        </div>
+                        <span className="shrink-0 text-[11.5px] font-bold w-5 text-right" style={{ color: dc.color }}>{count}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="text-[12px]" style={{ color: 'var(--text3)' }}>Select a quarter above to see the department breakdown.</div>
+            )}
+          </div>
+
+          {/* ── Leaderboard ── */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-3" style={{ color: 'var(--text3)' }}>
+              All-Time Leaderboard
+            </div>
+            <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+              <div className="grid text-[10px] font-semibold px-4 py-2" style={{ gridTemplateColumns: '22px 1fr auto 36px', gap: '10px', background: 'var(--surface2)', color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}>
+                <span>#</span><span>Team Member</span><span>Departments</span><span className="text-right">PITs</span>
               </div>
-              {PIT_DEPARTMENTS.map((dept, i) => (
+              {PIT_LEADERBOARD.map(({ name, pits, depts }, i) => (
                 <div
-                  key={dept}
-                  className="grid items-center px-3 py-2 text-[12px]"
-                  style={{
-                    gridTemplateColumns: '1fr auto',
-                    borderBottom: i < PIT_DEPARTMENTS.length - 1 ? '1px solid var(--border)' : 'none',
-                    color: 'var(--text)',
-                  }}
+                  key={name}
+                  className="grid items-center px-4 py-2.5"
+                  style={{ gridTemplateColumns: '22px 1fr auto 36px', gap: '10px', borderBottom: i < PIT_LEADERBOARD.length - 1 ? '1px solid var(--border)' : 'none' }}
                 >
-                  <span className="font-medium">{dept}</span>
-                  <span className="text-[11px]" style={{ color: 'var(--text3)' }}>See full report</span>
+                  <span className="text-[11px] font-bold" style={{ color: i === 0 ? '#2563eb' : i === 1 ? '#7c3aed' : i === 2 ? '#d97706' : 'var(--text3)' }}>
+                    {i + 1}
+                  </span>
+                  <span className="text-[12px] font-medium" style={{ color: 'var(--text)' }}>{name}</span>
+                  <div className="flex flex-wrap gap-1 justify-end">
+                    {depts.map(d => <PitDeptBadge key={d} dept={d} />)}
+                  </div>
+                  <span className="text-[13px] font-bold text-right" style={{ color: 'var(--text)' }}>{pits}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Q1 2026 */}
+          {/* ── Inactive PITs ── */}
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span
-                className="text-[10px] font-bold px-2 py-0.5 rounded-[4px] tracking-[0.5px] uppercase"
-                style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
-              >
-                Q1 2026 — Previous Quarter
+            <div className="flex items-center gap-2 mb-3">
+              <div className="text-[10px] font-semibold tracking-[1.2px] uppercase" style={{ color: 'var(--text3)' }}>Inactive PIT Submitted</div>
+              <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-[3px]" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca' }}>
+                ⚠ Needs Action
               </span>
             </div>
-            <div className="rounded-[7px] overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-              <div
-                className="grid text-[10.5px] font-semibold px-3 py-1.5"
-                style={{ gridTemplateColumns: '1fr auto', background: 'var(--surface2)', color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
-              >
-                <span>Department</span>
-                <span>PIT Tracking</span>
+            <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid #fecaca' }}>
+              {PIT_INACTIVE.map(({ name, pits, depts }, i) => (
+                <div
+                  key={name}
+                  className="flex items-center justify-between gap-3 px-4 py-2.5"
+                  style={{ borderBottom: i < PIT_INACTIVE.length - 1 ? '1px solid #fecaca' : 'none', background: '#fef2f2' }}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <span className="text-[12px] font-medium shrink-0" style={{ color: '#7f1d1d' }}>{name}</span>
+                    {depts.map(d => <PitDeptBadge key={d} dept={d} />)}
+                  </div>
+                  <span className="shrink-0 text-[11px] font-bold" style={{ color: '#b91c1c' }}>{pits} {pits === 1 ? 'PIT' : 'PITs'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Latest Weekly Update ── */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-3" style={{ color: 'var(--text3)' }}>
+              Latest Weekly Update
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 rounded-[8px]" style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+              <div>
+                <div className="text-[10px] font-semibold mb-1" style={{ color: 'var(--text3)' }}>Week of 5/24/2026</div>
+                <div className="text-[12.5px] font-medium" style={{ color: 'var(--text)' }}>Jeff Azcona</div>
               </div>
-              {PIT_DEPARTMENTS.map((dept, i) => (
-                <div
-                  key={dept}
-                  className="grid items-center px-3 py-2 text-[12px]"
-                  style={{
-                    gridTemplateColumns: '1fr auto',
-                    borderBottom: i < PIT_DEPARTMENTS.length - 1 ? '1px solid var(--border)' : 'none',
-                    color: 'var(--text)',
-                  }}
-                >
-                  <span className="font-medium">{dept}</span>
-                  <span className="text-[11px]" style={{ color: 'var(--text3)' }}>See full report</span>
-                </div>
-              ))}
+              <div className="flex items-center gap-1.5">
+                <PitDeptBadge dept="Sales" />
+                <PitDeptBadge dept="Marketing" />
+                <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-[4px]" style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}>
+                  1 PIT
+                </span>
+              </div>
             </div>
-          </div>
-
-          {/* All Time Accumulative */}
-          <div>
-            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
-              All Time Accumulative — Team Members
-            </div>
-            <div className="rounded-[7px] overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-              {PIT_ALL_TIME_MEMBERS.map((member, i) => (
-                <div
-                  key={member}
-                  className="flex items-center gap-2 px-3 py-2"
-                  style={{
-                    borderBottom: i < PIT_ALL_TIME_MEMBERS.length - 1 ? '1px solid var(--border)' : 'none',
-                  }}
-                >
-                  <div className="shrink-0 rounded-full" style={{ width: 5, height: 5, background: '#2563eb' }} />
-                  <span className="text-[12px]" style={{ color: 'var(--text)' }}>{member}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* PIT Update Weekly */}
-          <div>
-            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
-              PIT Update Weekly
-            </div>
-            <div
-              className="flex items-center justify-between px-3 py-2.5 rounded-[7px]"
-              style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
-            >
-              <span className="text-[12.5px] font-medium" style={{ color: 'var(--text)' }}>Jeff Azcona</span>
-              <span
-                className="text-[10.5px] font-semibold px-2 py-0.5 rounded-[4px]"
-                style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}
-              >
-                Sales / Marketing
-              </span>
-            </div>
-          </div>
-
-          {/* Inactive PIT Submitted */}
-          <div>
-            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
-              Inactive PIT Submitted
-            </div>
-            <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text3)' }}>
-              View the full report for the complete inactive PIT submitted list.
-            </p>
           </div>
 
         </div>
 
         {/* Footer */}
-        <div
-          className="shrink-0 px-5 py-3"
-          style={{ borderTop: '1px solid var(--border)' }}
-        >
+        <div className="shrink-0 px-6 py-3" style={{ borderTop: '1px solid var(--border)' }}>
           <a
             href="https://caskconstruction.sharepoint.com/:x:/s/CASKConstruction/IQATkTe2nosHSaqOz5PAgd1zAQnksU-Bf2OQt0Bl5soI00Y?e=lO3nZy"
-            target="_blank"
-            rel="noopener noreferrer"
+            target="_blank" rel="noopener noreferrer"
             className="flex items-center justify-center gap-2 w-full py-2 rounded-[7px] text-[12px] font-semibold transition-opacity no-underline"
             style={{ background: 'var(--charcoal)', color: '#fff' }}
             onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.8' }}
