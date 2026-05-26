@@ -4,6 +4,157 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 
+const STATIC_CONTEXT = `
+== COMPANY INFO ==
+Company: CASK Construction, St. Petersburg FL
+Goal: $20M revenue in 2026
+ActionCOACH: Juliet (ActionCOACH Tampa Bay)
+
+Key People:
+- Calin Noonan — President & Co-Founder
+- Chad Holman — VP Operations & Co-Founder
+- Lamont Gilyot — VP Finance
+- Jeff Azcona — VP Sales & Marketing
+- Kaitlyn Grunenberg — VP Human Resources
+- Matteo Carpani — Operations Manager
+- Kai Mapoy — Executive Assistant
+- Joseph Estelloso — Data Analyst
+- Rovern Alimpoos — AI Workflow Specialist
+
+== CUSTOMER JOURNEY TEMPLATES ==
+10 phases, 56 total items from first contact to closeout.
+
+Phase 1 — Pre-Construction Pre-Design (Meetings 1–6):
+PR1m – Internal Sales to Pre-Con Pass-Off (Meeting)
+PR2e – Initial Alignment Scheduling to Customer (Email)
+PR3m – Initial Alignment Meeting Agenda (Meeting)
+PR4e – Alignment Meeting Recap to Customer (Email)
+PR5m – On Site Flag with Customer (Meeting)
+PR6e – Flag Meeting Recap to Customer (Email)
+
+Phase 2 — Pre-Construction Design (Meetings 7–14):
+PD1m – 50% Floor Plan with Customer (Meeting)
+PD2e – 50% Floorplan Meeting Recap to Customer (Email)
+PD3e – 50% Budget Update to Customer (Email)
+PD4m – 75% Floor Plan with Customer (Meeting)
+PD5e – 75% Floorplan Meeting Recap to Customer (Email)
+PD6e – 75% Budget Update to Customer (Email)
+PD7e – 95% Drawing to Customer (Email)
+PD8e – Permit Submission Confirmation (Email)
+
+Phase 3 — Pre-Construction Permit (Meetings 14–18):
+PP1e – 1st RFC to Customer (Email)
+PP2e – 1st RFC to Customer (Email)
+PP3e – 2nd RFC to Customer (Email)
+PP4e – 2nd RFC to Customer (Email)
+PP5e – Permit Approval (Email)
+
+Phase 4 — Pre-Construction Selections (Meetings 22–29):
+PS1e – Selections Kick-off to Customer (Email)
+PS2m – In-Person 1st Selections with Customer (Meeting)
+PS3e – Post 1st Selections Meeting to Customer (Email)
+PS4m – In-Person 2nd Selections with Customer (Meeting)
+PS5e – Post 2nd Selections Meeting to Customer (Email)
+PS6m – In-Person 3rd Selections with Customer (Meeting)
+PS7e – Post 3rd Selections Meeting to Customer (Email)
+PS8m – In-Person 4th Selections with Customer (Meeting)
+
+Phase 5 — Pre-Construction Bid Management (Meetings 30–35):
+PB1e – Sewage and Water Inspection to Customer (Email)
+PB2m – In-Person Sewage and Water Inspection (Meeting)
+PB3e – Congratulations Project Out to Bid (Email)
+PB4e – 95% Budget Update to Customer (Email)
+PB5m – Contract Review with Customer (Meeting)
+PB6e – Contract Approval to Customer (Email)
+
+Phase 6 — Construction Groundbreaking (Meetings 36–42):
+CG1m – Kickoff with Customer (Meeting)
+CG2.a – Demo If Needed Internal (PDF)
+CG2.b – Site Survey Layout Internal (PDF)
+CG2e – Kickoff Meeting Recap to Customer (Email)
+CG3.a – Internal Sub Meeting (PDF)
+CG3m – Foundation and Slab On Grade with Customer (Meeting)
+CG4e – Foundation and Slab On Grade Meeting Recap (Email)
+
+Phase 7 — Construction Structure (Meetings 43–45):
+CS1e – Structure Stage Expectations Recap to Customer (Email)
+CS2m – Structure Complete Celebration with Customer (Meeting)
+CS3e – Structure Complete Celebration Meeting Recap with Customer (Email)
+
+Phase 8 — Construction Rough In (Meetings 46–48):
+CR1.a – Internal Sub Meeting (PDF)
+CR1m – Rough In with Customer (Meeting)
+CR2e – Release to Hang to Customer (Email)
+
+Phase 9 — Construction Finish (Meetings 49–51):
+CF1.a – Internal Sub Meeting (PDF)
+CF1m – Finishes with Customer (Meeting)
+CF2e – Finish Meeting Recap to Customer (Email)
+
+Phase 10 — Construction Closeout (Meetings 52–56):
+CC1e – Close Out Steps to Customer (Email)
+CC1e.1 – Certificate of Occupancy to Customer (Email)
+CC2m – Punchlist Walkthrough with Customer (Meeting)
+CC3e – Punch List Walkthrough Meeting Recap to Customer (Email)
+CC4m – Final Walkthrough with Customer (Meeting)
+
+== PRESIDENT'S MEETINGS HIERARCHY ==
+Annual Strategy Meeting (Annual)
+↓ Yearly Company Strategic Alignment (Annual)
+↓ Quarterly Meetings (Quarterly)
+↓ Monthly Check-ins (Monthly)
+  - DISC
+↓ Weekly Meetings (Weekly)
+  - PIT Goals
+  - Department Alignment
+    - DISC (Jeff Azcona, Lamont Gilyot, Kaitlyn Grunenberg, Matteo Carpani)
+    - Team Alignment – Hitting Our $20M Goal
+    - Department Roles and Responsibilities
+↓ Daily Huddles (Daily)
+  - Daily Meeting – Calin and Kai
+  - Data Planning Meeting with Joseph
+
+== PIT GOALS SUMMARY ==
+All-Time Stats:
+- PIT Submitted: 78 / target 61 = 128% ✅
+- PS Submitted: 63 / target 63 = 100% ✅
+- Dept Team Review: 55 / target 81 = 68% ⚠️
+- Dept Team Approval: 23 / target 25 = 92% 🟡
+- SOP Created: 5 / target 25 = 20% 🔴
+
+Top Contributors (all-time):
+1. Jeff Azcona — 17 PITs
+2. Kait Grunenberg — 14 PITs
+3. Lamont Gilyot — 13 PITs
+4. Calin Noonan — 10 PITs
+5. Matteo Carpani — 4 PITs
+6. Chad Holman — 2 PITs
+7. Tim Ritschel — 2 PITs
+8. Kelly Cuffel — 2 PITs
+
+Q1 2026: 41 PITs submitted / target 25 = 164% ✅
+Q2 2026: 23 PITs submitted / target 36 = 64% ⚠️
+
+Inactive PIT Submitted (needs action):
+- Kait Grunenberg — 8 PITs
+- Calin Noonan — 2 PITs
+- Matteo Carpani — 1 PIT
+- Kai Mapoy — 1 PIT
+- Cooper Hermansen — 1 PIT
+- Chad Holman — 1 PIT
+- Jeff Azcona — 1 PIT
+
+== DEPARTMENT ROLES ==
+Executive Leadership: Calin Noonan (President & Co-Founder), Chad Holman (VP Operations & Co-Founder)
+Operations: Chad Holman (VP), Matteo Carpani (Operations Manager)
+Preconstruction & Design: Kevin Balmaceda (Draftsman), Hazel Mae (Selections Admin)
+Field Operations: Doug Mertens (Lead Superintendent)
+Sales & Marketing: Jeff Azcona (VP), Austin Haid (Strategic Partnership), Shannon Halvorsen (Creative Director), Leonilo Abbu Jr. (Sales Analyst)
+Finance: Lamont Gilyot (VP), Jasmin Salangsang (Virtual Staff Accountant), Precious Mae (Virtual Accounting Specialist)
+Human Resources: Kaitlyn Grunenberg (VP)
+Data & AI: Joseph Estelloso (Data Analyst), Rovern Alimpoos (AI Workflow Specialist)
+`
+
 function buildSystemPrompt(
   userName: string,
   userRole: string,
@@ -16,46 +167,30 @@ function buildSystemPrompt(
 
   return `You are CASK Intelligence — the AI assistant embedded in CASK Hub for CASK Construction. Today is ${today}.
 
-## WHO YOU ARE TALKING TO
+== LOGGED-IN USER ==
 Name: ${userName || 'a CASK team member'}
 Role: ${userRole || 'CASK team member'}
 
-Always address the user by their first name (${userName || 'there'}). If they ask "what is my name", "who am I", or similar questions, answer directly using the above — do not say you don't know.
+Always address the user by their first name (${userName || 'there'}). If they ask "what is my name", "who am I", or similar personal questions, answer directly — do not say you don't know.
 
-## COMPANY CONTEXT
-- Company: CASK Construction, St. Petersburg FL
-- Goal: $20M revenue in 2026
-- ActionCOACH: Juliet (ActionCOACH Tampa Bay)
+${STATIC_CONTEXT}
 
-## KEY PEOPLE
-- Calin Noonan — President & Co-Founder
-- Chad Holman — VP Operations & Co-Founder
-- Lamont Gilyot — VP Finance
-- Jeff Azcona — VP Sales & Marketing
-- Kaitlyn Grunenberg — VP Human Resources
-- Matteo Carpani — Operations Manager
-- Kai Mapoy — Executive Assistant
-- Rovern Alimpoos — AI Workflow Specialist
-
-## MEETING & SESSION DATA
-You have full access to all recorded CASK meetings and sessions. Use this data to answer questions about specific meetings, action items, decisions, and coaching themes:
-
+== LIVE SESSION & MEETING DATA (from Supabase) ==
 ${meetingsContext}
 
-## CUSTOMER JOURNEY DATA
-Active clients and their current happiness status:
-
+== LIVE CLIENT DATA (from Supabase) ==
 ${clientsContext}
 
-## RESPONSE BEHAVIOR
+== RESPONSE BEHAVIOR ==
+- You have full knowledge of everything above — never say you don't have access to this data
+- Answer any question about CASK Hub: templates, PIT goals, team members, meetings, clients, president's meetings, department roles, and more
 - Answer personal questions (name, role, action items) directly and confidently
 - Reference specific meeting data and dates when relevant
 - For action items, clearly distinguish open vs completed
 - For client questions, include happiness status and project context
 - Be conversational, warm, and address the user by first name naturally
 - Keep responses concise — 2–4 sentences unless a list or detailed answer is clearly needed
-- Use bullet points for lists of 3 or more items
-- Never say you don't have access to data that is provided above`
+- Use bullet points for lists of 3 or more items`
 }
 
 export async function POST(req: NextRequest) {
