@@ -49,6 +49,7 @@ function SoundWave() {
 export default function AIPanel() {
   const [sessionCount, setSessionCount] = useState<number | null>(null)
   const [userName, setUserName] = useState('there')
+  const [userRole, setUserRole] = useState('')
   const [messages, setMessages] = useState<AIMessage[]>([
     { role: 'assistant', content: 'Good morning. Loading session data...' },
   ])
@@ -79,10 +80,11 @@ export default function AIPanel() {
       if (user?.email) {
         const { data } = await supabase
           .from('users')
-          .select('name')
+          .select('name, role')
           .eq('email', user.email)
           .single()
         if (data?.name) firstName = data.name.split(' ')[0]
+        if (data?.role) setUserRole(data.role)
       }
 
       setSessionCount(count)
@@ -199,32 +201,36 @@ export default function AIPanel() {
     setIsThinking(true)
 
     try {
+      console.log('[CASK AI] Sending message to /api/chat', { userName, userRole })
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: nextMessages.map(m => ({ role: m.role, content: m.content })),
           userName,
+          userRole,
         }),
       })
 
-      if (!res.ok) throw new Error('API error')
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '(no body)')
+        console.error('[CASK AI] API returned', res.status, errBody)
+        throw new Error(`API error ${res.status}: ${errBody}`)
+      }
+
       const data = await res.json()
+      console.log('[CASK AI] Response received:', data)
       const aiContent: string = data.content
 
-      // FIX 2: Build new messages array directly — don't call speakText
-      // inside a setMessages updater (React may run updaters twice in Strict Mode).
       const newMessages: AIMessage[] = [...nextMessages, { role: 'assistant', content: aiContent }]
       setMessages(newMessages)
-
-      console.log('AI response received, attempting to speak...')
       speakText(aiContent, newMessages.length - 1)
 
-    } catch {
-      const fallback = `I have full access to all ${sessionCount ?? 'recorded'} sessions in CASK Hub. Ask me about specific meetings, action items, coaching themes, or the May 28th agenda.`
-      const newMessages: AIMessage[] = [...nextMessages, { role: 'assistant', content: fallback }]
+    } catch (err) {
+      console.error('[CASK AI] sendMessage error:', err)
+      const errorMsg = err instanceof Error ? `Error: ${err.message}` : 'Something went wrong. Please try again.'
+      const newMessages: AIMessage[] = [...nextMessages, { role: 'assistant', content: errorMsg }]
       setMessages(newMessages)
-      speakText(fallback, newMessages.length - 1)
     } finally {
       setIsThinking(false)
     }
