@@ -57,7 +57,7 @@ const LEVELS: MeetingLevel[] = [
     freq: 'daily',
     subItems: [
       { title: 'Daily Meeting – Calin and Kai', modalKey: 'daily-calin-kai' },
-      { title: 'Data Planning Meeting with Joseph' },
+      { title: 'Data Planning Meeting with Joseph', modalKey: 'data-planning-joseph' },
     ],
   },
 ]
@@ -1220,6 +1220,302 @@ function AnnualStrategyModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+function DataPlanningJosephModal({ onClose }: { onClose: () => void }) {
+  const meetingFlow = [
+    {
+      title: 'Active Tasks Recap',
+      subItems: [
+        'Review all current tasks Joseph is working on',
+        'Quick status per task (progress, blockers, completion stage)',
+      ],
+    },
+    {
+      title: 'Priority Setting',
+      subItems: [
+        'Identify top priorities to focus on before next meeting',
+        'Align on what matters most',
+        'Confirm expected timeline / urgency',
+      ],
+    },
+    {
+      title: 'Deep Dive (If Needed)',
+      subItems: [
+        'Review 1–2 key tasks in detail',
+        'Clarify direction, expectations, or next steps',
+      ],
+    },
+    {
+      title: 'Email Update Requirement',
+      subItems: [
+        'Joseph sends an email after every meeting to: Calin, Jeff, Matteo, Others (if working with another PM)',
+        'Email must include: Current priorities, Short status per task (1 sentence each), Focus before next meeting',
+      ],
+    },
+  ]
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 520,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              Data Planning Meeting (Joseph)
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              Participants: Calin + Joseph · Timing: Every Other Day
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
+          <div className="text-[10px] font-semibold tracking-[1.2px] uppercase" style={{ color: 'var(--text3)' }}>
+            Meeting Flow
+          </div>
+          <ul className="flex flex-col gap-3" style={{ marginLeft: 4 }}>
+            {meetingFlow.map(section => (
+              <li key={section.title}>
+                <div className="flex items-start gap-2 mb-1.5">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] font-semibold leading-relaxed" style={{ color: 'var(--text)' }}>{section.title}</span>
+                </div>
+                <ul className="flex flex-col gap-1" style={{ marginLeft: 14 }}>
+                  {section.subItems.map(sub => (
+                    <li key={sub} className="flex items-start gap-2">
+                      <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 3, height: 3, background: 'var(--border2)', opacity: 0.6 }} />
+                      <span className="text-[12px] leading-relaxed" style={{ color: 'var(--text2)' }}>{sub}</span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface DeptRole { title: string; person?: string; description: string }
+interface DeptSection { department: string; roles: DeptRole[] }
+
+const DEPT_ROLES_DATA: DeptSection[] = [
+  {
+    department: 'Executive Leadership',
+    roles: [
+      { title: 'Owners', person: 'Calin Noonan & Chad Holman', description: 'Provide overall company vision, strategic direction, financial oversight, and long-term growth planning for CASK Construction.' },
+      { title: 'President', person: 'Calin Noonan', description: 'Leads company operations, drives organizational strategy, oversees leadership execution, and ensures alignment across all departments.' },
+      { title: 'Data Analyst', person: 'Joseph Estelloso', description: 'Develops dashboards, KPI tracking systems, reporting tools, and operational analytics to support company decision-making.' },
+    ],
+  },
+  {
+    department: 'Operations Department',
+    roles: [
+      { title: 'VP Operations', person: 'Chad Holman', description: 'Oversees all operational activities, construction execution, project delivery, field performance, and process improvement initiatives.' },
+      { title: 'Director of Operations (St. Pete)', description: 'Manages day-to-day operations for the St. Pete division, ensuring project efficiency, scheduling, and team accountability.' },
+      { title: 'Director of Operations (Future)', description: 'Future leadership role responsible for expansion and operational scaling.' },
+      { title: 'Operations Manager (ADU, Reno & New Build)', person: 'Mateo Carpani', description: 'Coordinates operational workflows for ADU, renovation, and new build projects while supporting project execution teams.' },
+    ],
+  },
+  {
+    department: 'Preconstruction & Design Team',
+    roles: [
+      { title: 'Preconstruction / Design Manager', description: 'Leads estimating, planning, design coordination, and preconstruction workflows.' },
+      { title: 'Interior Designer', description: 'Manages selections, finishes, and design coordination with clients and project teams.' },
+      { title: 'Draftsman', person: 'Kevin Balmaceda', description: 'Produces architectural drawings, revisions, drafting support, and construction documentation.' },
+      { title: 'Selections Admin', person: 'Hazel Mae', description: 'Coordinates material selections, client communication, documentation, and design tracking.' },
+    ],
+  },
+  {
+    department: 'Project Management Team',
+    roles: [
+      { title: 'Project Manager', description: 'Oversees construction projects from planning through completion, including schedules, budgets, subcontractors, and client communication.' },
+      { title: 'Assistant Project Manager', description: 'Supports project managers with documentation, coordination, scheduling, and field communication.' },
+    ],
+  },
+  {
+    department: 'Field Operations Team',
+    roles: [
+      { title: 'Lead Superintendent', person: 'Doug Mertens', description: 'Leads field operations, supervises superintendents, ensures jobsite performance, safety, and quality standards.' },
+      { title: 'Superintendent', description: 'Manages daily onsite construction activities, subcontractor coordination, scheduling, and project execution.' },
+      { title: 'Assistant Superintendent', description: 'Supports field coordination, quality control, scheduling, and onsite communication.' },
+      { title: 'Carpenter', description: 'Performs skilled construction work, repairs, installations, and jobsite support.' },
+    ],
+  },
+  {
+    department: 'Sales & Marketing Department',
+    roles: [
+      { title: 'VP Sales & Marketing', person: 'Jeff Azcona', description: 'Leads company sales strategy, marketing initiatives, revenue growth, and client acquisition efforts.' },
+    ],
+  },
+  {
+    department: 'Sales Team',
+    roles: [
+      { title: 'Director of Sales (Main & St. Pete)', description: 'Leads sales operations, sales team development, forecasting, and strategic growth initiatives.' },
+      { title: 'Sales Manager (St. Pete)', description: 'Oversees daily sales activities, lead management, and sales process execution.' },
+      { title: 'Education & Solution Specialist', description: 'Provides client education, consultation support, and solution-based sales guidance.' },
+      { title: 'Sales Analyst & Support', person: 'Leonilo Abbu Jr.', description: 'Supports sales reporting, CRM management, lead tracking, and administrative coordination.' },
+      { title: 'Strategic Partnership', person: 'Austin Haid', description: 'Builds and manages referral partnerships, strategic alliances, and business development relationships.' },
+      { title: 'Direct Marketer', description: 'Coordinates direct outreach campaigns, lead generation, and prospect engagement initiatives.' },
+    ],
+  },
+  {
+    department: 'Marketing Team',
+    roles: [
+      { title: 'Director of Marketing (Main & St. Pete)', description: 'Oversees branding, campaigns, marketing strategy, and lead generation initiatives.' },
+      { title: 'Marketing Manager (St. Pete)', description: 'Executes marketing plans, campaign coordination, and local market initiatives.' },
+      { title: 'Creative Director', person: 'Shannon Halvorsen', description: 'Leads branding, creative assets, visual direction, and content development.' },
+      { title: 'Marketing Support', description: 'Provides administrative and execution support for marketing campaigns and initiatives.' },
+      { title: 'Digital Marketing', description: 'Manages online advertising, SEO, social media, website performance, and digital campaigns.' },
+      { title: 'Relationship Marketing', description: 'Focuses on relationship-building initiatives, client engagement, and strategic communication.' },
+    ],
+  },
+  {
+    department: 'Finance Department',
+    roles: [
+      { title: 'VP Finance', person: 'Lamont Gilyot', description: 'Oversees financial strategy, budgeting, forecasting, accounting operations, and financial compliance.' },
+      { title: 'Controller', description: 'Manages accounting systems, financial reporting, controls, and compliance processes.' },
+      { title: 'Accounting Manager', description: 'Supervises accounting workflows, reconciliations, payables, receivables, and reporting accuracy.' },
+      { title: 'Virtual Staff Accountant', person: 'Jasmin Salangsang', description: 'Handles bookkeeping, reconciliations, financial data entry, and accounting support tasks.' },
+      { title: 'Virtual Accounting Specialist', person: 'Precious Mae', description: 'Provides accounting administrative support, financial processing, and reporting assistance.' },
+      { title: 'Executive Assistant', description: 'Supports executive leadership with scheduling, coordination, communication, and administrative management.' },
+      { title: 'Compliance Manager', description: 'Ensures operational compliance, documentation standards, licensing, and internal policy adherence.' },
+    ],
+  },
+  {
+    department: 'Human Resources Department',
+    roles: [
+      { title: 'VP Human Resources', person: 'Kaitlyn Grunenberg', description: 'Leads company HR strategy, employee development, recruiting, engagement, and organizational culture.' },
+      { title: 'Compensation & Benefits Manager', description: 'Manages compensation structures, employee benefits, payroll coordination, and HR compliance.' },
+      { title: 'Recruiting Manager', description: 'Leads hiring processes, recruitment systems, onboarding coordination, and talent acquisition.' },
+      { title: 'Training & Engagement', description: 'Develops training programs, employee engagement initiatives, onboarding support, and team development programs.' },
+    ],
+  },
+  {
+    department: 'Virtual Staff',
+    roles: [
+      { title: 'Virtual Staff Team', description: 'Provides remote operational, administrative, marketing, accounting, and support services across departments to improve scalability and efficiency.' },
+    ],
+  },
+]
+
+function DeptRolesModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 620,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              Department Roles and Responsibilities
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              CASK Construction — Role Description Documentation
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
+          {DEPT_ROLES_DATA.map((section, si) => (
+            <div key={section.department}>
+              {/* Department heading */}
+              <div
+                className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-3 pb-1.5"
+                style={{ color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
+              >
+                {section.department}
+              </div>
+              {/* Roles */}
+              <div className="flex flex-col gap-3">
+                {section.roles.map((role) => (
+                  <div key={role.title} className="flex flex-col gap-0.5">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-[12.5px] font-semibold" style={{ color: 'var(--text)' }}>
+                        {role.title}
+                      </span>
+                      {role.person && (
+                        <span className="text-[11px] font-medium" style={{ color: 'var(--text3)' }}>
+                          {role.person}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text2)' }}>
+                      {role.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {si < DEPT_ROLES_DATA.length - 1 && <div className="mt-2" />}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const TEAM_ALIGNMENT_RESPONSES = [
   {
     name: 'Calin',
@@ -2063,11 +2359,14 @@ function LevelCard({ level }: { level: MeetingLevel }) {
       {activeSubModal === 'daily-calin-kai' && (
         <DailyCalinKaiModal onClose={() => setActiveSubModal(null)} />
       )}
+      {activeSubModal === 'data-planning-joseph' && (
+        <DataPlanningJosephModal onClose={() => setActiveSubModal(null)} />
+      )}
       {activeSubModal === 'team-alignment' && (
         <TeamAlignmentModal onClose={() => setActiveSubModal(null)} />
       )}
       {activeSubModal === 'dept-roles' && (
-        <PlaceholderModal title="Department Roles and Responsibilities" onClose={() => setActiveSubModal(null)} />
+        <DeptRolesModal onClose={() => setActiveSubModal(null)} />
       )}
       {activeModal === 'annual-strategy' && (
         <AnnualStrategyModal onClose={() => setActiveModal(null)} />
