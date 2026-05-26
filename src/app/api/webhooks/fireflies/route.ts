@@ -1,5 +1,8 @@
+import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -83,38 +86,26 @@ export async function POST(req: NextRequest) {
 
     const meetingDate = new Date(transcript.date).toISOString().split('T')[0]
 
-    // 3. Send to Groq for extraction
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [
-          { role: 'system', content: EXTRACTION_PROMPT },
-          { role: 'user', content: fullTranscript },
-        ],
-        temperature: 0.1,
-      }),
+    // 3. Send to Claude for extraction
+    const claudeRes = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      system: EXTRACTION_PROMPT,
+      messages: [{ role: 'user', content: fullTranscript }],
+      max_tokens: 1024,
     })
 
-    const groqData = await groqRes.json()
-    console.log('Groq full response:', JSON.stringify(groqData, null, 2))
-
-    const rawContent = groqData?.choices?.[0]?.message?.content ?? ''
-    console.log('Groq raw content:', rawContent)
+    const rawContent = claudeRes.content[0].type === 'text' ? claudeRes.content[0].text : ''
+    console.log('Claude raw content:', rawContent)
 
     if (!rawContent) {
-      console.error('Groq returned empty content. Response:', JSON.stringify(groqData, null, 2))
+      console.error('Claude returned empty content.')
     }
 
     let extracted: Record<string, unknown> = {}
     try {
       extracted = JSON.parse(rawContent)
     } catch {
-      console.error('Failed to parse Groq JSON response:', rawContent)
+      console.error('Failed to parse Claude JSON response:', rawContent)
     }
 
     // 4. Save to Supabase

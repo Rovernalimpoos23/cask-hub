@@ -1,10 +1,10 @@
 // src/app/api/chat/route.ts
-// Requires GROQ_API_KEY in environment (set in Vercel dashboard + .env.local)
-import Groq from 'groq-sdk'
+// Requires ANTHROPIC_API_KEY in environment (set in Vercel dashboard + .env.local)
+import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 function buildSystemPrompt(userName: string, meetingsContext: string) {
   return `You are CASK Hub AI for CASK Construction's ActionCOACH program. Be concise and helpful.
@@ -54,17 +54,14 @@ Key Decisions: ${Array.isArray(m.key_decisions) ? m.key_decisions.join(' ') : m.
 Action Items: ${Array.isArray(m.action_items) ? m.action_items.map((a: { task: string }) => a.task).join(', ') : ''}
 `).join('\n---\n') ?? 'No meetings found.'
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: buildSystemPrompt(userName, meetingsContext) },
-        ...messages.slice(-10), // Last 10 messages for context window
-      ],
+    const completion = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      system: buildSystemPrompt(userName, meetingsContext),
+      messages: messages.slice(-10),
       max_tokens: 500,
-      temperature: 0.7,
     })
 
-    const content = completion.choices[0].message.content || ''
+    const content = completion.content[0].type === 'text' ? completion.content[0].text : ''
     return NextResponse.json({ content })
   } catch (error) {
     console.error('Chat API error:', error)

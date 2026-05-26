@@ -1,9 +1,9 @@
 // src/app/api/generate-agenda/route.ts
-// Requires GROQ_API_KEY in environment (set in Vercel dashboard + .env.local)
-import Groq from 'groq-sdk'
+// Requires ANTHROPIC_API_KEY in environment (set in Vercel dashboard + .env.local)
+import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const SYSTEM_PROMPT = `You are the AI system for CASK Construction's ActionCOACH coaching program. Generate concise, professional meeting agendas.
 
@@ -38,17 +38,14 @@ Standard attendees: Calin, Chad, Lamont, Jeff, Matteo, Kait, Juliet
 
 Create a complete, detailed agenda with time slots that add up to exactly ${duration}.`
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
+    const completion = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userPrompt }],
       max_tokens: 1200,
-      temperature: 0.7,
     })
 
-    const agenda = completion.choices[0].message.content || ''
+    const agenda = completion.content[0].type === 'text' ? completion.content[0].text : ''
     return NextResponse.json({ agenda })
   } catch (error) {
     console.error('Generate agenda API error:', error)

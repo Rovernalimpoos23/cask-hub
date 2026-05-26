@@ -1,20 +1,17 @@
 // src/app/api/extract-meeting/route.ts
-// Requires GROQ_API_KEY in environment (set in Vercel dashboard + .env.local)
-import Groq from 'groq-sdk'
+// Requires ANTHROPIC_API_KEY in environment (set in Vercel dashboard + .env.local)
+import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
   try {
     const { transcript } = await req.json()
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an AI assistant for CASK Construction. Extract meeting information from this transcript and return ONLY a valid JSON object with no other text, no markdown, no backticks.
+    const completion = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      system: `You are an AI assistant for CASK Construction. Extract meeting information from this transcript and return ONLY a valid JSON object with no other text, no markdown, no backticks.
 
 Return this exact structure:
 {
@@ -36,25 +33,24 @@ CASK Construction context:
 - If Juliet is in the meeting — module is ActionCOACH, type is coaching or leadership
 - If only Calin and Kai — module is President Workflow — Coaching Sessions
 - If department heads present — type is leadership or planning`,
-        },
+      messages: [
         {
           role: 'user',
           content: `Extract meeting information from this transcript:\n\n${transcript}`,
         },
       ],
-      temperature: 0.1,
       max_tokens: 2000,
     })
 
-    const text = completion.choices[0].message.content || ''
+    const text = completion.content[0].type === 'text' ? completion.content[0].text : ''
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('No JSON found in Groq response')
+    if (!jsonMatch) throw new Error('No JSON found in Claude response')
 
     const data = JSON.parse(jsonMatch[0])
     return NextResponse.json({ success: true, data })
   } catch (error) {
-    console.error('Groq extraction error:', error)
+    console.error('Claude extraction error:', error)
     return NextResponse.json(
       { success: false, error: 'Failed to extract meeting details' },
       { status: 500 }
