@@ -15,12 +15,12 @@ const FREQ = {
 type Freq = keyof typeof FREQ
 
 interface PersonItem { name: string }
-interface SubSubItem { title: string; personItems?: PersonItem[] }
+interface SubSubItem { title: string; personItems?: PersonItem[]; modalKey?: string }
 interface SubItem { title: string; subItems?: SubSubItem[]; modalKey?: string }
-interface MeetingLevel { title: string; freq: Freq; subItems?: SubItem[] }
+interface MeetingLevel { title: string; freq: Freq; subItems?: SubItem[]; modalKey?: string }
 
 const LEVELS: MeetingLevel[] = [
-  { title: 'Annual Strategy Meeting', freq: 'annual' },
+  { title: 'Annual Strategy Meeting', freq: 'annual', modalKey: 'annual-strategy' },
   { title: 'Yearly Company Strategic Alignment', freq: 'annual' },
   { title: 'Quarterly Meetings', freq: 'quarterly' },
   {
@@ -45,8 +45,8 @@ const LEVELS: MeetingLevel[] = [
               { name: 'Matteo Carpani' },
             ],
           },
-          { title: 'Team Alignment – Hitting Our $20M Goal' },
-          { title: 'Department Roles and Responsibilities' },
+          { title: 'Team Alignment – Hitting Our $20M Goal', modalKey: 'team-alignment' },
+          { title: 'Department Roles and Responsibilities', modalKey: 'dept-roles' },
         ],
       },
     ],
@@ -746,10 +746,191 @@ function DownArrow() {
 
 // ── Level card ────────────────────────────────────────────────────────────────
 
+function AnnualStrategyModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 560,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              Annual Strategic Planning Session
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              Participants: Calin &amp; Chad · Timing: November
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
+
+          {/* Prep Material */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Prep Material for the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Participants should review the following materials prior to the session:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Review Big Vision (10-Year Vision)',
+                "Review Last Year's Goals",
+                'Review Current Strategic Plan and KPIs',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Links for the Meeting */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Links for the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Include links within the meeting document to the following materials:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Chat GPT channel — Company Planning GPT',
+                'Teams channel — Company Planning',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Purpose Statement */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Purpose Statement of the Meeting
+            </div>
+            <p className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Set a direction for the next year so that each individual department can set their own mission statement and goals for the upcoming year.
+            </p>
+          </div>
+
+          {/* Outcomes After the Meeting */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Outcomes After the Meeting
+            </div>
+            <p className="text-[12px] mb-2 leading-relaxed" style={{ color: 'var(--text2)' }}>
+              Define the expected outcomes from the session, including:
+            </p>
+            <ul className="flex flex-col gap-1.5" style={{ marginLeft: 4 }}>
+              {[
+                'Set a meeting with the Department Heads',
+                'Send out the direction and the vision and mission statement for each department to set their goals.',
+                'Alignment on long-term company vision',
+              ].map(item => (
+                <li key={item} className="flex items-start gap-2">
+                  <div className="shrink-0 mt-1.5 rounded-full" style={{ width: 4, height: 4, background: 'var(--border2)' }} />
+                  <span className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text2)' }}>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PlaceholderModal({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 520,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              {title}
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              Department Alignment
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4" />
+      </div>
+    </div>
+  )
+}
+
 function LevelCard({ level }: { level: MeetingLevel }) {
   const f = FREQ[level.freq]
   const hasSubItems = level.subItems && level.subItems.length > 0
   const [activeSubModal, setActiveSubModal] = useState<string | null>(null)
+  const [activeModal, setActiveModal] = useState<string | null>(null)
 
   return (
     <div
@@ -779,15 +960,18 @@ function LevelCard({ level }: { level: MeetingLevel }) {
 
           <button
             type="button"
-            className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px]"
+            className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-[5px] transition-opacity"
             style={{
               background: f.bg,
               color: f.color,
               border: `1px solid ${f.border}`,
               fontFamily: 'inherit',
-              opacity: 0.45,
-              cursor: 'default',
+              opacity: level.modalKey ? 1 : 0.45,
+              cursor: level.modalKey ? 'pointer' : 'default',
             }}
+            onClick={() => { if (level.modalKey) setActiveModal(level.modalKey) }}
+            onMouseEnter={e => { if (level.modalKey) e.currentTarget.style.opacity = '0.7' }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = level.modalKey ? '1' : '0.45' }}
           >
             View Agenda
           </button>
@@ -855,14 +1039,34 @@ function LevelCard({ level }: { level: MeetingLevel }) {
                       subsub.personItems ? (
                         <DiscExpandable key={subsub.title} subsub={subsub} />
                       ) : (
-                        <div key={subsub.title} className="flex items-center gap-2">
-                          <div
-                            className="shrink-0 rounded-full"
-                            style={{ width: 4, height: 4, background: 'var(--border2)' }}
-                          />
-                          <span className="text-[11.5px]" style={{ color: 'var(--text3)' }}>
-                            {subsub.title}
-                          </span>
+                        <div key={subsub.title} className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="shrink-0 rounded-full"
+                              style={{ width: 4, height: 4, background: 'var(--border2)' }}
+                            />
+                            <span className="text-[11.5px]" style={{ color: 'var(--text3)' }}>
+                              {subsub.title}
+                            </span>
+                          </div>
+                          {subsub.modalKey && (
+                            <button
+                              type="button"
+                              className="shrink-0 text-[10.5px] font-semibold px-2 py-0.5 rounded-[4px] transition-opacity"
+                              style={{
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                fontFamily: 'inherit',
+                                cursor: 'pointer',
+                              }}
+                              onClick={() => setActiveSubModal(subsub.modalKey!)}
+                              onMouseEnter={e => { e.currentTarget.style.opacity = '0.7' }}
+                              onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                            >
+                              View File
+                            </button>
+                          )}
                         </div>
                       )
                     )}
@@ -879,6 +1083,15 @@ function LevelCard({ level }: { level: MeetingLevel }) {
       )}
       {activeSubModal === 'daily-calin-kai' && (
         <DailyCalinKaiModal onClose={() => setActiveSubModal(null)} />
+      )}
+      {activeSubModal === 'team-alignment' && (
+        <PlaceholderModal title="Team Alignment – Hitting Our $20M Goal" onClose={() => setActiveSubModal(null)} />
+      )}
+      {activeSubModal === 'dept-roles' && (
+        <PlaceholderModal title="Department Roles and Responsibilities" onClose={() => setActiveSubModal(null)} />
+      )}
+      {activeModal === 'annual-strategy' && (
+        <AnnualStrategyModal onClose={() => setActiveModal(null)} />
       )}
     </div>
   )
