@@ -68,6 +68,7 @@ interface TodayEvent {
   title: string
   start_time: string
   end_time: string | null
+  organizer: string | null
   attendees: unknown
   meeting_link: string | null
   is_all_day: boolean | null
@@ -188,6 +189,7 @@ export default function DashboardPage() {
           setNextEventHint('No upcoming events')
         }
       })
+
   }, [])
 
   const allActions = meetings.flatMap(m => m.action_items)
@@ -266,81 +268,172 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Today's Schedule */}
+        {/* Morning Briefing */}
         <div className="mb-8">
-          <div
-            className="text-[11px] font-semibold tracking-[1px] uppercase flex items-center justify-between mb-3"
-            style={{ color: 'var(--text2)', borderLeft: '3px solid var(--red)', paddingLeft: '10px' }}
-          >
-            Today&apos;s Schedule
-            <a
-              href="/president/calendar"
-              className="text-[12px] font-medium normal-case tracking-normal no-underline"
-              style={{ color: 'var(--text2)', padding: '3px 9px', borderRadius: 6, border: '1px solid var(--border2)', lineHeight: '1.4' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--surface2)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent' }}
-            >
-              View Calendar →
-            </a>
-          </div>
-          {calendarLoading ? (
-            <div className="rounded-[10px] h-[52px] shimmer" style={{ border: '1px solid var(--border)' }} />
-          ) : calendarEvents.length === 0 ? (
-            <div
-              className="rounded-[10px] flex items-center gap-2.5 px-4 py-3.5"
-              style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text3)', fontSize: 13 }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
-                <circle cx="12" cy="12" r="9"/>
-                <path d="M9 12l2 2 4-4"/>
-              </svg>
-              No meetings scheduled today
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            overflow: 'hidden',
+          }}>
+
+            {/* Card header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '13px 18px',
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(to bottom, var(--surface), var(--surface2))',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                  background: 'linear-gradient(135deg, #f59e0b, #fbbf24)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="5"/>
+                    <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>Morning Briefing</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{todayLabel}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase',
+                  color: 'var(--green)', background: 'var(--green-bg)',
+                  border: '1px solid #bbf7d0', padding: '3px 8px', borderRadius: 20,
+                }}>
+                  Daily Briefing
+                </span>
+                <a
+                  href="/president/calendar"
+                  style={{
+                    fontSize: 12, fontWeight: 500, color: 'var(--text2)',
+                    padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border2)',
+                    textDecoration: 'none', transition: 'background 150ms ease',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--surface2)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent' }}
+                >
+                  View Calendar →
+                </a>
+              </div>
             </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {calendarEvents.map(ev => {
-                const duration = fmtDuration(ev.start_time, ev.end_time)
-                const names = getFirstNames(ev.attendees)
-                return (
-                  <div
-                    key={ev.id}
-                    className="rounded-[10px] flex items-center gap-3 px-4 py-3"
-                    style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}
-                  >
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#2563eb', flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500, flexShrink: 0, minWidth: 72 }}>
-                      {ev.is_all_day ? 'All Day' : fmtET(ev.start_time)}
-                    </span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {ev.title}
-                    </span>
-                    {duration && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
-                        {duration}
-                      </span>
-                    )}
-                    {names.length > 0 && (
-                      <span style={{ fontSize: 12, color: 'var(--text3)', flexShrink: 0 }}>
-                        {names.join(', ')}
-                      </span>
-                    )}
-                    {ev.meeting_link && (
-                      <a
-                        href={ev.meeting_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontSize: 11, fontWeight: 600, color: 'white', background: '#7c3aed', padding: '4px 10px', borderRadius: 6, textDecoration: 'none', flexShrink: 0 }}
-                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
-                        onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
-                      >
-                        Join Teams
-                      </a>
-                    )}
+
+            {/* Section 1 — Today's Schedule */}
+            <div style={{ padding: '0 18px' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '11px 0 9px',
+              }}>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text3)' }}>
+                  Today&apos;s Schedule
+                </span>
+                {!calendarLoading && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, color: 'white',
+                    background: '#2563eb', borderRadius: 20, padding: '1px 7px',
+                  }}>
+                    {calendarEvents.length}
+                  </span>
+                )}
+              </div>
+              <div style={{ paddingBottom: 14, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {calendarLoading ? (
+                  <>
+                    <div className="shimmer" style={{ height: 46, borderRadius: 8, border: '1px solid var(--border)' }} />
+                    <div className="shimmer" style={{ height: 46, borderRadius: 8, border: '1px solid var(--border)', opacity: 0.6 }} />
+                  </>
+                ) : calendarEvents.length === 0 ? (
+                  <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ opacity: 0.45 }}>
+                      <rect x="3" y="4" width="18" height="18" rx="2"/>
+                      <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+                      <line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    No meetings scheduled today
                   </div>
-                )
-              })}
+                ) : (
+                  calendarEvents.map(ev => {
+                    const duration = fmtDuration(ev.start_time, ev.end_time)
+                    const nowMs = Date.now()
+                    const isNow = !ev.is_all_day
+                      && new Date(ev.start_time).getTime() <= nowMs
+                      && !!ev.end_time && new Date(ev.end_time).getTime() >= nowMs
+                    const accentColor = ev.meeting_link ? '#0d9488' : '#2563eb'
+                    return (
+                      <div
+                        key={ev.id}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '9px 12px 9px 10px',
+                          borderRadius: 8,
+                          border: `1px solid ${isNow ? 'rgba(13,148,136,0.35)' : 'var(--border)'}`,
+                          borderLeft: `3px solid ${accentColor}`,
+                          background: isNow ? 'rgba(13,148,136,0.04)' : 'transparent',
+                          transition: 'border-color 150ms ease',
+                        }}
+                      >
+                        <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500, minWidth: 66, flexShrink: 0, lineHeight: 1.2 }}>
+                          {ev.is_all_day ? 'All Day' : fmtET(ev.start_time)}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                            {ev.title}
+                          </div>
+                          {ev.organizer && (
+                            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{ev.organizer}</div>
+                          )}
+                        </div>
+                        {duration && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, color: 'var(--text3)',
+                            background: 'var(--surface2)', border: '1px solid var(--border)',
+                            borderRadius: 4, padding: '1px 6px', flexShrink: 0,
+                          }}>
+                            {duration}
+                          </span>
+                        )}
+                        {isNow && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase',
+                            color: 'white', background: '#0d9488',
+                            borderRadius: 20, padding: '2px 7px', flexShrink: 0,
+                          }}>
+                            Now
+                          </span>
+                        )}
+                        {ev.meeting_link && (
+                          <a
+                            href={ev.meeting_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontSize: 11, fontWeight: 600, color: 'white',
+                              background: '#7c3aed', padding: '4px 11px', borderRadius: 6,
+                              textDecoration: 'none', flexShrink: 0,
+                              transition: 'opacity 150ms ease',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
+                            onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                          >
+                            Join
+                          </a>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
             </div>
-          )}
+
+          </div>
         </div>
 
         {/* Recent Sessions */}
