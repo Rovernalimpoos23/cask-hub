@@ -63,12 +63,52 @@ function IconCheck() {
   )
 }
 
+interface TodayEvent {
+  id: string
+  title: string
+  start_time: string
+  end_time: string | null
+  attendees: unknown
+  meeting_link: string | null
+  is_all_day: boolean | null
+}
+
+function fmtET(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
+function fmtDuration(start: string, end: string | null): string | null {
+  if (!end) return null
+  const mins = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000)
+  if (mins <= 0) return null
+  if (mins < 60) return `${mins}m`
+  const h = Math.floor(mins / 60), m = mins % 60
+  return m ? `${h}h ${m}m` : `${h}h`
+}
+
+function getFirstNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return (raw as unknown[]).map(a => {
+    const s = typeof a === 'string' ? a : String((a as Record<string, unknown>)?.name ?? (a as Record<string, unknown>)?.displayName ?? '')
+    return s.split(' ')[0]
+  }).filter(Boolean).slice(0, 2)
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
   const [firstName, setFirstName] = useState('')
   const [greeting, setGreeting] = useState('Good morning')
+  const [calendarEvents, setCalendarEvents] = useState<TodayEvent[]>([])
+  const [calendarLoading, setCalendarLoading] = useState(true)
+  const [upcomingCount, setUpcomingCount] = useState<number | null>(null)
+  const [nextEventHint, setNextEventHint] = useState<string>('Loading…')
 
   useEffect(() => {
     const hour = new Date().getHours()
@@ -101,6 +141,54 @@ export default function DashboardPage() {
     window.addEventListener('cask-meeting-saved', handler)
     return () => window.removeEventListener('cask-meeting-saved', handler)
   }, [loadMeetings, router])
+
+  useEffect(() => {
+    const supabase = createClient()
+    const now = new Date()
+    const etTodayStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+    // Compute the exact UTC bounds of today in Eastern Time.
+    // ET is UTC-4 (EDT) or UTC-5 (EST). We detect the actual offset so DST is handled correctly.
+    const etNowApprox = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const offsetMs = now.getTime() - etNowApprox.getTime() // positive = ET behind UTC
+
+    const [y, mo, d] = etTodayStr.split('-').map(Number)
+    const etDayStartUTC = new Date(Date.UTC(y, mo - 1, d, 0, 0, 0)).getTime() + offsetMs
+    const etDayEndUTC = etDayStartUTC + 24 * 60 * 60 * 1000
+
+    // Today's Schedule: all events that START during ET today
+    supabase
+      .from('calendar_events')
+      .select('*')
+      .gte('start_time', new Date(etDayStartUTC).toISOString())
+      .lt('start_time', new Date(etDayEndUTC).toISOString())
+      .order('start_time', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) console.error('[dashboard] calendar_events error:', error)
+        setCalendarEvents((data ?? []) as TodayEvent[])
+        setCalendarLoading(false)
+      })
+
+    // Upcoming stat card: count all future events and get the next one's date
+    supabase
+      .from('calendar_events')
+      .select('id, title, start_time')
+      .gte('start_time', now.toISOString())
+      .order('start_time', { ascending: true })
+      .then(({ data }) => {
+        const rows = data ?? []
+        setUpcomingCount(rows.length)
+        if (rows.length > 0) {
+          const nextDate = new Date(rows[0].start_time).toLocaleDateString('en-US', {
+            timeZone: 'America/New_York',
+            month: 'long', day: 'numeric', year: 'numeric',
+          })
+          setNextEventHint(nextDate)
+        } else {
+          setNextEventHint('No upcoming events')
+        }
+      })
+  }, [])
 
   const allActions = meetings.flatMap(m => m.action_items)
   const openActions = allActions.filter(a => !a.done)
@@ -153,9 +241,9 @@ export default function DashboardPage() {
             icon={<IconSessions />}
           />
           <StatCard
-            value={1}
-            label="Upcoming Meeting"
-            hint="May 28, 2026"
+            value={upcomingCount ?? '…'}
+            label="Upcoming Meetings"
+            hint={nextEventHint}
             variant="alert"
             index={1}
             icon={<IconCalendar />}
@@ -176,6 +264,83 @@ export default function DashboardPage() {
             index={3}
             icon={<IconCheck />}
           />
+        </div>
+
+        {/* Today's Schedule */}
+        <div className="mb-8">
+          <div
+            className="text-[11px] font-semibold tracking-[1px] uppercase flex items-center justify-between mb-3"
+            style={{ color: 'var(--text2)', borderLeft: '3px solid var(--red)', paddingLeft: '10px' }}
+          >
+            Today&apos;s Schedule
+            <a
+              href="/president/calendar"
+              className="text-[12px] font-medium normal-case tracking-normal no-underline"
+              style={{ color: 'var(--text2)', padding: '3px 9px', borderRadius: 6, border: '1px solid var(--border2)', lineHeight: '1.4' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--surface2)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent' }}
+            >
+              View Calendar →
+            </a>
+          </div>
+          {calendarLoading ? (
+            <div className="rounded-[10px] h-[52px] shimmer" style={{ border: '1px solid var(--border)' }} />
+          ) : calendarEvents.length === 0 ? (
+            <div
+              className="rounded-[10px] flex items-center gap-2.5 px-4 py-3.5"
+              style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text3)', fontSize: 13 }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M9 12l2 2 4-4"/>
+              </svg>
+              No meetings scheduled today
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {calendarEvents.map(ev => {
+                const duration = fmtDuration(ev.start_time, ev.end_time)
+                const names = getFirstNames(ev.attendees)
+                return (
+                  <div
+                    key={ev.id}
+                    className="rounded-[10px] flex items-center gap-3 px-4 py-3"
+                    style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}
+                  >
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#2563eb', flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500, flexShrink: 0, minWidth: 72 }}>
+                      {ev.is_all_day ? 'All Day' : fmtET(ev.start_time)}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {ev.title}
+                    </span>
+                    {duration && (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
+                        {duration}
+                      </span>
+                    )}
+                    {names.length > 0 && (
+                      <span style={{ fontSize: 12, color: 'var(--text3)', flexShrink: 0 }}>
+                        {names.join(', ')}
+                      </span>
+                    )}
+                    {ev.meeting_link && (
+                      <a
+                        href={ev.meeting_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: 11, fontWeight: 600, color: 'white', background: '#7c3aed', padding: '4px 10px', borderRadius: 6, textDecoration: 'none', flexShrink: 0 }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                      >
+                        Join Teams
+                      </a>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Recent Sessions */}

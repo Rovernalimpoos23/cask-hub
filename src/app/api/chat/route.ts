@@ -160,6 +160,7 @@ function buildSystemPrompt(
   userRole: string,
   meetingsContext: string,
   clientsContext: string,
+  calendarContext: string,
 ) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -181,9 +182,32 @@ ${meetingsContext}
 == LIVE CLIENT DATA (from Supabase) ==
 ${clientsContext}
 
+== CALIN'S CALENDAR (Microsoft 365 — Eastern Time) ==
+${calendarContext}
+
 == RESPONSE BEHAVIOR ==
 - You have full knowledge of everything above — never say you don't have access to this data
 - Answer any question about CASK Hub: templates, PIT goals, team members, meetings, clients, president's meetings, department roles, and more
+- Answer ANY calendar question directly and confidently using the calendar data above:
+  "What's on my calendar today?" → list today's events with times
+  "When is my next meeting?" → find the first event after current time today
+  "Do I have any meetings this afternoon?" → check today's events after 12 PM ET
+  "What time is my meeting with [person]?" → search by organizer or attendee name
+  "Am I free at 2pm today?" → check if any event overlaps 2 PM ET
+  "What meetings do I have this week?" → list This Week section
+  "When is my next quarterly meeting?" → search upcoming for quarterly/quarterly in title
+  "How many meetings do I have today?" → count today's events
+  "What's my first meeting tomorrow?" → first event in Tomorrow section
+  "Do I have anything after 3pm today?" → filter today's events after 3 PM ET
+  "When is my next 1:1 with [person]?" → search attendees/organizer across all dates
+  "What's the busiest day this week?" → count events per day this week
+  "Do I have any Teams meetings today?" → filter today's events where Teams: Yes
+  "What meetings can I join from Teams this week?" → filter week events where Teams: Yes
+  "How much free time do I have today?" → total duration of today's meetings vs 8-hour day
+  "What's on Friday?" → find events on the upcoming Friday date
+  "When is the next Department Alignment meeting?" → search upcoming for "alignment" in title
+  "Do I have the quarterly meeting this month?" → search next 30 days for quarterly events
+- For each calendar event you know: title, start/end time (ET), duration, organizer, attendees, Teams link availability
 - Answer personal questions (name, role, action items) directly and confidently
 - Reference specific meeting data and dates when relevant
 - For action items, clearly distinguish open vs completed
@@ -208,7 +232,18 @@ export async function POST(req: NextRequest) {
 
     const supabase = createClient()
 
-    const [{ data: meetings }, { data: clients }] = await Promise.all([
+    const now = new Date()
+    const ET = 'America/New_York'
+
+    // Compute exact UTC start of today in Eastern Time (handles DST automatically)
+    const etNowApprox = new Date(now.toLocaleString('en-US', { timeZone: ET }))
+    const etOffsetMs = now.getTime() - etNowApprox.getTime()
+    const etTodayStr = now.toLocaleDateString('en-CA', { timeZone: ET })
+    const [ey, em, ed] = etTodayStr.split('-').map(Number)
+    const etDayStartISO = new Date(Date.UTC(ey, em - 1, ed, 0, 0, 0) + etOffsetMs).toISOString()
+    const et30DaysISO = new Date(Date.UTC(ey, em - 1, ed, 0, 0, 0) + etOffsetMs + 30 * 24 * 60 * 60 * 1000).toISOString()
+
+    const [{ data: meetings }, { data: clients }, { data: calendarEvents }] = await Promise.all([
       supabase
         .from('meetings')
         .select('title, date, summary, action_items, key_decisions, attendees, meeting_type, module')
@@ -218,6 +253,13 @@ export async function POST(req: NextRequest) {
         .from('clients')
         .select('name, happiness, project_type, project_value, start_date')
         .order('name'),
+      supabase
+        .from('calendar_events')
+        .select('title, start_time, end_time, organizer, attendees, location, meeting_link, is_all_day')
+        .gte('start_time', etDayStartISO)
+        .lte('start_time', et30DaysISO)
+        .order('start_time', { ascending: true })
+        .limit(200),
     ])
 
     const meetingsContext = meetings?.length
@@ -248,6 +290,85 @@ export async function POST(req: NextRequest) {
         }).join('\n')
       : 'No active clients on record.'
 
+    type CalRow = {
+      title: string; start_time: string; end_time: string | null
+      organizer: string | null; attendees: unknown; location: string | null
+      meeting_link: string | null; is_all_day: boolean | null
+    }
+
+    const fmtET = (iso: string) =>
+      new Date(iso).toLocaleTimeString('en-US', { timeZone: ET, hour: 'numeric', minute: '2-digit', hour12: true })
+
+    const fmtETDate = (iso: string, opts: Intl.DateTimeFormatOptions = {}) =>
+      new Date(iso).toLocaleDateString('en-US', { timeZone: ET, ...opts })
+
+    const getETDateStr = (iso: string) =>
+      new Date(iso).toLocaleDateString('en-CA', { timeZone: ET })
+
+    const durStr = (start: string, end: string | null): string => {
+      if (!end) return ''
+      const mins = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000)
+      if (mins <= 0) return ''
+      if (mins < 60) return `${mins}m`
+      const h = Math.floor(mins / 60), m = mins % 60
+      return m ? `${h}h ${m}m` : `${h}h`
+    }
+
+    const fmtEvent = (e: CalRow): string => {
+      const timeRange = e.is_all_day
+        ? 'All Day'
+        : `${fmtET(e.start_time)}${e.end_time ? ` – ${fmtET(e.end_time)}` : ''}`
+      const dur = durStr(e.start_time, e.end_time)
+      const names = Array.isArray(e.attendees)
+        ? (e.attendees as unknown[]).map(a => typeof a === 'string' ? a : (a as Record<string, string>)?.name ?? '').filter(Boolean).join(', ')
+        : ''
+      return [
+        `  • ${timeRange}${dur ? ` (${dur})` : ''} — ${e.title}`,
+        e.organizer ? `Organizer: ${e.organizer}` : '',
+        names ? `Attendees: ${names}` : '',
+        e.location ? `Location: ${e.location}` : '',
+        e.meeting_link ? 'Teams: Yes' : 'Teams: No',
+      ].filter(Boolean).join(' | ')
+    }
+
+    const rows = (calendarEvents ?? []) as CalRow[]
+    const etTodayLabel = fmtETDate(now.toISOString(), { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    const etTomorrowISO = new Date(now.getTime() + 86_400_000).toISOString()
+    const etTomorrowStr = getETDateStr(etTomorrowISO)
+    const etTomorrowLabel = fmtETDate(etTomorrowISO, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    const et7DaysStr = getETDateStr(new Date(now.getTime() + 7 * 86_400_000).toISOString())
+
+    const todayEvts = rows.filter(e => getETDateStr(e.start_time) === etTodayStr)
+    const tomorrowEvts = rows.filter(e => getETDateStr(e.start_time) === etTomorrowStr)
+    const weekEvts = rows.filter(e => { const d = getETDateStr(e.start_time); return d > etTomorrowStr && d <= et7DaysStr })
+    const laterEvts = rows.filter(e => getETDateStr(e.start_time) > et7DaysStr)
+
+    const groupByDay = (evts: CalRow[]): string => {
+      const byDay: Record<string, CalRow[]> = {}
+      for (const e of evts) {
+        const d = getETDateStr(e.start_time)
+        ;(byDay[d] ??= []).push(e)
+      }
+      return Object.entries(byDay).map(([d, es]) => {
+        const label = fmtETDate(d + 'T12:00:00Z', { weekday: 'long', month: 'long', day: 'numeric' })
+        return `${label}:\n${es.map(fmtEvent).join('\n')}`
+      }).join('\n\n')
+    }
+
+    const calendarContext = [
+      `Today — ${etTodayLabel} (Eastern Time):`,
+      todayEvts.length ? todayEvts.map(fmtEvent).join('\n') : '  No meetings today.',
+      '',
+      `Tomorrow — ${etTomorrowLabel}:`,
+      tomorrowEvts.length ? tomorrowEvts.map(fmtEvent).join('\n') : '  No meetings tomorrow.',
+      '',
+      'This Week (next 7 days):',
+      weekEvts.length ? groupByDay(weekEvts) : '  No meetings this week.',
+      '',
+      'Next 30 Days (upcoming):',
+      laterEvts.length ? groupByDay(laterEvts) : '  No meetings in the next 30 days.',
+    ].join('\n')
+
     // Claude requires the conversation to start with a 'user' turn.
     // Strip any leading 'assistant' messages (e.g. the greeting) before sending.
     const rawMessages: { role: string; content: string }[] = (messages ?? []).slice(-12)
@@ -263,7 +384,7 @@ export async function POST(req: NextRequest) {
     console.log('[chat] Calling Claude API with', claudeMessages.length, 'messages...')
     const completion = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      system: buildSystemPrompt(userName ?? '', userRole ?? '', meetingsContext, clientsContext),
+      system: buildSystemPrompt(userName ?? '', userRole ?? '', meetingsContext, clientsContext, calendarContext),
       messages: claudeMessages as { role: 'user' | 'assistant'; content: string }[],
       max_tokens: 600,
     })

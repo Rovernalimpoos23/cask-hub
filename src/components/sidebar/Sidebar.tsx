@@ -41,7 +41,7 @@ const NAV_SECTIONS = [
     locked: true,
     items: [
       { href: '#', icon: '🎙', label: 'AI Notetaker', locked: true },
-      { href: '#', icon: '📅', label: 'Calendar Sync', locked: true },
+      { href: '/president/calendar', icon: '📅', label: 'Calendar Sync', locked: false },
       { href: '#', icon: '📋', label: 'Transcripts', locked: true },
     ],
   },

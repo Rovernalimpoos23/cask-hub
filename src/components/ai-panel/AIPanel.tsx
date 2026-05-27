@@ -71,8 +71,9 @@ export default function AIPanel() {
     const supabase = createClient()
 
     async function init() {
-      const [{ count }, { data: { user } }] = await Promise.all([
+      const [{ count }, { count: calCount }, { data: { user } }] = await Promise.all([
         supabase.from('meetings').select('*', { count: 'exact', head: true }),
+        supabase.from('calendar_events').select('*', { count: 'exact', head: true }).gte('start_time', new Date().toISOString()),
         supabase.auth.getUser(),
       ])
 
@@ -95,7 +96,7 @@ export default function AIPanel() {
       setMessages([
         {
           role: 'assistant',
-          content: `${timeGreeting}, ${firstName}. I have full context on all ${count} sessions recorded in CASK Hub. What would you like to know?`,
+          content: `${timeGreeting}, ${firstName}. I have full context on ${count ?? 0} sessions, ${calCount ?? 0} upcoming meetings, and all CASK data — clients, action items, and more. What would you like to know?`,
         },
       ])
     }
