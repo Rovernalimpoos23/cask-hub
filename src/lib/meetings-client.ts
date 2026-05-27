@@ -29,8 +29,7 @@ export async function fetchAllMeetings(): Promise<Meeting[]> {
       console.log(`  [${i}] "${m.title}" | date="${m.date}" | created_at="${m.created_at}"`)
     })
 
-    // Parse a date value safely — returns 0 for null/undefined/invalid so those sort last
-    function toMs(val: string | null | undefined): number {
+    const toMs = (val: string | null | undefined): number => {
       if (!val) return 0
       const ms = new Date(val).getTime()
       return isNaN(ms) ? 0 : ms
