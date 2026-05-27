@@ -7,10 +7,18 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
   try {
-    const { transcript } = await req.json()
+    const body = await req.json()
+    const transcript: string = body?.transcript ?? ''
+
+    if (!transcript.trim()) {
+      return NextResponse.json(
+        { success: false, error: 'No transcript provided' },
+        { status: 400 }
+      )
+    }
 
     const completion = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       system: `You are an AI assistant for CASK Construction. Extract meeting information from this transcript and return ONLY a valid JSON object with no other text, no markdown, no backticks.
 
 Return this exact structure:
@@ -45,14 +53,18 @@ CASK Construction context:
     const text = completion.content[0].type === 'text' ? completion.content[0].text : ''
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('No JSON found in Claude response')
+    if (!jsonMatch) {
+      console.error('Claude response contained no JSON:', text)
+      throw new Error('No JSON found in Claude response')
+    }
 
     const data = JSON.parse(jsonMatch[0])
     return NextResponse.json({ success: true, data })
   } catch (error) {
-    console.error('Claude extraction error:', error)
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('Claude extraction error:', message, error)
     return NextResponse.json(
-      { success: false, error: 'Failed to extract meeting details' },
+      { success: false, error: message },
       { status: 500 }
     )
   }
