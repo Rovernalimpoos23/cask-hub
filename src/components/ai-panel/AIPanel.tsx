@@ -268,7 +268,7 @@ export default function AIPanel() {
               className="text-[9px] font-semibold tracking-[0.5px] uppercase px-1.5 py-[2px] rounded-[3px]"
               style={{ color: 'rgba(255,255,255,0.7)', background: 'var(--charcoal)' }}
             >
-              Groq AI
+              CLAUDE AI
             </span>
           </div>
           <div className="flex items-center gap-1.5 mt-1">
@@ -462,7 +462,7 @@ export default function AIPanel() {
           </button>
         </div>
         <p className="text-[10px] text-center mt-1.5" style={{ color: 'var(--text3)' }}>
-          Powered by Groq · CASK Hub AI
+          Powered by Claude · CASK Hub AI
         </p>
       </div>
     </aside>
