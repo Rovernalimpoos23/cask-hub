@@ -137,6 +137,7 @@ const PHASES: Phase[] = [
       { code: 'PS6m', title: 'In-Person 3rd Selections with Customer', type: 'meeting' },
       { code: 'PS7e', title: 'Post 3rd Selections Meeting to Customer', type: 'email' },
       { code: 'PS8m', title: 'In-Person 4th Selections with Customer', type: 'meeting' },
+      { code: 'PS9e', title: 'Post 4th Selections Meeting to Customer', type: 'email' },
     ],
     startIndex: 22,
   },
@@ -230,9 +231,9 @@ const PHASES: Phase[] = [
 ]
 
 const STATS = [
-  { value: '56', label: 'Total Items' },
+  { value: '57', label: 'Total Items' },
   { value: '18', label: 'Meetings (M)' },
-  { value: '31', label: 'Email Templates (E)' },
+  { value: '32', label: 'Email Templates (E)' },
   { value: '5', label: 'Internal Files (P)' },
   { value: '10', label: 'Phases' },
 ]
@@ -265,6 +266,1133 @@ const NPS_QUESTIONS = [
 ]
 
 const AGENDAS: Record<string, AgendaContent> = {
+  PS1e: {
+    header: 'PS1e — Selections Kick-off to Customer',
+    subheader: 'Phase 4: Pre-Construction Selections · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Selections Manager',
+          'Cc: Project Manager',
+          'Subject: Kicking Off Your Selections Process',
+          'To: [Customer First Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Hi [Customer First Name],',
+          'We\'re excited to begin the selections process for your new ADU! The goal of this stage is to have all your fixtures and finishes chosen before construction begins. This helps keep everything on schedule, within budget, and prevents unexpected delays.',
+          'To help us prepare for your first selections meeting, please complete the Customer Selections Questionnaire by [Due Date]. This questionnaire supports the 3D rendering we\'ll review together and covers:',
+        ],
+      },
+      {
+        title: 'QUESTIONNAIRE COVERS',
+        items: [
+          'Your level of involvement in the selections process',
+          'Preferred color selections',
+          'Intended use of the space',
+          'Any special requests for the 3D rendering',
+          'Option to upload design inspiration',
+        ],
+      },
+      {
+        title: 'AT OUR FIRST MEETING, WE\'LL',
+        items: [
+          'Review the 3D rendering of your project',
+          'Explore your design style and vision',
+          'Discuss how you plan to use the space',
+        ],
+      },
+      {
+        title: 'THE SELECTIONS PROCESS',
+        numbered: true,
+        items: [
+          { text: 'Introductory Meeting – View your custom 3D rendering and introduce the design process', sub: [] },
+          { text: 'Sample Time! – Kitchen layout, backsplash/bathroom tile, flooring, and more', sub: [] },
+          { text: 'Final Review Meeting – Review all selections with your Project Manager to confirm details', sub: [] },
+        ],
+      },
+      {
+        title: 'SCHEDULING',
+        items: [
+          'We\'d love to have the first meeting at the Cask office (900 16th Street North). Would one of the following options work for you?',
+          '[Date Option #1]',
+          '[Date Option #2]',
+          '[Date Option #3]',
+          'If none of these dates work, please share some alternatives and we\'ll do our best to coordinate.',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Looking forward to getting started!',
+        ],
+      },
+    ],
+  },
+  PS3e: {
+    header: 'PS3e — Post 1st Selections Meeting to Customer',
+    subheader: 'Phase 4: Pre-Construction Selections · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Selections Manager',
+          'Cc: Project Manager',
+          'Subject: Post 1st Selections Meeting Recap & Next Steps',
+          'To: [Customer Name(s)]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'It was such a pleasure meeting you for your first selections session! Your choices are really starting to bring the design together, and we\'re excited to see your project taking shape.',
+        ],
+      },
+      {
+        title: 'PENDING SELECTIONS',
+        items: [
+          'The following items are still to be determined. You can share links, send details by email, or simply bring your choices to our next meeting:',
+          '[Insert Pending Selections List]',
+        ],
+      },
+      {
+        title: 'CLARIFICATIONS',
+        items: [
+          '[Insert any specific clarification questions from meeting]',
+        ],
+      },
+      {
+        title: 'VENDOR INFORMATION',
+        items: [
+          'We\'ve included contact information for our trusted vendor partners, who are aware of your project and ready to assist if needed.',
+          { text: 'Appliances', sub: ['Contact: [Vendor Contact Name]', 'Email: [Vendor Email]', 'Phone: [Vendor Phone]'] },
+          { text: 'Counters', sub: ['Contact: [Vendor Contact Name]', 'Email: [Vendor Email]', 'Phone: [Vendor Phone]'] },
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          'We\'d like to schedule your 2nd selections meeting in 1–2 weeks. Please use the booking link below to choose a time that works best for you:',
+          '[Insert Booking Link]',
+          'As always, if any questions come up before then, don\'t hesitate to reach out—I\'m happy to help!',
+        ],
+      },
+    ],
+  },
+  PS5e: {
+    header: 'PS5e — Post 2nd Selections Meeting to Customer',
+    subheader: 'Phase 4: Pre-Construction Selections · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Selections Manager',
+          'Cc: Project Manager',
+          'Subject: Post 2nd Selections Meeting Recap & Next Steps',
+          'To: [Customer Name(s)]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Thank you for another productive selections meeting! It\'s exciting to see your choices continue to bring the design together. We\'re making great progress toward finalizing everything.',
+          'I\'ll be working on [insert follow-up task, e.g., kitchen design updates, vanity sizing verification, etc.] and will send those details for your review as soon as they are ready.',
+        ],
+      },
+      {
+        title: 'PENDING SELECTIONS',
+        items: [
+          'Here are the items still to be determined. You can send me links, email your choices, or bring them with you to our next meeting:',
+          '[Insert Pending Selections List]',
+        ],
+      },
+      {
+        title: 'OWNER TO PROVIDE',
+        items: [
+          'These are the selections or items you\'ll be sourcing directly:',
+          '[Insert Owner-Provided Selections List]',
+        ],
+      },
+      {
+        title: 'VENDOR INFORMATION',
+        items: [
+          { text: 'Appliances', sub: ['Contact: [Vendor Contact Name]', 'Email: [Vendor Email]', 'Phone: [Vendor Phone]'] },
+          '[Add additional vendors if applicable]',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          'Our final review meeting is coming up in 1–2 weeks. During this session, we\'ll go over all selections and layout details to ensure everything is accurate before moving forward. Please use the link below to book a time that works best for you:',
+          '[Insert Booking Link]',
+          'If you have any questions or think of changes in the meantime, don\'t hesitate to reach out—I\'m happy to help!',
+        ],
+      },
+    ],
+  },
+  PS9e: {
+    header: 'PS9e — Post 4th Selections Meeting to Customer',
+    subheader: 'Phase 4: Pre-Construction Selections · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Selections Manager',
+          'Cc: Project Manager',
+          'Subject: Post 4th Selections Meeting Recap & Final Steps',
+          'To: [Customer Name(s)]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Congratulations—we\'ve reached the final step of your selections process! Thank you for all your time and input as we\'ve worked together to finalize the details of your project.',
+        ],
+      },
+      {
+        title: 'RECAP OF 4TH MEETING',
+        items: [
+          '[Insert summary of decisions finalized]',
+          '[Insert any outstanding items or clarifications]',
+        ],
+      },
+      {
+        title: 'CUSTOMER HOMEWORK',
+        items: [
+          'Complete Section 3 (miscellaneous selections) by [insert due date]',
+          'Review Buildertrend selections guide (link provided)',
+          'Finalize any open follow-up items with due dates',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          'This completes the selections phase of your project. With your approvals in place, we\'ll now transition to preparing for the next stage of construction.',
+          'Thank you again for your partnership—your design is now ready to come to life!',
+        ],
+      },
+    ],
+  },
+  PB1e: {
+    header: 'PB1e — Sewage and Water Inspection to Customer',
+    subheader: 'Phase 5: Pre-Construction Bid Management · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'From: [Project Manager Name]',
+          'Cc: [Plumber]',
+          'Subject: Upcoming Sewer & Water Inspection – Introduction and Details',
+          'To: [Customer First Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'I\'d like to introduce you to A1 Southern Plumbing, who will be performing your Sewer and Water Inspection.',
+          'Connie or Roger, please coordinate with the customer on scheduling the inspection.',
+          '[Insert customer address and contact information]',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          'Plumber will arrive at your property on the scheduled date and time',
+          'The inspection will review your water and sewer line layout, condition, and any potential construction obstacles',
+          'We\'ll compile the inspection results and integrate them into your project\'s plumbing scope and budget',
+          'Once complete, we\'ll update you on the findings and next steps',
+        ],
+      },
+      {
+        title: 'ATTACHMENT',
+        items: [
+          'We\'ve attached our Sewer and Water Inspection Checklist so you know exactly what will be reviewed during the inspection.',
+          'Thank you,',
+        ],
+      },
+    ],
+  },
+  PB3e: {
+    header: 'PB3e — Congratulations Project Out to Bid',
+    subheader: 'Phase 5: Pre-Construction Bid Management · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Project Manager',
+          'Subject: Congratulations – Your Project is Now Out to Bid!',
+          'To: [Customer Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Congratulations! Your project has officially been sent out to bid. This is a major milestone, and it means subcontractors are now reviewing your plans and preparing their pricing.',
+        ],
+      },
+      {
+        title: 'WHAT THIS MEANS FOR YOU',
+        items: [
+          'Subcontractors are reviewing your project scope in detail',
+          'We\'ll be gathering competitive bids to ensure the best value and quality',
+          'This process brings us one step closer to finalizing your construction budget and schedule',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          'Once bids are received and reviewed, you\'ll receive your 95% budget update',
+          'We\'ll continue communicating proactively to keep you informed and confident as we move forward',
+          'In the meantime, please take a moment to share your feedback with us through our CUSTOMER JOURNEY SURVEY HANDOUT',
+          'Thank you again for your partnership—we\'re excited to move into this next stage with you.',
+        ],
+      },
+    ],
+  },
+  PB4e: {
+    header: 'PB4e — 95% Budget Update to Customer',
+    subheader: 'Phase 5: Pre-Construction Bid Management · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Project Manager',
+          'Cc: Design Manager',
+          'Subject: Your 95% Project Budget Update',
+          'To: [Customer Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'As we move closer to the finish line, I\'m excited to share your 95% budget update. This version reflects real subcontractor pricing based on the plans submitted for permit, along with utility confirmations from our earlier design coordination.',
+        ],
+      },
+      {
+        title: 'WHAT\'S INCLUDED IN THIS UPDATE',
+        items: [
+          'Subcontractor pricing aligned with your project plans',
+          'Utility confirmation costs carried over from the 50% design stage',
+          'A clear view of allowances for final materials selections',
+          'Noted items that may still be pending, such as special scope requests',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Our goal is to make sure you have the most accurate picture of your project\'s financials before we finalize the budget. This is the time to confirm any last selections or scope requests so they can be accounted for before moving ahead.',
+          'If you\'d like to review this update together, I\'d be happy to schedule a call or walk-through with you.',
+          'Thank you for your continued input and collaboration—your project is almost ready for the exciting next stage!',
+        ],
+      },
+    ],
+  },
+  PB6e: {
+    header: 'PB6e — Contract Approval to Customer',
+    subheader: 'Phase 5: Pre-Construction Bid Management · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'To: Customer',
+          'Cc: Accounting Manager, VP Operations',
+          'Subject: Your Construction Contract is Officially Executed!',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'We\'re excited to share that your construction contract has been officially executed—this is a huge milestone and marks the true starting point for your project! Please find the executed contract attached for your records.',
+          'I\'d also like to introduce you to Lamont Gilyot, our Accounting Manager (cc\'d here at l.gilyot@caskconstruction.com). Lamont will be your point of contact for anything related to billing, deposits, and payment coordination throughout the project.',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          { text: 'Deposit:', sub: ['Lamont and our accounting team will process the initial 25% deposit shortly.'] },
+          { text: 'Tentative Start Date:', sub: ['We are targeting [Insert Tentative Start Date] to begin on-site activities.'] },
+        ],
+      },
+      {
+        title: 'NEXT MILESTONE',
+        items: [
+          'Your Project Kick-Off Meeting is coming up! During this meeting, we\'ll align on goals, review the schedule, and finalize initial action items.',
+          'We\'re committed to making your ADU build seamless and enjoyable, and we can\'t wait to see your dream space come to life.',
+        ],
+      },
+      {
+        title: 'NPS SURVEY',
+        items: [
+          'In our effort to continuously improve your experience with CASK Construction, please share your valuable feedback through our quick Net Promoter Score (NPS) survey linked below:',
+          'CUSTOMER JOURNEY SURVEY HANDOUT',
+          'Thank you again for choosing CASK Construction—let\'s build something incredible together!',
+        ],
+      },
+    ],
+    nps: true,
+  },
+  PP5e: {
+    header: 'PP5e — Permit Approval',
+    subheader: 'Phase 3: Pre-Construction Permit · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: CASK Construction – Permit Approved – Let\'s Celebrate!',
+          'From: [Project Manager]',
+          'To: [Customer Name]',
+          'Cc: [VP Operation]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Hi [Owner Name],',
+          'Fantastic news! We\'re thrilled to announce that your ADU permit has officially been approved by the City of St. Pete! This is a significant milestone, and we\'re excited to move forward with bringing your ADU vision to life.',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          'Contract Review: We\'ll coordinate with you soon to review the final construction contract, ensuring everything aligns with your expectations and requirements.',
+          'Ground Breaking: Following contract execution, we\'ll schedule the groundbreaking ceremony—marking the exciting start of construction on your project.',
+        ],
+      },
+      {
+        title: 'NPS SURVEY',
+        items: [
+          'We\'re committed to making your ADU build seamless and enjoyable, and we can\'t wait to see your dream space come to life.',
+          'In efforts to continuously improve your experience with CASK Construction, please provide your valuable feedback through our quick Net Promoter Score (NPS) survey linked below:',
+          'CUSTOMER JOURNEY SURVEY HANDOUT',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Thank you again for choosing CASK Construction. Let\'s build something incredible together!',
+          'Warm regards,',
+          'Project Manager',
+        ],
+      },
+    ],
+  },
+  PP4e: {
+    header: 'PP4e — 2nd RFC Resubmittal to Customer',
+    subheader: 'Phase 3: Pre-Construction Permit · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Permit Tech',
+          'Cc: Project Manager',
+          'Subject: CASK Construction – Plans Resubmitted (2nd Round)',
+          'To: [Owner Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'We\'re pleased to share that the updated plans addressing the city\'s second round of comments have now been resubmitted for review.',
+        ],
+      },
+      {
+        title: "WHAT'S NEXT",
+        items: [
+          'The city will review these updated drawings',
+          'If no further comments are raised, we\'ll be moving into the approval stage',
+          'If additional feedback is received, we\'ll work with you and our design partners to address it quickly',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Thank you again for your patience and collaboration—we\'re nearly at the approval milestone!',
+        ],
+      },
+    ],
+  },
+  PP3e: {
+    header: 'PP3e — 2nd RFC to Customer',
+    subheader: 'Phase 3: Pre-Construction Permit · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Permit Tech',
+          'Cc: Project Manager',
+          'Subject: CASK Construction – City Comments (2nd Round)',
+          'To: [Owner Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'We\'ve received the city\'s second round of comments regarding your permit submission. While additional feedback is common, it means we\'re making steady progress toward final approval.',
+        ],
+      },
+      {
+        title: 'WHAT YOU NEED TO KNOW',
+        items: [
+          'The city has provided the following updates/questions: [Insert any specific comments here that require customer awareness or input]',
+          'Drawings have been sent to our architect/designer for review and revisions as needed',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        items: [
+          'Our team will address the city\'s comments promptly',
+          'Revised plans will be resubmitted for continued review',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'We\'re getting closer to the finish line, and your continued input is greatly appreciated. Please reach out with any questions or clarifications you\'d like on the city\'s comments.',
+          'Best regards,',
+        ],
+      },
+    ],
+  },
+  PP2e: {
+    header: 'PP2e — 1st RFC Resubmittal to Customer',
+    subheader: 'Phase 3: Pre-Construction Permit · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Permit Tech',
+          'Cc: Project Manager',
+          'Subject: CASK Construction – Plans Resubmitted to City',
+          'To: [Owner Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'Great news! We\'ve completed the necessary updates to your drawings and have officially resubmitted them to the city for review.',
+          'This is an important step forward in the permitting process, and we\'ll continue to keep you updated as we receive additional feedback.',
+        ],
+      },
+      {
+        title: "WHAT'S NEXT",
+        items: [
+          'The city will review the revised plans',
+          'If further comments are required, we\'ll share them with you right away',
+          'Otherwise, we\'ll move closer to final approval',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Thank you again for your patience and partnership as we work through this process together.',
+        ],
+      },
+    ],
+  },
+  PP1e: {
+    header: 'PP1e — 1st RFC to Customer',
+    subheader: 'Phase 3: Pre-Construction Permit · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'To: Customer',
+          'Cc: Design Tech',
+          'Subject: CASK Construction – City Comments Received',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'We\'ve received the first round of comments from the city regarding your ADU permit submission. This is a normal part of the permitting process, and we\'re one step closer to approval!',
+        ],
+      },
+      {
+        title: 'WHAT YOU NEED TO KNOW',
+        items: [
+          'The city has provided feedback that requires some updates to the submitted drawings.',
+          '[Insert any specific comments or questions here that require the customer\'s input or decision.]',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        numbered: true,
+        items: [
+          {
+            text: 'Plan Revisions',
+            sub: [
+              'We\'ve sent the city\'s comments to our architect/designer, who is now working on the necessary revisions.',
+              'Once updated, the revised plans will be resubmitted to the city for the next round of review.',
+            ],
+          },
+          {
+            text: 'Timeline',
+            sub: [
+              'As a reminder, it\'s common for the city to request revisions during the first review. This back-and-forth is expected and helps ensure everything is in order for final approval.',
+              'We\'ll continue to keep you updated as we progress through the permitting stages.',
+            ],
+          },
+          {
+            text: 'Survey',
+            sub: [
+              'In efforts to continuously improve your experience with CASK Construction, I am including the below link to collect your Net Promotor Score (NPS). This quick 1-2 minute survey is sent to CASK Construction management for review and will serve as a guiding light to ensure your needs are being met.',
+              'CUSTOMER JOURNEY SURVEY HANDOUT',
+            ],
+          },
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Thank you again for your continued partnership and trust in CASK Construction. If you have any questions or would like to discuss the city\'s comments in more detail, feel free to reach out anytime. In the meantime, congratulations to be closer to the final approval!',
+        ],
+      },
+    ],
+  },
+  PD8e: {
+    header: 'PD8e — Permit Submission Confirmation',
+    subheader: 'Phase 2: Pre-Construction Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: CASK Construction – Permit Submitted!',
+          'To: [Owner Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'Congratulations, your ADU project was submitted for permit! Attached are the drawings that were submitted for review for your records.',
+        ],
+      },
+      {
+        title: 'GENERAL INFORMATION REGARDING CITY OF ST PETE PERMITTING',
+        numbered: true,
+        items: [
+          {
+            text: 'All ADU projects require Building and Zoning department approval. If your project is in a flood zone, permitting will also require FEMA department approval. If your project is located at a historic address, permitting will also require Historic department approval (prior to regular Building and Zoning department approval).',
+            sub: [],
+          },
+          {
+            text: 'If your project requires a demolition permit, the city requires us to breakout just the site plan and include a utility verification form (ensuring no utilities are connected to the structure we are going to demo) and submit a separate permit application for the demolition.',
+            sub: [
+              'Just before construction, CASK Construction will disconnect the electrical and plumbing that is running to the existing garage prior to demo.',
+            ],
+          },
+          {
+            text: 'The city staff will route the permit to the plan reviewers, one in each respected department outlined above. Once reviewed they will route it back to us. If approved (which rarely happens 1st round), we will be good to start construction as far as the city is concerned. If any of the described departments have comments returned to us for correction, we will need to revise the plans and resubmit for a 2nd round.',
+            sub: [],
+          },
+          {
+            text: 'On average, ADU permitting can range from 2.5–4 months. Actual time dependent on factors such as city responsiveness, project scope (flood, historic, demo, etc), environmental challenges (storms), and time allowed for responding to City comments.',
+            sub: [],
+          },
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        numbered: true,
+        items: [
+          {
+            text: 'Design Selections',
+            sub: [
+              'Our in-house interior specialist will reach out to schedule your first design selections meeting.',
+              'We plan to also review a 3D rendering of your design to better help you visualize the space and will have that ready for your first selections meeting.',
+            ],
+          },
+          {
+            text: 'Bid Management',
+            sub: [
+              'We will send your customized drawings to our network of specialty subcontractors to start gathering quotes needed to be incorporated into your final construction budget.',
+            ],
+          },
+          {
+            text: 'In efforts to continuously improve your experience with CASK Construction, I am including the below link to collect your Net Promotor Score (NPS). This quick 1-2 minute survey is sent to CASK Construction management for review and will serve as a guiding light to ensure your needs are being met.',
+            sub: ['CUSTOMER JOURNEY SURVEY HANDOUT'],
+          },
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Approved permit and an executed construction contract is required prior to CASK Construction starting construction on your project.',
+          'CASK Construction will keep you updated during your permitting process. In the meantime, please do not hesitate to reach out anytime for updates regarding your permitting status or progress.',
+          'Thank you for trusting us with your project! Congratulations again on going in for permit!',
+          'Best regards,',
+          '[Your Name]',
+        ],
+      },
+    ],
+  },
+  PD7e: {
+    header: 'PD7e — 95% Drawing to Customer',
+    subheader: 'Phase 2: Pre-Construction Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: CASK Construction – 95% Drawing Set for Your Review',
+          'To: [Owner Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'Great news!',
+          'We have received the 95% set of plans from the engineer, which are attached for your review. These drawings reflect the changes we discussed in our previous meetings and include essential updates based on your feedback and requests.',
+        ],
+      },
+      {
+        title: 'KEY AREAS FOR REVIEW',
+        numbered: true,
+        items: [
+          { text: 'General Layout:', sub: ['Please review the overall spatial arrangement and flow of the updated design.'] },
+          { text: 'Dimensions and Specifications:', sub: ['Confirm that all dimensions and specifications continue to meet your requirements.'] },
+          { text: 'Alignment with Project Goals:', sub: ['Assess how well the updated drawings align with the project objectives we previously discussed.'] },
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        numbered: true,
+        items: [
+          { text: 'Once you have reviewed the drawings, please share any comments, questions, or requested changes. If these plans are satisfactory, please respond with authorization to submit for permitting.', sub: [] },
+          { text: 'Your approval response will route these plans for permitting with the City of St Pete. Ideally, we have captured all of your design requests prior to submitting for permitting so we can better streamline the overall permitting process for your project.', sub: [] },
+          { text: 'CASK Construction will provide another email update once your permits are submitted to the City of St Pete.', sub: [] },
+          { text: 'In efforts to continuously improve your experience with CASK Construction, I am including the below link to collect your Net Promotor Score (NPS). This quick 1-2 minute survey is sent to CASK Construction management for review and will serve as a guiding light to ensure your needs are being met.', sub: ['CUSTOMER JOURNEY SURVEY HANDOUT'] },
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Very exciting! Please continue to reach out with any questions or concerns.',
+          'Best regards,',
+          '[Your Name]',
+        ],
+      },
+    ],
+  },
+  PD6e: {
+    header: 'PD6e — 75% Budget Update to Customer',
+    subheader: 'Phase 2: Pre-Construction Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Project Manager',
+          'Cc: Design Manager',
+          'Subject: Your 75% Project Budget Update',
+          'To: [Customer Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Customer Name],',
+          'Following our recent 75% floorplan meeting and recap, I\'m providing your updated project budget. This second budget update reflects the design refinements we\'ve made since the 50% stage and ensures alignment as we approach the final design.',
+        ],
+      },
+      {
+        title: "WHAT'S INCLUDED IN THIS UPDATE",
+        items: [
+          'Revised budget status based on the 75% design stage',
+          'Adjustments made since the previous update',
+          'Key considerations as we prepare for the upcoming 95% drawings and next milestones',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Our goal is to keep you fully informed and confident as we move toward finalizing the design and preparing for permit submission.',
+          'If you have any questions or would like a detailed walk-through of the numbers, please let me know—I\'ll be happy to review them with you.',
+          'Thank you for your continued collaboration throughout this process.',
+          'Best regards,',
+          '[Project Manager Name]',
+        ],
+      },
+    ],
+  },
+  PD5e: {
+    header: 'PD5e — 75% Floorplan Meeting Recap to Customer',
+    subheader: 'Phase 2: Pre-Construction Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: CASK Construction 75% Floorplan Meeting Recap',
+          'To: [Owner Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'Thank you for your time and engagement during our recent 75% floorplan meeting. We covered a lot of great information relating to your future project. It\'s extremely important to CASK Construction and myself that this information is correctly documented on your building plans so that your vision is accurately transformed into reality.',
+          'To ensure we are not missing anything from our 75% floorplan meeting, I have prepared the below meeting summary. Please reply all if you feel I have missed anything, or you have any questions or additional requests since our last meeting.',
+        ],
+      },
+      {
+        title: 'ACTION ITEMS',
+        items: [
+          '[Any deadlines or expectations]',
+          '[Any items needed or requested from customer]',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        numbered: true,
+        items: [
+          {
+            text: 'CASK Construction will make the revisions as discussed and will email you permit ready (95%) set of plans for your review and approval within 1–2 weeks from this email.',
+            sub: [],
+          },
+          {
+            text: 'If there are any items that come up that are in addition to the revisions discussed in the 75% floorplan meeting, please respond so that we can include those items in your permit ready (95%) set of plans.',
+            sub: [],
+          },
+          {
+            text: 'In efforts to continuously improve your experience with CASK Construction, I am including the below link to collect your Net Promotor Score (NPS). This quick 1-2 minute survey is sent to CASK Construction management for review and will serve as a guiding light to ensure your needs are being met.',
+            sub: ['CUSTOMER JOURNEY SURVEY HANDOUT'],
+          },
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Thanks for trusting CASK Construction with your project. Please reach out anytime.',
+          'Best regards,',
+          '[Your Name]',
+        ],
+      },
+    ],
+  },
+  PD3e: {
+    header: 'PD3e — 50% Budget Update to Customer',
+    subheader: 'Phase 2: Pre-Construction Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Sender: Project Manager',
+          'Cc: Design Manager',
+          'Subject: Your 50% Project Budget Update',
+          'To: [Customer Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Customer Name],',
+          'Following our recent 50% floorplan meeting and recap, I\'d like to share the initial budget update for your project. This update reflects the progress we\'ve made since the initial proposal and incorporates the design adjustments we\'ve reviewed together.',
+        ],
+      },
+      {
+        title: "WHAT'S INCLUDED IN THIS UPDATE",
+        items: [
+          'Current budget status based on the 50% design stage',
+          'Alignment with the initial proposal and noted changes',
+          'Key factors that may influence costs moving forward',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Our goal at this stage is to ensure full transparency and provide you with a clear picture of where the project stands financially before moving into the next phases.',
+          'If you have any questions or would like us to walk through specific details, please don\'t hesitate to reach out—I\'ll be glad to go over everything with you.',
+          'Thank you again for your time and input throughout this process. Your collaboration helps us keep everything on track toward the final design and budget.',
+          'Best regards,',
+          '[Project Manager Name]',
+        ],
+      },
+    ],
+  },
+  PD2e: {
+    header: 'PD2e — 50% Floorplan Meeting Recap to Customer',
+    subheader: 'Phase 2: Pre-Construction Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: CASK Construction 50% Floorplan Meeting Recap (INCLUDE PROJECT NAME)',
+          'To: [Owner Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'Thank you for your time and engagement during our recent 50% floorplan meeting. We covered a lot of great information relating to your future project. It\'s extremely important to CASK Construction and myself that this information is correctly documented on your building plans so that your vision is accurately transformed into reality.',
+          'To ensure we are not missing anything from our 50% floorplan meeting, I have prepared the below meeting summary. Please reply all if you feel I have missed anything, or you have any questions or additional requests since our last meeting.',
+        ],
+      },
+      {
+        title: 'ACTION ITEMS',
+        items: [
+          '[Any deadlines or expectations]',
+          '[Any items needed or requested from customer]',
+        ],
+      },
+      {
+        title: 'NEXT STEPS',
+        numbered: true,
+        items: [
+          {
+            text: 'Please pick from the available dates and time for our next meeting together, 75% floorplan meeting:',
+            sub: [
+              '[date and time #1]',
+              '[date and time #2]',
+              '[date and time #3]',
+            ],
+          },
+          {
+            text: 'Please respond with any items that need to be researched ahead of our meeting so I can properly prepare to avoid delaying our process together.',
+            sub: [],
+          },
+          {
+            text: 'In efforts to continuously improve your experience with CASK Construction, I am including the below link to collect your Net Promotor Score (NPS). This quick 1-2 minute survey is sent to CASK Construction management for review and will serve as a guiding light to ensure your needs are being met.',
+            sub: ['CUSTOMER JOURNEY SURVEY HANDOUT'],
+          },
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Thanks for trusting CASK Construction with your project. Let\'s keep this positive momentum going! Please reach out anytime!',
+          'Best regards,',
+          '[Your Name]',
+        ],
+      },
+    ],
+  },
+  PR6e: {
+    header: 'PR6e — Flag Meeting Recap to Customer',
+    subheader: 'Phase 1: Pre-Construction Pre-Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: CASK Construction Flag Meeting Recap (INCLUDE PROJECT NAME)',
+          'To: Customer',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear Customer,',
+          'Thank you for your time and engagement during our recent Flag meeting. We covered a lot of great information relating to your future project. It\'s extremely important to CASK Construction and myself that this information is correctly documented on your building plans so that your vision is accurately transformed into reality.',
+          'To ensure we are not missing anything from our Flag meeting, I have prepared the below meeting summary. Please reply all if you feel I have missed anything, or you have any questions or additional requests since our last meeting.',
+        ],
+      },
+      {
+        title: 'ATTENDEES',
+        items: [
+          '[Attendee 1]',
+          '[Attendee 2]',
+          '[Attendee 3]',
+        ],
+      },
+      {
+        title: 'RECAP',
+        items: [
+          '[Recap item 1]',
+          '[Recap item 2]',
+          '[Recap item 3]',
+          '[Recap item 4]',
+        ],
+      },
+      {
+        title: 'ACTION ITEMS',
+        items: [
+          '[Action item 1]',
+          '[Action item 2]',
+          '[Action item 3]',
+          '[Action item 4]',
+        ],
+      },
+      {
+        title: 'NEXT MEETING AGENDA',
+        items: [
+          '[Agenda item 1]',
+          '[Agenda item 2]',
+          '[Agenda item 3]',
+          '[Agenda item 4]',
+        ],
+      },
+      {
+        title: 'NPS SURVEY',
+        items: [
+          'In efforts to continuously improve your experience with CASK Construction, I am including the below link to collect your Net Promotor Score (NPS). This quick 1-2 minute survey is sent to CASK Construction management for review and will serve as a guiding light to ensure your needs are being met.',
+          'CUSTOMER JOURNEY SURVEY HANDOUT',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Thanks for trusting CASK Construction with your project. Let\'s keep this positive momentum going! Please reach out anytime!',
+          'Regards,',
+          'The Cask Team',
+        ],
+      },
+    ],
+  },
+  PR4e: {
+    header: 'PR4e — Alignment Meeting Recap to Customer',
+    subheader: 'Phase 1: Pre-Construction Pre-Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: CASK Construction Kickoff Meeting Recap (INCLUDE PROJECT NAME)',
+          'To: [Owner Name]',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Dear [Owner Name],',
+          'Thank you for your time and engagement during our kickoff in-person meeting with you. It was great getting to meet you and getting to hear about your vision for this project! Our next in-person meeting together is the "50% floorplan meeting", outlined below.',
+          'As expressed, it\'s very important for us to effectively communicate with you during the design stages and throughout the entire preconstruction journey. To help improve communication and maintain a positive experience with CASK Construction, I\'m providing the next steps of your design journey:',
+        ],
+      },
+      {
+        title: 'NEXT STEPS IN YOUR DESIGN JOURNEY',
+        numbered: true,
+        items: [
+          {
+            text: '50% floorplan meeting – our meeting is scheduled on [INPUT MEETING DATE]',
+            sub: [
+              'Initial site plan layout',
+              'Establish exterior dimensions',
+              'Wall layout',
+              'Kitchen layout',
+              'Confirm 75% floorplan meeting date and time',
+            ],
+          },
+          {
+            text: '50% floorplan meeting recap – emailed within 24-48 hours post 50% meeting',
+            sub: [
+              'What was accomplished',
+              'What still needs to be discovered',
+              'Separate budget update email provided by project manager',
+            ],
+          },
+          {
+            text: '75% floorplan meeting',
+            sub: [
+              'MEP (mechanical, electrical, plumbing) layout',
+              'Exterior finishes',
+              'Elevations',
+              'Review 50% budget update',
+            ],
+          },
+          {
+            text: '75% floorplan meeting recap – emailed within 24-48 hours post 75% meeting',
+            sub: [
+              'What was accomplished',
+              'What still needs to be discovered',
+              'Separate budget update email provided by project manager',
+            ],
+          },
+          {
+            text: '95% design provided – emailed 1–2 weeks post 75% meeting',
+            sub: [
+              'Emailed 95% drawings/plans',
+              'Request permission to submit plans for permitting',
+              'Receive any requested changes prior to submitting for permit',
+            ],
+          },
+          {
+            text: 'Permit submission confirmation – provided within 24-hours post submitting permit',
+            sub: [
+              'General information regarding St Pete permitting – CASK handles your permitting process but it\'s important you still know what\'s involved with permitting and typical timeframe',
+              'Outline next steps in your preconstruction journey',
+            ],
+          },
+        ],
+      },
+      {
+        title: 'BUDGET UPDATE TIMELINE',
+        items: [
+          'Throughout your preconstruction journey with us, you will receive budget updates from your dedicated project manager that will guide you from pre-construction through construction. Please expect to receive budget updates as outlined below:',
+          'Initial Sales Proposal — Initial proposal provided by sales department prior to enrolling into pre-construction journey. Based on your ADU option selection on the sales questionnaire.',
+          'Post 50% Design Meeting — 1st budget update provided by your project manager. Influenced by items discussed and requested at your 50% design meeting.',
+          'Post 75% Design Meeting — 2nd budget update provided by your project manager. Influenced by items discussed and requested at your 75% design meeting.',
+          'Permitting Comments and Post Selections (95% budget update) — 3rd budget update provided by your project manager. Influenced by applicable comments from city relating to your project permitting, and final selections decisions made. Sub numbers included in budget update.',
+          'Construction Contract — Construction contract provided by your project manager at the conclusion of your pre-construction journey. Approved permitted set of drawings received. Contract execution required to start construction mobilization.',
+        ],
+      },
+      {
+        title: 'NPS SURVEY',
+        items: [
+          'In efforts to continuously improve your experience with CASK Construction, I am including the below link to collect your Net Promotor Score (NPS). This quick 1-2 minute survey is sent to CASK Construction management for review and will serve as a guiding light to ensure your needs are being met.',
+          'PRE-CONSTRUCTION NET PROMOTER SCORE SURVEY',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Thanks for trusting CASK Construction with your project. Please don\'t hesitate to reach out with any questions or concerns.',
+          'Best regards,',
+          '[Your Name]',
+        ],
+      },
+    ],
+  },
+  PR2e: {
+    header: 'PR2e — Initial Alignment Scheduling to Customer',
+    subheader: 'Phase 1: Pre-Construction Pre-Design · Email Template',
+    sections: [
+      {
+        title: 'EMAIL DETAILS',
+        items: [
+          'Subject: Next Steps on Your ADU Journey – Let\'s Schedule Your Initial Alignment Meeting',
+          'Sender: Sales Support',
+          'To: Customer',
+          'Cc: PM, Sales Manager, Design Manager',
+        ],
+      },
+      {
+        title: 'EMAIL BODY',
+        items: [
+          'Hi [Customer Name],',
+          'Congratulations on moving forward with your ADU project—we\'re thrilled to be part of this exciting journey with you!',
+          '[PM Name], your dedicated Project Manager, is looking forward to meeting you at our upcoming initial alignment meeting and to start planning your exciting project!',
+          'To keep things moving smoothly, we\'d like to schedule your Initial Alignment Meeting. During this meeting, we\'ll walk through key details and objectives to ensure everything is aligned as we transition into the next phase.',
+        ],
+      },
+      {
+        title: 'SCHEDULING OPTIONS',
+        items: [
+          'To get started, please choose one of the following timeslots:',
+          '• [Option 1: Day, Time]',
+          '• [Option 2: Day, Time]',
+          '• [Option 3: Day, Time]',
+        ],
+      },
+      {
+        title: 'ADDITIONAL NOTE',
+        items: [
+          'As part of our preparation, we\'ll also be coordinating the sanitary line camera location, which needs to be completed in the coming weeks. We\'ll handle the logistics and keep you informed every step of the way.',
+        ],
+      },
+      {
+        title: 'CLOSING',
+        items: [
+          'Looking forward to hearing your response!',
+          'Warm regards,',
+        ],
+      },
+    ],
+  },
   PR1m: {
     header: 'PR1m — Sales to Pre-Con Pass-Off',
     subheader: 'Phase 1: Pre-Construction Pre-Design · Meeting',
@@ -2521,7 +3649,7 @@ export default function ClientTemplatesPage() {
                 Client Templates
               </h1>
               <p style={{ fontSize: 14, color: 'var(--text3)', margin: 0, maxWidth: 520 }}>
-                Standard workflow for every CASK Construction client — 56 items from first contact to closeout
+                Standard workflow for every CASK Construction client — 57 items from first contact to closeout
               </p>
             </div>
 
