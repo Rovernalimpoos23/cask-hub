@@ -258,7 +258,8 @@ export default function AddMeetingModal() {
   const [title, setTitle]               = useState('')
   const [meetingType, setMeetingType]   = useState<MeetingType>('coaching')
   const [module, setModule]             = useState('ActionCOACH')
-  const [date, setDate]                 = useState('')
+  const [date, setDate]                 = useState(() => new Date().toISOString().split('T')[0])
+  useEffect(() => { setDate(new Date().toISOString().split('T')[0]) }, [])
   const [owner, setOwner]               = useState('Calin')
   const [timeStart, setTimeStart]       = useState('')
   const [timeEnd, setTimeEnd]           = useState('')
@@ -319,7 +320,7 @@ export default function AddMeetingModal() {
 
   function resetForm() {
     setTitle(''); setMeetingType('coaching'); setModule('ActionCOACH')
-    setDate(''); setOwner('Calin'); setTimeStart(''); setTimeEnd('')
+    setDate(new Date().toISOString().split('T')[0]); setOwner('Calin'); setTimeStart(''); setTimeEnd('')
     setAttendees([]); setTranscript(''); setSummary1(''); setSummary2(''); setSummary3('')
     setActionItems([newItem()]); setAiSuccess(false)
   }
@@ -716,8 +717,10 @@ export default function AddMeetingModal() {
                   </label>
                   <input
                     type="date"
+                    key={date || 'date-input'}
                     value={date}
                     onChange={e => setDate(e.target.value)}
+                    autoComplete="nope"
                     style={inputStyle}
                     onFocus={focusInput}
                     onBlur={blurInput}
