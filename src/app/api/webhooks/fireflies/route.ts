@@ -156,8 +156,22 @@ export async function POST(req: NextRequest) {
       ? today
       : rawDate
 
+    const sessionTitle = (extracted.title as string) ?? transcript.title ?? 'Untitled Meeting'
+
+    const { data: existing } = await supabase
+      .from('meetings')
+      .select('id')
+      .eq('title', sessionTitle)
+      .eq('date', safeDate)
+      .single()
+
+    if (existing) {
+      console.log('[fireflies] duplicate session detected, skipping:', sessionTitle, '| date:', safeDate)
+      return NextResponse.json({ success: true, message: 'Session already exists, skipping duplicate' })
+    }
+
     const record = {
-      title:           extracted.title        ?? transcript.title ?? 'Untitled Meeting',
+      title:           sessionTitle,
       date:            safeDate,
       time_start:      extracted.time_start   ?? null,
       time_end:        extracted.time_end     ?? null,
