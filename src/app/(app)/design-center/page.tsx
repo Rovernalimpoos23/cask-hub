@@ -35,14 +35,455 @@ const LIKELIHOOD_STYLES: Record<string, { color: string; bg: string; border: str
 
 // ── File cards data ───────────────────────────────────────────────────────────
 
-const FILE_CARDS = [
+interface SubFile { name: string; fileType: 'PDF' | 'Word'; date: string; author: string }
+
+const FILE_CARDS: { title: string; url?: string; subFiles?: SubFile[] }[] = [
   { title: 'Design Center Ideas',              url: '#' },
-  { title: 'Design Center — Calin',            url: '#' },
+  {
+    title: 'Design Center — Calin',
+    subFiles: [
+      { name: 'Design Center Leadership Briefing V4', fileType: 'PDF',  date: 'May 12', author: 'Kai Mapoy'     },
+      { name: 'Discoveries for Design Center wt CTN Notes v1', fileType: 'Word', date: 'May 7',  author: 'Calin Noonan' },
+      { name: 'Discoveries for Design Center wt CTN Notes v2', fileType: 'Word', date: 'May 7',  author: 'Calin Noonan' },
+      { name: 'LAmonts Meeting Agenda',         fileType: 'Word', date: 'May 13', author: 'Calin Noonan' },
+    ],
+  },
   { title: 'Design Center — Shannon',          url: '#' },
   { title: 'Design Center — Jeff',             url: '#' },
   { title: 'Design Center Planning — Jeff',    url: '#' },
   { title: 'Design Center Sneak Peek — Shannon', url: '#' },
 ]
+
+// ── File icon helpers ─────────────────────────────────────────────────────────
+
+function PdfIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg>
+  )
+}
+
+function WordIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/>
+      <line x1="16" y1="17" x2="8" y2="17"/>
+    </svg>
+  )
+}
+
+// ── Placeholder doc modal ─────────────────────────────────────────────────────
+
+function DocPlaceholderModal({ name, onClose }: { name: string; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 520,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 80px)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              {name}
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              Design Center — Calin
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Placeholder body */}
+        <div
+          className="flex-1 flex flex-col items-center justify-center gap-3 px-8 py-12"
+          style={{ color: 'var(--text3)' }}
+        >
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.35 }}>
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          <p className="text-[13px] text-center" style={{ opacity: 0.5 }}>
+            Document content will be added here.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Leadership Briefing V4 modal ──────────────────────────────────────────────
+
+const LEADERSHIP_INVOLVEMENT = [
+  {
+    initials: 'LG',
+    name: 'Lamont — VP of Finance',
+    focus: 'Revenue capture · Margin improvement · Overhead reduction',
+    asks: [
+      { what: 'Refine the pro forma and stress-test assumptions', why: 'We need your lens on what\'s realistic — you see both the opportunity and the risk' },
+      { what: 'Quantify current PM overhead tied to preconstruction tasks', why: 'This establishes the baseline and makes the overhead reduction story concrete and credible' },
+      { what: 'Define financial KPIs for first 12-months', why: 'We need to agree on what success looks like financially before we open the doors' },
+    ],
+  },
+  {
+    initials: 'MC',
+    name: 'Matteo — Operations Manager',
+    focus: 'Growth infrastructure · Process efficiency · Market expansion',
+    asks: [
+      { what: 'Define the construction readiness packet standard', why: 'The single most critical operational output — scope, drawings, permit, estimate, selections, contract — all consistent, every project' },
+      { what: 'Map where the Design Center journey ends and construction begins', why: 'A clear interface between the two removes ambiguity and prevents projects falling through the gap' },
+      { what: 'Build the SOPs that replicate cleanly to new markets', why: 'If designed right once, they travel. This document becomes the operating standard for every future market' },
+    ],
+  },
+  {
+    initials: 'KG',
+    name: 'Kait — HR Director',
+    focus: 'People experience · Culture · Learning and belonging',
+    asks: [
+      { what: 'Define what kind of person thrives as a journey specialist', why: 'Not just skills — values, communication style, how they show up for people. That nuance is yours to define' },
+      { what: 'Shape how architects and team members are onboarded', why: 'We want them to feel genuinely set up to succeed, not processed through a checklist' },
+      { what: 'Design the partner recognition and performance program', why: 'We want it to feel human and motivating — you understand what actually makes people feel valued' },
+    ],
+  },
+  {
+    initials: 'JA',
+    name: 'Jeff — VP Sales & Marketing',
+    focus: 'Customer journey · Brand building · Industry disruption',
+    asks: [
+      { what: 'Own the customer journey from first touchpoint through construction handoff', why: 'Every stage needs intentional design — how a lead hears about us, what the first meeting feels like, how the space guides the experience' },
+      { what: 'Merge two distinct sales narratives — partners and clients', why: 'Architects and homeowners care about completely different things. Both pitches need to land powerfully as one' },
+      { what: 'Develop the 8-month pre-launch marketing strategy', why: 'We want demand at the door on opening day — not being built after we open' },
+    ],
+  },
+  {
+    initials: 'CN',
+    name: 'Calin — Founder & President',
+    focus: 'Team empowerment · Growth · Creating opportunity',
+    asks: [
+      { what: 'Enter each conversation knowing what motivates that person — not just professionally, but personally', why: 'Creates ultimate team synergy and alignment producing incredibly powerful results towards leadership team personal and professional goals' },
+      { what: 'Name the opportunity for each leadership member', why: 'Hearing that you built this to create something the team could grow into changes everything for the right person' },
+      { what: 'Hold space for hesitation without rushing to resolve it', why: 'The ones who come around slowly often become the most committed — if they\'re not pressured early' },
+    ],
+  },
+  {
+    initials: 'CH',
+    name: 'Chad — Co-Owner & VP Operations',
+    focus: 'Scalable systems · Empowering others · Personal growth',
+    asks: [
+      { what: 'Support with designing the operating system that runs the Design Center day to day', why: 'Journey checklists, handoff standards, quality gates — all built to be simple and self-executing so the right way is always the easy way' },
+      { what: 'Build the replication playbook for new markets', why: 'Every decision made here becomes the template for the next market — design it with that in mind from day one' },
+      { what: 'Empower ownership to team members and let them run', why: 'Clear accountability early means people earn real capability — and you build a team that doesn\'t need you in every room' },
+    ],
+  },
+]
+
+function LeadershipBriefingModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="relative rounded-[12px] overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          width: 640,
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 60px)',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.2)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <div className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+              Design Center Leadership Briefing V4
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+              April 30, 2025 · Calin · Chad · Lamont · Matteo · Kait · Jeff
+            </div>
+          </div>
+          <button
+            type="button" onClick={onClose}
+            className="flex items-center justify-center rounded-[6px]"
+            style={{ width: 28, height: 28, color: 'var(--text3)', background: 'transparent' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
+
+          {/* Purpose */}
+          <div className="rounded-[8px] px-4 py-3" style={{ background: '#f0f4ff', border: '1px solid #c7d4f8' }}>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-1.5" style={{ color: '#4361b8' }}>
+              Purpose of this Meeting
+            </div>
+            <p className="text-[12.5px] leading-relaxed m-0" style={{ color: '#1e3a8a' }}>
+              We are not presenting a finished plan for approval. We are aligning as a leadership team on what the Design Center is, how it supports CASK Construction&apos;s growth, and where each person&apos;s involvement will matter most in the months ahead.
+            </p>
+          </div>
+
+          {/* The Opportunity */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              The Opportunity
+            </div>
+            <p className="text-[12.5px] leading-relaxed mb-3" style={{ color: 'var(--text2)' }}>
+              Construction projects today begin in a fragmented way. Clients, architects, and contractors come in at different times, focused on different priorities — resulting in misalignment, confusion, and cost overruns. The Design Center solves this by creating a single starting point: a preconstruction ecosystem where clients are guided through a structured journey, architects work on better-defined projects, and CASK Construction receives more prepared, more predictable work.
+            </p>
+            <div className="rounded-[8px] px-4 py-3 italic" style={{ background: '#f0f4ff', border: '1px solid #c7d4f8', color: '#1e3a8a' }}>
+              <span className="text-[12px] font-semibold not-italic" style={{ color: '#4361b8' }}>&ldquo;We&rsquo;re not just designing buildings — we&rsquo;re designing how projects start.&rdquo;</span>
+              <p className="text-[12px] leading-relaxed mt-1 mb-0">The Design Center creates a guided preconstruction experience that aligns clients, architects, and contractors from day one. Every lead that enters the network generates value.</p>
+            </div>
+          </div>
+
+          {/* Three Benefits */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-2" style={{ color: 'var(--text3)' }}>
+              Three Direct Benefits to CASK Construction
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { title: 'Revenue from every lead', body: 'Leads not ready to build today pay for preconstruction services now and convert later. No lead leaves the network empty-handed.' },
+                { title: 'More construction volume', body: 'Projects arriving with scope defined and budget aligned allow the construction team to take on more work with less friction.' },
+                { title: 'Expansion into new markets', body: 'The Design Center establishes the brand, pipeline, and relationships in a new market before construction scales in. It is the advance team.' },
+              ].map(b => (
+                <div key={b.title} className="rounded-[8px] p-3" style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                  <div className="text-[11.5px] font-semibold mb-1.5 leading-tight" style={{ color: 'var(--text)' }}>{b.title}</div>
+                  <div className="text-[11px] leading-relaxed" style={{ color: 'var(--text3)' }}>{b.body}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Leadership Involvement */}
+          <div>
+            <div className="text-[10px] font-semibold tracking-[1.2px] uppercase mb-3" style={{ color: 'var(--text3)' }}>
+              Leadership Involvement
+            </div>
+            <div className="flex flex-col gap-3">
+              {LEADERSHIP_INVOLVEMENT.map(leader => (
+                <div key={leader.initials} className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+                  {/* Leader header */}
+                  <div className="flex items-center gap-3 px-4 py-2.5" style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                    <div
+                      className="shrink-0 flex items-center justify-center rounded-[5px] text-[10px] font-bold text-white"
+                      style={{ width: 26, height: 26, background: '#1e293b' }}
+                    >
+                      {leader.initials}
+                    </div>
+                    <div>
+                      <div className="text-[12px] font-semibold" style={{ color: 'var(--text)' }}>{leader.name}</div>
+                      <div className="text-[10px]" style={{ color: 'var(--text3)' }}>{leader.focus}</div>
+                    </div>
+                  </div>
+                  {/* Asks */}
+                  <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                    {leader.asks.map((ask, i) => (
+                      <div key={i} className="grid px-4 py-2.5 gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                        <div className="text-[11.5px]" style={{ color: 'var(--text2)' }}>{ask.what}</div>
+                        <div className="text-[11px]" style={{ color: 'var(--text3)' }}>{ask.why}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div className="shrink-0 px-6 py-3" style={{ borderTop: '1px solid var(--border)' }}>
+          <a
+            href="https://caskconstruction.sharepoint.com/:b:/s/CASKConstruction/IQCmKo9-r6LFTK6hRKTNp1nGAdHWc5355EjOJ95_DE7L2NM?e=GArJGS"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-2 rounded-[7px] text-[12px] font-semibold transition-opacity no-underline"
+            style={{ background: 'var(--charcoal)', color: '#fff' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.8' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1' }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+            View Full Document
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Expandable file card (Calin) ──────────────────────────────────────────────
+
+function ExpandableFileCard({ title, subFiles }: { title: string; subFiles: SubFile[] }) {
+  const [open, setOpen] = useState(false)
+  const [activeModal, setActiveModal] = useState<string | null>(null)
+
+  return (
+    <div
+      className="rounded-[10px] overflow-hidden"
+      style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+    >
+      {/* Header row */}
+      <div className="flex items-center gap-3.5 px-5 py-[14px]">
+        {/* Folder icon */}
+        <div
+          className="shrink-0 flex items-center justify-center rounded-[8px]"
+          style={{ width: 34, height: 34, background: '#eff6ff', border: '1px solid #bfdbfe' }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+
+        {/* Title */}
+        <div className="flex-1 min-w-0">
+          <span className="text-[14px] font-semibold tracking-[-0.2px]" style={{ color: 'var(--text)' }}>
+            {title}
+          </span>
+          <span className="ml-2 text-[11px]" style={{ color: 'var(--text3)' }}>
+            {subFiles.length} files
+          </span>
+        </div>
+
+        {/* Expand toggle */}
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="shrink-0 flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-[5px] transition-opacity"
+          style={{
+            background: 'var(--surface2)',
+            color: 'var(--text2)',
+            border: '1px solid var(--border)',
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '0.7' }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+        >
+          {open ? 'Collapse' : 'Expand'}
+          <svg
+            width="11" height="11" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            style={{ transition: 'transform 180ms ease', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
+          >
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+      </div>
+
+      {/* Sub-file rows */}
+      {open && (
+        <div style={{ borderTop: '1px solid var(--border)' }}>
+          {subFiles.map((file, i) => (
+            <div
+              key={file.name}
+              className="flex items-center gap-3 px-5 py-3"
+              style={{
+                borderBottom: i < subFiles.length - 1 ? '1px solid var(--border)' : 'none',
+                marginLeft: 48,
+                marginRight: 20,
+              }}
+            >
+              {/* File type icon */}
+              <div
+                className="shrink-0 flex items-center justify-center rounded-[6px]"
+                style={{
+                  width: 28,
+                  height: 28,
+                  background: file.fileType === 'PDF' ? '#fef2f2' : '#eff6ff',
+                  border: `1px solid ${file.fileType === 'PDF' ? '#fecaca' : '#bfdbfe'}`,
+                  color: file.fileType === 'PDF' ? '#dc4f2a' : '#2563eb',
+                }}
+              >
+                {file.fileType === 'PDF' ? <PdfIcon /> : <WordIcon />}
+              </div>
+
+              {/* File info */}
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text)' }}>
+                  {file.name}
+                </div>
+                <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+                  {file.fileType} · {file.date} · {file.author}
+                </div>
+              </div>
+
+              {/* View Document button */}
+              <button
+                type="button"
+                className="shrink-0 flex items-center gap-1.5 text-[10.5px] font-semibold px-2.5 py-1.5 rounded-[5px] transition-opacity"
+                style={{ background: 'var(--charcoal)', color: '#fff', border: 'none', fontFamily: 'inherit', cursor: 'pointer' }}
+                onClick={() => setActiveModal(file.name)}
+                onMouseEnter={e => { e.currentTarget.style.opacity = '0.8' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+                View Document
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeModal === 'Design Center Leadership Briefing V4' && (
+        <LeadershipBriefingModal onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal && activeModal !== 'Design Center Leadership Briefing V4' && (
+        <DocPlaceholderModal name={activeModal} onClose={() => setActiveModal(null)} />
+      )}
+    </div>
+  )
+}
 
 // ── File card component ───────────────────────────────────────────────────────
 
@@ -184,7 +625,11 @@ export default function DesignCenterPage() {
           {/* ── File cards ── */}
           {FILE_CARDS.map((card, i) => (
             <div key={card.title}>
-              <FileCard title={card.title} url={card.url} />
+              {card.subFiles ? (
+                <ExpandableFileCard title={card.title} subFiles={card.subFiles} />
+              ) : (
+                <FileCard title={card.title} url={card.url!} />
+              )}
               {i < FILE_CARDS.length - 1 && (
                 <div className="flex justify-center" style={{ padding: '3px 0' }}>
                   <svg width="14" height="22" viewBox="0 0 14 22" fill="none">
