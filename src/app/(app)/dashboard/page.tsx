@@ -71,6 +71,7 @@ interface TodayEvent {
   organizer: string | null
   attendees: unknown
   meeting_link: string | null
+  web_link: string | null
   is_all_day: boolean | null
 }
 
@@ -409,9 +410,9 @@ export default function DashboardPage() {
                             Now
                           </span>
                         )}
-                        {ev.meeting_link && (
+                        {ev.web_link && (
                           <a
-                            href={ev.meeting_link}
+                            href={ev.web_link}
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
@@ -423,7 +424,7 @@ export default function DashboardPage() {
                             onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
                             onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
                           >
-                            Join
+                            View Event
                           </a>
                         )}
                       </div>
