@@ -38,6 +38,12 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    label: 'Design Center',
+    items: [
+      { href: '/design-center', icon: '🏛', label: 'Design Center', locked: false },
+    ],
+  },
+  {
     label: 'Meeting Intelligence',
     locked: true,
     items: [
