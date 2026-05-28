@@ -16,7 +16,7 @@ type Freq = keyof typeof FREQ
 
 interface PersonItem { name: string }
 interface SubSubItem { title: string; personItems?: PersonItem[]; modalKey?: string }
-interface SubItem { title: string; subItems?: SubSubItem[]; modalKey?: string }
+interface SubItem { title: string; subItems?: SubSubItem[]; modalKey?: string; personItems?: PersonItem[] }
 interface MeetingLevel { title: string; freq: Freq; subItems?: SubItem[]; modalKey?: string }
 
 const LEVELS: MeetingLevel[] = [
@@ -27,7 +27,15 @@ const LEVELS: MeetingLevel[] = [
     title: 'Monthly Check-ins',
     freq: 'monthly',
     modalKey: 'monthly-check-ins',
-    subItems: [{ title: 'DISC' }],
+    subItems: [{
+      title: 'DISC',
+      personItems: [
+        { name: 'Jeff Azcona' },
+        { name: 'Lamont Gilyot' },
+        { name: 'Kaitlyn Grunenberg' },
+        { name: 'Matteo Carpani' },
+      ],
+    }],
   },
   {
     title: 'Weekly Meetings',
@@ -37,15 +45,7 @@ const LEVELS: MeetingLevel[] = [
       {
         title: 'Department Alignment',
         subItems: [
-          {
-            title: 'DISC',
-            personItems: [
-              { name: 'Jeff Azcona' },
-              { name: 'Lamont Gilyot' },
-              { name: 'Kaitlyn Grunenberg' },
-              { name: 'Matteo Carpani' },
-            ],
-          },
+          { title: 'DISC' },
           { title: 'Team Alignment – Hitting Our $20M Goal', modalKey: 'team-alignment' },
           { title: 'Department Roles and Responsibilities', modalKey: 'dept-roles' },
         ],
@@ -108,6 +108,96 @@ const DISC_PROFILES: Record<string, DiscProfile> = {
       'Avoids conflict — may suppress frustration until it reaches a breaking point',
     ],
     sharePointUrl: 'https://caskconstruction.sharepoint.com/sites/CASKConstruction/Shared%20Documents/Forms/AllItems.aspx?viewid=e70addd7%2D1c61%2D417d%2Dab4e%2Dec2c4bb59e3d&ct=1779743714745&or=WORD%2DWEB%2EBODY%2ENT&id=%2Fsites%2FCASKConstruction%2FShared%20Documents%2FHR%2FDISC%2FAzcona%5FJeff%20DiSC%20Profile%20Report%2Epdf&parent=%2Fsites%2FCASKConstruction%2FShared%20Documents%2FHR%2FDISC',
+  },
+  'Lamont Gilyot': {
+    style: 'C',
+    styleLabel: 'C — Conscientiousness',
+    styleColor: '#2563eb',
+    styleBg: '#eff6ff',
+    styleBorder: '#bfdbfe',
+    assessmentDate: 'Placeholder — full report on file',
+    tagline: 'Strongly inclined toward the C style — precise, analytical, and committed to quality and accuracy.',
+    traits: [
+      'Analytical and detail-oriented in all financial decisions',
+      'Systematic thinker who relies on data over intuition',
+      'High standards for accuracy and thoroughness',
+      'Methodical approach to problem-solving and process improvement',
+      'Reserved and deliberate — thinks before speaking or acting',
+    ],
+    strengths: [
+      'Builds rigorous financial systems and controls that scale with the business',
+      'Identifies risks and gaps before they become problems',
+      'Produces highly accurate reporting that leadership can trust',
+      'Creates structured workflows that reduce manual error and increase efficiency',
+      'Maintains long-term financial discipline even under growth pressure',
+    ],
+    growthAreas: [
+      'May over-analyze before making a decision, slowing momentum',
+      'Can be perceived as overly critical when reviewing others\' work',
+      'Preference for precision may create friction in fast-moving situations',
+      'May withdraw during conflict rather than addressing it directly',
+    ],
+    sharePointUrl: 'https://caskconstruction.sharepoint.com/:b:/s/CASKConstruction/IQAZBnT6jTHGRoDuySuUqCBKAT7z1NfpDvsnGLmIk00ucAM?e=NWDczT',
+  },
+  'Kaitlyn Grunenberg': {
+    style: 'S',
+    styleLabel: 'S — Steadiness',
+    styleColor: '#16a34a',
+    styleBg: '#f0fdf4',
+    styleBorder: '#bbf7d0',
+    assessmentDate: 'Placeholder — full report on file',
+    tagline: 'Strongly inclined toward the S style — reliable, people-focused, and committed to building a stable, thriving team.',
+    traits: [
+      'Calm, patient, and consistent under pressure',
+      'Deeply relationship-oriented — values trust and long-term connection',
+      'Loyal and dependable; follows through on commitments',
+      'Thoughtful listener who creates space for others to be heard',
+      'Prefers stability and collaborative decision-making over rapid change',
+    ],
+    strengths: [
+      'Builds a culture of trust, fairness, and psychological safety',
+      'Develops people with genuine care for their growth and success',
+      'Maintains team morale and cohesion during challenging periods',
+      'Creates HR systems and processes that are consistent and people-centered',
+      'Bridges communication between leadership and team members effectively',
+    ],
+    growthAreas: [
+      'May avoid difficult conversations to preserve harmony',
+      'Can be resistant to sudden change without adequate context or lead time',
+      'Tendency to absorb others\' stress — needs strong personal boundaries',
+      'May under-advocate for own needs or perspective in group settings',
+    ],
+    sharePointUrl: 'https://caskconstruction.sharepoint.com/:b:/s/CASKConstruction/IQAZBnT6jTHGRoDuySuUqCBKAT7z1NfpDvsnGLmIk00ucAM?e=Eb6Qhl',
+  },
+  'Matteo Carpani': {
+    style: 'D',
+    styleLabel: 'D — Dominance',
+    styleColor: '#dc4f2a',
+    styleBg: '#fff5f3',
+    styleBorder: '#fecaca',
+    assessmentDate: 'Placeholder — full report on file',
+    tagline: 'Strongly inclined toward the D style — decisive, results-driven, and focused on moving fast and building big.',
+    traits: [
+      'Direct, confident, and action-oriented in all decisions',
+      'Driven by results — sets high expectations for self and others',
+      'Entrepreneurial mindset with a strong bias toward execution',
+      'Thrives in competitive, fast-paced environments',
+      'Challenges the status quo and pushes for continuous improvement',
+    ],
+    strengths: [
+      'Moves projects forward quickly and cuts through ambiguity',
+      'Holds teams accountable to timelines and outcomes',
+      'Sees the big picture and takes initiative without waiting for direction',
+      'Effective at building operational structure in high-growth environments',
+      'Brings drive and urgency that elevates the pace of the team around him',
+    ],
+    growthAreas: [
+      'May prioritize speed over process, creating gaps in documentation or follow-through',
+      'Direct communication style can come across as blunt or dismissive',
+      'May take on too much independently rather than delegating effectively',
+      'Can underestimate the emotional impact of decisions on team members',
+    ],
+    sharePointUrl: 'https://caskconstruction.sharepoint.com/:b:/s/CASKConstruction/IQBPKZtpUr5ARasqVu4hBDv7AYfxJnhBQq2n7FVAkySWxnw?e=KGbCE6',
   },
 }
 
@@ -974,7 +1064,7 @@ function DailyCalinKaiModal({ onClose }: { onClose: () => void }) {
 
 // ── Expandable DISC row ───────────────────────────────────────────────────────
 
-function DiscExpandable({ subsub }: { subsub: SubSubItem }) {
+function DiscExpandable({ subsub }: { subsub: { title: string; personItems?: PersonItem[] } }) {
   const [open, setOpen] = useState(false)
   const [activeModal, setActiveModal] = useState<string | null>(null)
 
@@ -2279,6 +2369,10 @@ function LevelCard({ level }: { level: MeetingLevel }) {
           <div className="pt-3 flex flex-col gap-2" style={{ marginLeft: 48 }}>
             {level.subItems!.map((sub) => (
               <div key={sub.title}>
+                {sub.personItems ? (
+                  <DiscExpandable subsub={sub} />
+                ) : (
+                <>
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <div
@@ -2346,6 +2440,8 @@ function LevelCard({ level }: { level: MeetingLevel }) {
                       )
                     )}
                   </div>
+                )}
+                </>
                 )}
               </div>
             ))}
