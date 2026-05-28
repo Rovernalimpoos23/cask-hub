@@ -443,7 +443,7 @@ export default function CalendarPage() {
 
   return (
     <>
-      <TopBar title="Calendar" subtitle="Microsoft 365">
+      <TopBar title="President's Calendar" subtitle="Microsoft 365">
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text3)' }}>
           <CalendarIcon />
         </div>
