@@ -90,15 +90,15 @@ export async function updateActionItemDone(
   done: boolean,
   currentItems: ActionItem[]
 ): Promise<void> {
-  try {
-    const updated = currentItems.map(item =>
-      item.id === actionId ? { ...item, done } : item
-    )
-    await createClient()
-      .from('meetings')
-      .update({ action_items: updated })
-      .eq('id', meetingId)
-  } catch {
-    // best-effort — local state already updated
+  const updated = currentItems.map(item =>
+    item.id === actionId ? { ...item, done } : item
+  )
+  const { error } = await createClient()
+    .from('meetings')
+    .update({ action_items: updated })
+    .eq('id', meetingId)
+  if (error) {
+    console.error('[meetings] updateActionItemDone failed:', error.message, error.details ?? '')
+    throw new Error(error.message)
   }
 }

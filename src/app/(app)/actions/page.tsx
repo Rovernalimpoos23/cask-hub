@@ -53,6 +53,7 @@ export default function ActionsPage() {
       const meeting = meetingsMap[target.meeting_id]
       if (meeting) {
         updateActionItemDone(target.meeting_id, id, done, meeting.action_items)
+          .catch(err => console.error('[actions] toggle persist failed:', err))
         // Update local map so subsequent toggles have fresh data
         setMeetingsMap(prev => ({
           ...prev,
