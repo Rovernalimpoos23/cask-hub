@@ -382,75 +382,110 @@ export default function DashboardPage() {
                     No meetings scheduled today
                   </div>
                 ) : (
-                  calendarEvents.map(ev => {
-                    const duration = fmtDuration(ev.start_time, ev.end_time)
+                  (() => {
                     const nowMs = Date.now()
-                    const isNow = !ev.is_all_day
-                      && new Date(ev.start_time).getTime() <= nowMs
-                      && !!ev.end_time && new Date(ev.end_time).getTime() >= nowMs
-                    const accentColor = ev.meeting_link ? '#0d9488' : '#2563eb'
-                    return (
-                      <div
-                        key={ev.id}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 10,
-                          padding: '9px 12px 9px 10px',
-                          borderRadius: 8,
-                          border: `1px solid ${isNow ? 'rgba(13,148,136,0.35)' : 'var(--border)'}`,
-                          borderLeft: `3px solid ${accentColor}`,
-                          background: isNow ? 'rgba(13,148,136,0.04)' : 'transparent',
-                          transition: 'border-color 150ms ease',
-                        }}
-                      >
-                        <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500, minWidth: 66, flexShrink: 0, lineHeight: 1.2 }}>
-                          {ev.is_all_day ? 'All Day' : fmtET(ev.start_time)}
-                        </span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-                            {ev.title}
-                          </div>
-                          {ev.organizer && (
-                            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{ev.organizer}</div>
-                          )}
-                        </div>
-                        {duration && (
-                          <span style={{
-                            fontSize: 10, fontWeight: 600, color: 'var(--text3)',
-                            background: 'var(--surface2)', border: '1px solid var(--border)',
-                            borderRadius: 4, padding: '1px 6px', flexShrink: 0,
-                          }}>
-                            {duration}
-                          </span>
-                        )}
-                        {isNow && (
-                          <span style={{
-                            fontSize: 9, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase',
-                            color: 'white', background: '#0d9488',
-                            borderRadius: 20, padding: '2px 7px', flexShrink: 0,
-                          }}>
-                            Now
-                          </span>
-                        )}
-                        {ev.web_link && (
-                          <a
-                            href={ev.web_link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              fontSize: 11, fontWeight: 600, color: 'white',
-                              background: '#7c3aed', padding: '4px 11px', borderRadius: 6,
-                              textDecoration: 'none', flexShrink: 0,
-                              transition: 'opacity 150ms ease',
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
-                            onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
-                          >
-                            View Event
-                          </a>
-                        )}
+                    const allDone = calendarEvents.every(ev =>
+                      ev.is_all_day || (ev.end_time ? new Date(ev.end_time).getTime() < nowMs : false)
+                    )
+                    if (allDone) return (
+                      <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 8, color: '#10b981', fontSize: 13, fontWeight: 600 }}>
+                        All meetings completed for today ✓
                       </div>
                     )
-                  })
+                    return calendarEvents.map(ev => {
+                      const startMs = new Date(ev.start_time).getTime()
+                      const endMs = ev.end_time ? new Date(ev.end_time).getTime() : null
+                      const isDone = !ev.is_all_day && endMs !== null && endMs < nowMs
+                      const isNow = !ev.is_all_day && startMs <= nowMs && endMs !== null && endMs >= nowMs
+                      const isUpcoming = !ev.is_all_day && startMs > nowMs
+                      const duration = fmtDuration(ev.start_time, ev.end_time)
+                      const minsUntil = isUpcoming ? Math.round((startMs - nowMs) / 60000) : 0
+                      const timeUntil = minsUntil < 60
+                        ? `in ${minsUntil}m`
+                        : `in ${Math.floor(minsUntil / 60)}h${minsUntil % 60 ? ` ${minsUntil % 60}m` : ''}`
+                      const borderLeft = isDone ? '3px solid var(--border)' : isNow ? '3px solid #10b981' : '3px solid #2563eb'
+                      return (
+                        <div
+                          key={ev.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '9px 12px 9px 10px',
+                            borderRadius: 8,
+                            border: `1px solid ${isNow ? 'rgba(16,185,129,0.35)' : 'var(--border)'}`,
+                            borderLeft,
+                            background: isNow ? 'rgba(16,185,129,0.04)' : 'transparent',
+                            opacity: isDone ? 0.5 : 1,
+                            transition: 'border-color 150ms ease',
+                          }}
+                        >
+                          <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500, minWidth: 66, flexShrink: 0, lineHeight: 1.2 }}>
+                            {ev.is_all_day ? 'All Day' : fmtET(ev.start_time)}
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                              {ev.title}
+                            </div>
+                            {ev.organizer && (
+                              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{ev.organizer}</div>
+                            )}
+                          </div>
+
+                          {/* Status badge */}
+                          {isDone ? (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700,
+                              color: 'var(--text3)', background: 'var(--surface2)', border: '1px solid var(--border)',
+                              borderRadius: 20, padding: '2px 8px', flexShrink: 0,
+                            }}>
+                              ✓ Done
+                            </span>
+                          ) : isNow ? (
+                            <span style={{
+                              fontSize: 9, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase',
+                              color: 'white', background: '#10b981',
+                              borderRadius: 20, padding: '2px 7px', flexShrink: 0,
+                            }}>
+                              🔴 Live Now
+                            </span>
+                          ) : isUpcoming ? (
+                            <span style={{
+                              fontSize: 10, fontWeight: 600,
+                              color: '#2563eb', background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.2)',
+                              borderRadius: 20, padding: '2px 8px', flexShrink: 0,
+                            }}>
+                              {timeUntil}
+                            </span>
+                          ) : duration ? (
+                            <span style={{
+                              fontSize: 10, fontWeight: 600, color: 'var(--text3)',
+                              background: 'var(--surface2)', border: '1px solid var(--border)',
+                              borderRadius: 4, padding: '1px 6px', flexShrink: 0,
+                            }}>
+                              {duration}
+                            </span>
+                          ) : null}
+
+                          {ev.web_link && (
+                            <a
+                              href={ev.web_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                fontSize: 11, fontWeight: 600, color: 'white',
+                                background: '#7c3aed', padding: '4px 11px', borderRadius: 6,
+                                textDecoration: 'none', flexShrink: 0,
+                                transition: 'opacity 150ms ease',
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
+                              onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                            >
+                              View Event
+                            </a>
+                          )}
+                        </div>
+                      )
+                    })
+                  })()
                 )}
               </div>
             </div>
