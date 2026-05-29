@@ -142,6 +142,16 @@ export async function POST(req: NextRequest) {
       // Fall through — save with Fireflies metadata only
     }
 
+    const hasMeaningfulContent =
+      extracted.summary &&
+      (extracted.summary as string[]).length > 0 &&
+      (extracted.summary as string[])[0].length > 10
+
+    if (!hasMeaningfulContent) {
+      console.log('[fireflies] skipping save — insufficient content extracted for:', transcript.title)
+      return NextResponse.json({ success: true, message: 'Skipped — insufficient content extracted' })
+    }
+
     // 4. Save to Supabase using service role key (bypasses RLS)
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
