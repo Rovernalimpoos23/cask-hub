@@ -47,6 +47,58 @@ function SoundWave() {
   )
 }
 
+// ── Download detection ───────────────────────────────────────────────
+
+type DownloadOption = { label: string; filename: string; content: string; mimeType: string }
+
+function detectDownloads(content: string): DownloadOption[] {
+  const opts: DownloadOption[] = []
+
+  const csvMatch = content.match(/```csv\r?\n([\s\S]*?)```/)
+  if (csvMatch) {
+    opts.push({ label: '⬇ Download CSV', filename: 'cask-export.csv', content: csvMatch[1].trim(), mimeType: 'text/csv' })
+  }
+
+  const jsonMatch = content.match(/```json\r?\n([\s\S]*?)```/)
+  if (jsonMatch) {
+    opts.push({ label: '⬇ Download JSON', filename: 'cask-export.json', content: jsonMatch[1].trim(), mimeType: 'application/json' })
+  }
+
+  const textMatch = content.match(/```text\r?\n([\s\S]*?)```/)
+  if (textMatch) {
+    opts.push({ label: '⬇ Download TXT', filename: 'cask-export.txt', content: textMatch[1].trim(), mimeType: 'text/plain' })
+  }
+
+  // Markdown table — at least a header row + separator row + one data row
+  const lines = content.split('\n')
+  const tableLines = lines.filter(l => /^\|.+\|$/.test(l.trim()))
+  if (!csvMatch && tableLines.length >= 3) {
+    const csvRows = tableLines
+      .filter(l => !/^\|[\s\-:|]+\|$/.test(l.trim()))
+      .map(l =>
+        l.trim().slice(1, -1).split('|').map(cell => {
+          const v = cell.trim()
+          return v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+        }).join(',')
+      )
+    if (csvRows.length >= 1) {
+      opts.push({ label: '⬇ Download Excel', filename: 'cask-export.csv', content: csvRows.join('\n'), mimeType: 'text/csv' })
+    }
+  }
+
+  return opts
+}
+
+function triggerDownload(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function AIPanel() {
   const [sessionCount, setSessionCount] = useState<number | null>(null)
   const [userName, setUserName] = useState('there')
@@ -62,6 +114,7 @@ export default function AIPanel() {
   const [attachedFile, setAttachedFile] = useState<{ name: string; data: string; rawType: 'text' | 'pdf' | 'binary'; mimeType: string } | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [isProcessingFile, setIsProcessingFile] = useState(false)
+  const [userEmail, setUserEmail] = useState('')
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -70,6 +123,8 @@ export default function AIPanel() {
   // FIX 1: Keep a ref so speakText always reads the CURRENT voiceEnabled,
   // regardless of which render closure captured it.
   const voiceEnabledRef = useRef(false)
+  // Keep email in a ref so saveMessage/clearHistory closures always read the latest value
+  const userEmailRef = useRef('')
 
   // Fetch session count + user name, then set personalised greeting
   useEffect(() => {
@@ -83,7 +138,11 @@ export default function AIPanel() {
       ])
 
       let firstName = 'there'
+      let email = ''
       if (user?.email) {
+        email = user.email
+        setUserEmail(email)
+        userEmailRef.current = email
         const { data } = await supabase
           .from('users')
           .select('name, role')
@@ -95,6 +154,21 @@ export default function AIPanel() {
 
       setSessionCount(count)
       setUserName(firstName)
+
+      // Load persisted chat history for this user + page
+      if (email) {
+        const { data: history } = await supabase
+          .from('chat_history')
+          .select('role, content')
+          .eq('user_email', email)
+          .eq('page_context', window.location.pathname)
+          .order('created_at', { ascending: true })
+          .limit(20)
+        if (history && history.length > 0) {
+          setMessages(history as AIMessage[])
+          return
+        }
+      }
 
       const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
       const timeGreeting = (hour >= 5 && hour < 12) ? 'Good morning' : (hour >= 12 && hour < 17) ? 'Good afternoon' : 'Good evening'
@@ -148,6 +222,26 @@ export default function AIPanel() {
   function clearFile() {
     setAttachedFile(null)
     setFileError(null)
+  }
+
+  function saveMessage(role: string, content: string) {
+    if (!userEmailRef.current) return
+    createClient()
+      .from('chat_history')
+      .insert({ user_email: userEmailRef.current, page_context: window.location.pathname, role, content })
+      .then(({ error }) => { if (error) console.error('[chat history] save error:', error.message) })
+  }
+
+  async function clearHistory() {
+    if (!userEmailRef.current) return
+    await createClient()
+      .from('chat_history')
+      .delete()
+      .eq('user_email', userEmailRef.current)
+      .eq('page_context', window.location.pathname)
+    const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
+    const timeGreeting = (hour >= 5 && hour < 12) ? 'Good morning' : (hour >= 12 && hour < 17) ? 'Good afternoon' : 'Good evening'
+    setMessages([{ role: 'assistant', content: `${timeGreeting}, ${userName}. Chat history cleared. What would you like to know?` }])
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -269,6 +363,7 @@ export default function AIPanel() {
     const userMsg: AIMessage = { role: 'user', content: displayContent }
     const nextMessages = [...messages, userMsg]
     setMessages(nextMessages)
+    saveMessage('user', displayContent)
     setIsThinking(true)
 
     try {
@@ -302,6 +397,7 @@ export default function AIPanel() {
 
       const newMessages: AIMessage[] = [...nextMessages, { role: 'assistant', content: aiContent }]
       setMessages(newMessages)
+      saveMessage('assistant', aiContent)
       speakText(aiContent, newMessages.length - 1)
 
     } catch (err) {
@@ -362,6 +458,27 @@ export default function AIPanel() {
 
         {/* Voice controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {userEmail && (
+            <button
+              onClick={clearHistory}
+              title="Clear chat history for this page"
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                padding: '3px 7px',
+                borderRadius: 20,
+                border: '1px solid var(--border)',
+                background: 'var(--surface2)',
+                color: 'var(--text3)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'all 150ms ease',
+                flexShrink: 0,
+              }}
+            >
+              Clear
+            </button>
+          )}
           {isSpeaking && (
             <button
               onClick={stopSpeech}
@@ -430,36 +547,60 @@ export default function AIPanel() {
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
         {messages.map((msg, i) => {
           const isCurrentlySpeaking = speakingIndex === i
+          const downloads = msg.role === 'assistant' ? detectDownloads(msg.content) : []
           return (
             <div
               key={i}
-              className={`text-[12px] leading-relaxed rounded-lg px-3 py-2.5 max-w-[88%] ${
-                msg.role === 'user' ? 'self-end' : 'self-start'
-              }`}
-              style={
-                msg.role === 'user'
-                  ? {
-                      background: 'var(--glass-msg-user)',
-                      backdropFilter: 'var(--card-backdrop)',
-                      WebkitBackdropFilter: 'var(--card-backdrop)',
-                      color: 'rgba(255,255,255,0.9)',
-                      borderRadius: '10px 10px 2px 10px',
-                    }
-                  : {
-                      background: 'var(--glass-msg-assist)',
-                      backdropFilter: 'var(--card-backdrop)',
-                      WebkitBackdropFilter: 'var(--card-backdrop)',
-                      color: 'var(--text2)',
-                      border: `1px solid ${isCurrentlySpeaking ? '#10b981' : 'var(--border)'}`,
-                      borderLeft: isCurrentlySpeaking ? '3px solid #10b981' : '1px solid var(--border)',
-                      borderRadius: '2px 10px 10px 10px',
-                      whiteSpace: 'pre-wrap',
-                      transition: 'border-color 200ms ease',
-                    }
-              }
+              className={`flex flex-col gap-1.5 max-w-[88%] ${msg.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
             >
-              {msg.content}
-              {isCurrentlySpeaking && <SoundWave />}
+              <div
+                className="text-[12px] leading-relaxed rounded-lg px-3 py-2.5 w-full"
+                style={
+                  msg.role === 'user'
+                    ? {
+                        background: 'var(--glass-msg-user)',
+                        backdropFilter: 'var(--card-backdrop)',
+                        WebkitBackdropFilter: 'var(--card-backdrop)',
+                        color: 'rgba(255,255,255,0.9)',
+                        borderRadius: '10px 10px 2px 10px',
+                      }
+                    : {
+                        background: 'var(--glass-msg-assist)',
+                        backdropFilter: 'var(--card-backdrop)',
+                        WebkitBackdropFilter: 'var(--card-backdrop)',
+                        color: 'var(--text2)',
+                        border: `1px solid ${isCurrentlySpeaking ? '#10b981' : 'var(--border)'}`,
+                        borderLeft: isCurrentlySpeaking ? '3px solid #10b981' : '1px solid var(--border)',
+                        borderRadius: '2px 10px 10px 10px',
+                        whiteSpace: 'pre-wrap',
+                        transition: 'border-color 200ms ease',
+                      }
+                }
+              >
+                {msg.content}
+                {isCurrentlySpeaking && <SoundWave />}
+              </div>
+
+              {downloads.length > 0 && (
+                <div className="flex gap-1.5 flex-wrap">
+                  {downloads.map(opt => (
+                    <button
+                      key={opt.filename}
+                      onClick={() => triggerDownload(opt.content, opt.filename, opt.mimeType)}
+                      className="text-[10px] font-semibold px-2.5 py-1 rounded-full transition-all duration-150"
+                      style={{
+                        background: 'rgba(109,40,217,0.08)',
+                        border: '1px solid rgba(109,40,217,0.25)',
+                        color: '#7c3aed',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}
