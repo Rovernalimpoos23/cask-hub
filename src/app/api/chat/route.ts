@@ -219,7 +219,7 @@ ${calendarContext}
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, userName, userRole } = await req.json()
+    const { messages, userName, userRole, fileName, fileData, fileType, fileMimeType, userMessage } = await req.json()
     console.log('[chat] POST hit — user:', userName, '| role:', userRole, '| messages:', messages?.length)
 
     // Initialise client inside handler so env var is always resolved at request time
@@ -381,12 +381,57 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No user message found' }, { status: 400 })
     }
 
-    console.log('[chat] Calling Claude API with', claudeMessages.length, 'messages...')
+    // Build processedMessages — inject file content into the last user turn when a file is attached
+    type MsgContent = string | { type: 'text'; text: string }[] | { type: string; source?: unknown; text?: string }[]
+    type ProcessedMsg = { role: 'user' | 'assistant'; content: MsgContent }
+
+    let processedMessages: ProcessedMsg[]
+
+    if (fileData && fileName && claudeMessages.length > 0) {
+      const lastIdx = claudeMessages.length - 1
+      const prior = claudeMessages.slice(0, lastIdx) as ProcessedMsg[]
+      const cleanText = (userMessage as string | undefined) || 'Please analyze this file.'
+
+      if (fileType === 'pdf') {
+        processedMessages = [
+          ...prior,
+          {
+            role: 'user' as const,
+            content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileData } },
+              { type: 'text', text: cleanText },
+            ],
+          },
+        ]
+      } else if (fileType === 'text') {
+        processedMessages = [
+          ...prior,
+          {
+            role: 'user' as const,
+            content: `[Attached file: ${fileName}]\n\n${fileData}\n\n---\n\n${cleanText}`,
+          },
+        ]
+      } else {
+        // binary (docx / xlsx) — base64 encoded; Claude will extract readable content best-effort
+        processedMessages = [
+          ...prior,
+          {
+            role: 'user' as const,
+            content: `[Attached file: ${fileName} (${fileMimeType as string})]\n\nBase64-encoded binary content below — extract and analyse any readable text:\n\n${fileData}\n\n---\n\n${cleanText}`,
+          },
+        ]
+      }
+    } else {
+      processedMessages = claudeMessages as ProcessedMsg[]
+    }
+
+    console.log('[chat] Calling Claude API with', processedMessages.length, 'messages...', fileData ? `+ file: ${fileName}` : '')
     const completion = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       system: buildSystemPrompt(userName ?? '', userRole ?? '', meetingsContext, clientsContext, calendarContext),
-      messages: claudeMessages as { role: 'user' | 'assistant'; content: string }[],
-      max_tokens: 600,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      messages: processedMessages as any,
+      max_tokens: fileData ? 2000 : 600,
     })
 
     const content = completion.content[0].type === 'text' ? completion.content[0].text : ''

@@ -58,9 +58,13 @@ export default function AIPanel() {
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null)
+  const [attachedFile, setAttachedFile] = useState<{ name: string; data: string; rawType: 'text' | 'pdf' | 'binary'; mimeType: string } | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [isProcessingFile, setIsProcessingFile] = useState(false)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // FIX 1: Keep a ref so speakText always reads the CURRENT voiceEnabled,
   // regardless of which render closure captured it.
@@ -140,6 +144,53 @@ export default function AIPanel() {
     if (!next && audioRef.current) stopSpeech()
   }
 
+  function clearFile() {
+    setAttachedFile(null)
+    setFileError(null)
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    setFileError(null)
+    if (!file) return
+
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+    if (!['pdf', 'docx', 'xlsx', 'txt'].includes(ext)) {
+      setFileError('Unsupported file type. Attach a PDF, Word (.docx), Excel (.xlsx), or .txt file.')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setFileError(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.`)
+      return
+    }
+
+    setIsProcessingFile(true)
+    const reader = new FileReader()
+    reader.onerror = () => {
+      setFileError('Failed to read file. Please try again.')
+      setIsProcessingFile(false)
+    }
+
+    if (ext === 'txt') {
+      reader.onload = () => {
+        setAttachedFile({ name: file.name, data: reader.result as string, rawType: 'text', mimeType: 'text/plain' })
+        setIsProcessingFile(false)
+      }
+      reader.readAsText(file)
+    } else {
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1]
+        const mimeType = ext === 'pdf' ? 'application/pdf'
+          : ext === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        setAttachedFile({ name: file.name, data: base64, rawType: ext === 'pdf' ? 'pdf' : 'binary', mimeType })
+        setIsProcessingFile(false)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   async function speakText(text: string, msgIndex: number) {
     // FIX 1: Read from ref, not stale closure value
     console.log('speakText called, voiceEnabled:', voiceEnabledRef.current)
@@ -193,10 +244,18 @@ export default function AIPanel() {
 
   async function sendMessage(text?: string) {
     const msg = (text || input).trim()
-    if (!msg) return
+    if (!msg && !attachedFile) return
     setInput('')
 
-    const userMsg: AIMessage = { role: 'user', content: msg }
+    const fileToSend = attachedFile
+    setAttachedFile(null)
+    setFileError(null)
+
+    const displayContent = fileToSend
+      ? (msg ? `📄 ${fileToSend.name}\n\n${msg}` : `📄 ${fileToSend.name}`)
+      : msg
+
+    const userMsg: AIMessage = { role: 'user', content: displayContent }
     const nextMessages = [...messages, userMsg]
     setMessages(nextMessages)
     setIsThinking(true)
@@ -210,6 +269,13 @@ export default function AIPanel() {
           messages: nextMessages.map(m => ({ role: m.role, content: m.content })),
           userName,
           userRole,
+          ...(fileToSend ? {
+            fileName: fileToSend.name,
+            fileData: fileToSend.data,
+            fileType: fileToSend.rawType,
+            fileMimeType: fileToSend.mimeType,
+            userMessage: msg || 'Please analyze this file.',
+          } : {}),
         }),
       })
 
@@ -430,10 +496,68 @@ export default function AIPanel() {
 
       {/* Input */}
       <div className="p-3" style={{ borderTop: '1px solid var(--border)' }}>
+
+        {/* File attachment tag */}
+        {(attachedFile || isProcessingFile) && (
+          <div className="flex items-center gap-1.5 mb-1.5">
+            {isProcessingFile ? (
+              <span
+                className="text-[11px] px-2.5 py-1 rounded-full"
+                style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text3)' }}
+              >
+                Reading file…
+              </span>
+            ) : attachedFile && (
+              <span
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full max-w-full"
+                style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text2)' }}
+              >
+                <span className="truncate" style={{ maxWidth: 160 }}>📄 {attachedFile.name}</span>
+                <button
+                  onClick={clearFile}
+                  className="shrink-0 leading-none"
+                  style={{ color: 'var(--text3)', fontSize: 13, lineHeight: 1 }}
+                  title="Remove file"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* File error */}
+        {fileError && (
+          <div
+            className="text-[11px] px-2.5 py-1.5 rounded-md mb-1.5 leading-relaxed"
+            style={{ background: 'var(--red-soft)', color: 'var(--red)', border: '1px solid var(--red-border)' }}
+          >
+            {fileError}
+          </div>
+        )}
+
         <div
-          className="flex items-end gap-2 rounded-lg p-1"
+          className="flex items-end gap-1.5 rounded-lg p-1"
           style={{ border: '1px solid var(--border)', background: 'var(--bg)' }}
         >
+          {/* Paperclip button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isThinking || isProcessingFile}
+            title="Attach a file (PDF, DOCX, XLSX, TXT — max 10 MB)"
+            className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-all duration-150 mb-0.5"
+            style={{
+              background: 'transparent',
+              color: attachedFile ? 'var(--charcoal)' : 'var(--text3)',
+              border: 'none',
+              cursor: isThinking || isProcessingFile ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+
           <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -448,13 +572,15 @@ export default function AIPanel() {
               overflowY: 'auto',
             }}
           />
+
+          {/* Send button */}
           <button
             onClick={() => sendMessage()}
-            disabled={!input.trim() || isThinking}
+            disabled={(!input.trim() && !attachedFile) || isThinking || isProcessingFile}
             className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-all duration-150 mb-0.5"
             style={{
-              background: input.trim() && !isThinking ? 'var(--charcoal)' : 'var(--border)',
-              color: input.trim() && !isThinking ? 'white' : 'var(--text3)',
+              background: (input.trim() || attachedFile) && !isThinking && !isProcessingFile ? 'var(--charcoal)' : 'var(--border)',
+              color: (input.trim() || attachedFile) && !isThinking && !isProcessingFile ? 'white' : 'var(--text3)',
             }}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
@@ -462,6 +588,16 @@ export default function AIPanel() {
             </svg>
           </button>
         </div>
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.xlsx,.txt"
+          style={{ display: 'none' }}
+          onChange={handleFileSelect}
+        />
+
         <p className="text-[10px] text-center mt-1.5" style={{ color: 'var(--text3)' }}>
           Powered by Claude · CASK Hub AI
         </p>
