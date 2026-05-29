@@ -18,7 +18,7 @@ import { createClient } from '@/lib/supabase'
 import type { Meeting } from '@/types'
 
 function getCurrentMonthYear(): string {
-  return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/New_York' })
 }
 
 function IconSessions() {
@@ -112,12 +112,31 @@ export default function DashboardPage() {
   const [calendarLoading, setCalendarLoading] = useState(true)
   const [upcomingCount, setUpcomingCount] = useState<number | null>(null)
   const [nextEventHint, setNextEventHint] = useState<string>('Loading…')
+  const [clockStr, setClockStr] = useState('')
 
   useEffect(() => {
-    const hour = new Date().getHours()
+    const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
     if (hour >= 5 && hour < 12) setGreeting('Good morning')
     else if (hour >= 12 && hour < 17) setGreeting('Good afternoon')
     else setGreeting('Good evening')
+  }, [])
+
+  useEffect(() => {
+    function tick() {
+      const now = new Date()
+      const date = now.toLocaleDateString('en-US', {
+        timeZone: 'America/New_York',
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+      })
+      const time = now.toLocaleTimeString('en-US', {
+        timeZone: 'America/New_York',
+        hour: 'numeric', minute: '2-digit', hour12: true,
+      })
+      setClockStr(`${date} · ${time} ET`)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
   }, [])
 
   const loadMeetings = useCallback(() => {
@@ -194,16 +213,17 @@ export default function DashboardPage() {
 
   }, [])
 
+  const todayLabel = new Date().toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  })
+
   const allActions = meetings.flatMap(m => m.action_items)
   const openActions = allActions.filter(a => !a.done)
   const completedActions = allActions.filter(a => a.done)
   const recentMeetings = meetings.slice(0, 3)
   const recentOpenActions = openActions.slice(0, 3)
   const recentCompletedActions = completedActions.slice(0, 2)
-
-  const todayLabel = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-  })
 
   return (
     <>
@@ -228,7 +248,7 @@ export default function DashboardPage() {
               </p>
             </div>
             <div className="text-[12px] font-medium shrink-0 mt-1" style={{ color: 'var(--text3)' }}>
-              {todayLabel}
+              {clockStr}
             </div>
           </div>
           <div className="h-px mt-5" style={{ background: 'var(--border)' }} />

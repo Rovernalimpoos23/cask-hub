@@ -95,7 +95,7 @@ export default function AIPanel() {
       setSessionCount(count)
       setUserName(firstName)
 
-      const hour = new Date().getHours()
+      const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
       const timeGreeting = (hour >= 5 && hour < 12) ? 'Good morning' : (hour >= 12 && hour < 17) ? 'Good afternoon' : 'Good evening'
       setMessages([
         {
