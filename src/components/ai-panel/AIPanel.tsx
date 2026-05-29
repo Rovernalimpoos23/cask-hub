@@ -2,6 +2,7 @@
 // src/components/ai-panel/AIPanel.tsx
 
 import { useState, useRef, useEffect } from 'react'
+import mammoth from 'mammoth'
 import type { AIMessage } from '@/types'
 import { createClient } from '@/lib/supabase'
 
@@ -178,11 +179,21 @@ export default function AIPanel() {
         setIsProcessingFile(false)
       }
       reader.readAsText(file)
+    } else if (ext === 'docx') {
+      reader.onload = async () => {
+        try {
+          const result = await mammoth.extractRawText({ arrayBuffer: reader.result as ArrayBuffer })
+          setAttachedFile({ name: file.name, data: result.value, rawType: 'text', mimeType: 'text/plain' })
+        } catch {
+          setFileError('Failed to extract text from Word document. Please try again.')
+        }
+        setIsProcessingFile(false)
+      }
+      reader.readAsArrayBuffer(file)
     } else {
       reader.onload = () => {
         const base64 = (reader.result as string).split(',')[1]
         const mimeType = ext === 'pdf' ? 'application/pdf'
-          : ext === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
           : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         setAttachedFile({ name: file.name, data: base64, rawType: ext === 'pdf' ? 'pdf' : 'binary', mimeType })
         setIsProcessingFile(false)
