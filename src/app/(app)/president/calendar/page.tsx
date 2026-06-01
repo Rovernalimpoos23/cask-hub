@@ -445,6 +445,21 @@ export default function CalendarPage() {
   const weekTotal = events.filter(e => toDateStr(e.start_time) <= weekEndStr).length
   const nextMeeting = events.find(e => new Date(e.start_time) > now)
 
+  function etToISO(dateStr: string, timeStr: string): string {
+    const [y, mo, d] = dateStr.split('-').map(Number)
+    const [h, min] = timeStr.split(':').map(Number)
+    // Guess UTC at the wall-clock time, then measure how far off ET is and correct
+    const guess = new Date(Date.UTC(y, mo - 1, d, h, min, 0))
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(guess)
+    const etH = parseInt(parts.find(p => p.type === 'hour')!.value)
+    const etMin = parseInt(parts.find(p => p.type === 'minute')!.value)
+    const diffMs = ((h - etH) * 60 + (min - etMin)) * 60 * 1000
+    return new Date(guess.getTime() + diffMs).toISOString()
+  }
+
   async function handleSave() {
     if (!form.title || !form.date || (!form.isAllDay && !form.startTime)) return
     setSaving(true)
@@ -453,9 +468,9 @@ export default function CalendarPage() {
     const supabase = createClient()
     const startISO = form.isAllDay
       ? new Date(`${form.date}T00:00:00`).toISOString()
-      : new Date(`${form.date}T${form.startTime}:00`).toISOString()
+      : etToISO(form.date, form.startTime)
     const endISO = form.endTime
-      ? new Date(`${form.date}T${form.endTime}:00`).toISOString()
+      ? etToISO(form.date, form.endTime)
       : null
     const eventId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
@@ -780,40 +795,45 @@ export default function CalendarPage() {
 
               {/* Start / End Time */}
               {!form.isAllDay && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                      Start Time <span style={{ color: 'var(--red)' }}>*</span>
-                    </label>
-                    <input
-                      type="time"
-                      value={form.startTime}
-                      onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '9px 12px', borderRadius: 8,
-                        border: '1px solid var(--border2)', background: 'var(--surface2)',
-                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                        outline: 'none', boxSizing: 'border-box',
-                      }}
-                    />
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        Start Time <span style={{ color: 'var(--red)' }}>*</span>
+                      </label>
+                      <input
+                        type="time"
+                        value={form.startTime}
+                        onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 8,
+                          border: '1px solid var(--border2)', background: 'var(--surface2)',
+                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                          outline: 'none', boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        End Time
+                      </label>
+                      <input
+                        type="time"
+                        value={form.endTime}
+                        onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 8,
+                          border: '1px solid var(--border2)', background: 'var(--surface2)',
+                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                          outline: 'none', boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                      End Time
-                    </label>
-                    <input
-                      type="time"
-                      value={form.endTime}
-                      onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '9px 12px', borderRadius: 8,
-                        border: '1px solid var(--border2)', background: 'var(--surface2)',
-                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                        outline: 'none', boxSizing: 'border-box',
-                      }}
-                    />
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
+                    Enter time in ET (Florida time)
                   </div>
-                </div>
+                </>
               )}
 
               {/* Organizer */}
