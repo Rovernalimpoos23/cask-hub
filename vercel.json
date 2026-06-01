@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/sms/morning-briefing",
+      "schedule": "30 11 * * *"
+    },
+    {
+      "path": "/api/sms/meeting-reminder",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}

@@ -15,7 +15,18 @@ export default function ActionsPage() {
   const [items, setItems] = useState<RichActionItem[]>([])
   const [meetingsMap, setMeetingsMap] = useState<Record<string, Meeting>>({})
   const [loading, setLoading] = useState(true)
-  const [ownerFilter, setOwnerFilter] = useState('All')
+  const [ownerFilter, setOwnerFilter] = useState('Mine')
+  const [showAll, setShowAll] = useState(false)
+
+  const CORE_OWNERS = ['calin', 'kai', 'rovern']
+  function isCoreOwner(owner: string) {
+    const o = owner.toLowerCase().trim()
+    return (
+      o === 'calin' || o.startsWith('calin ') ||
+      o === 'kai' || o.startsWith('kai ') ||
+      o === 'rovern' || o.startsWith('rovern ')
+    )
+  }
 
   useEffect(() => {
     fetchAllMeetings().then(meetings => {
@@ -33,9 +44,11 @@ export default function ActionsPage() {
     })
   }, [])
 
-  const filtered = ownerFilter === 'All'
-    ? items
-    : items.filter(item =>
+  const baseItems = showAll ? items : items.filter(a => isCoreOwner(a.owner))
+
+  const filtered = ownerFilter === 'All' || ownerFilter === 'Mine'
+    ? baseItems
+    : baseItems.filter(item =>
         item.owner.toLowerCase().includes(ownerFilter.toLowerCase())
       )
 
@@ -94,28 +107,43 @@ export default function ActionsPage() {
             Action Items
           </h1>
           <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
-            {loading ? 'Loading…' : 'All commitments from ActionCOACH sessions.'}
+            {loading ? 'Loading…' : showAll ? 'Showing all owners.' : 'Filtered to Calin, Kai & Rovern.'}
           </p>
         </div>
 
         {/* Owner filter */}
-        <div className="flex gap-1.5 mb-6 pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
-          {OWNER_FILTERS.map(f => (
-            <button
-              key={f}
-              onClick={() => setOwnerFilter(f)}
-              className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-all duration-150"
-              style={{
-                background: ownerFilter === f ? 'var(--charcoal)' : 'none',
-                color: ownerFilter === f ? 'white' : 'var(--text3)',
-                border: ownerFilter === f ? '1px solid var(--charcoal)' : '1px solid var(--border)',
-                fontFamily: 'var(--font-geist), sans-serif',
-                cursor: 'pointer',
-              }}
-            >
-              {f}
-            </button>
-          ))}
+        <div className="flex items-center gap-1.5 mb-6 pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div className="flex gap-1.5 flex-1 flex-wrap">
+            {OWNER_FILTERS.map(f => (
+              <button
+                key={f}
+                onClick={() => setOwnerFilter(f)}
+                className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-all duration-150"
+                style={{
+                  background: ownerFilter === f ? 'var(--charcoal)' : 'none',
+                  color: ownerFilter === f ? 'white' : 'var(--text3)',
+                  border: ownerFilter === f ? '1px solid var(--charcoal)' : '1px solid var(--border)',
+                  fontFamily: 'var(--font-geist), sans-serif',
+                  cursor: 'pointer',
+                }}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowAll(prev => !prev)}
+            className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-all duration-150 shrink-0"
+            style={{
+              background: showAll ? '#f59e0b' : 'none',
+              color: showAll ? 'white' : 'var(--text3)',
+              border: showAll ? '1px solid #f59e0b' : '1px solid var(--border)',
+              fontFamily: 'var(--font-geist), sans-serif',
+              cursor: 'pointer',
+            }}
+          >
+            {showAll ? 'All Owners' : 'View All Owners'}
+          </button>
         </div>
 
         {loading ? (

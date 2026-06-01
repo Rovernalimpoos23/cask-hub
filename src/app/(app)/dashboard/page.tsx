@@ -218,9 +218,19 @@ export default function DashboardPage() {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   })
 
+  const CORE_OWNERS = ['calin', 'kai', 'rovern']
+  function isCoreOwner(owner: string) {
+    const o = owner.toLowerCase().trim()
+    return (
+      o === 'calin' || o.startsWith('calin ') ||
+      o === 'kai' || o.startsWith('kai ') ||
+      o === 'rovern' || o.startsWith('rovern ')
+    )
+  }
   const allActions = meetings.flatMap(m => m.action_items)
-  const openActions = allActions.filter(a => !a.done)
-  const completedActions = allActions.filter(a => a.done)
+  const coreActions = allActions.filter(a => isCoreOwner(a.owner))
+  const openActions = coreActions.filter(a => !a.done)
+  const completedActions = coreActions.filter(a => a.done)
   const recentMeetings = meetings.slice(0, 3)
   const recentOpenActions = openActions.slice(0, 3)
   const recentCompletedActions = completedActions.slice(0, 2)
@@ -564,7 +574,7 @@ export default function DashboardPage() {
         {/* Open Action Items */}
         <div>
           <SectionLabel action="View all →" href="/actions">
-            Open Action Items
+            Open Action Items — Calin, Kai &amp; Rovern
           </SectionLabel>
           {loading ? (
             <div className="flex flex-col gap-[5px]">
