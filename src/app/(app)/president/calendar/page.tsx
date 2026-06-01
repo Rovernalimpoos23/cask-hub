@@ -370,6 +370,13 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [, setTick] = useState(0)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveToast, setSaveToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [form, setForm] = useState({
+    title: '', date: '', startTime: '', endTime: '',
+    organizer: '', location: '', teamsLink: '', isAllDay: false,
+  })
 
   // Tick every minute to refresh countdowns
   useEffect(() => {
@@ -438,6 +445,52 @@ export default function CalendarPage() {
   const weekTotal = events.filter(e => toDateStr(e.start_time) <= weekEndStr).length
   const nextMeeting = events.find(e => new Date(e.start_time) > now)
 
+  async function handleSave() {
+    if (!form.title || !form.date || (!form.isAllDay && !form.startTime)) return
+    setSaving(true)
+    console.log('[add-event] handleSave triggered', form)
+
+    const supabase = createClient()
+    const startISO = form.isAllDay
+      ? new Date(`${form.date}T00:00:00`).toISOString()
+      : new Date(`${form.date}T${form.startTime}:00`).toISOString()
+    const endISO = form.endTime
+      ? new Date(`${form.date}T${form.endTime}:00`).toISOString()
+      : null
+    const eventId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+    const payload = {
+      event_id: eventId,
+      title: form.title,
+      start_time: startISO,
+      end_time: endISO,
+      organizer: form.organizer || null,
+      location: form.location || null,
+      meeting_link: form.teamsLink || null,
+      is_all_day: form.isAllDay,
+      user_email: 'c.noonan@caskconstruction.com',
+      attendees: [],
+    }
+    console.log('[add-event] inserting into calendar_events:', payload)
+
+    const { data, error } = await supabase.from('calendar_events').insert(payload).select()
+    console.log('[add-event] insert result — data:', data, ' error:', error)
+
+    setSaving(false)
+
+    if (error) {
+      console.error('[add-event] Supabase insert failed:', error.message, error.details, error.hint)
+      setSaveToast({ message: `Failed to save: ${error.message}`, type: 'error' })
+      setTimeout(() => setSaveToast(null), 5000)
+      return
+    }
+
+    setShowAddModal(false)
+    setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false })
+    setSaveToast({ message: 'Event added to calendar', type: 'success' })
+    setTimeout(() => setSaveToast(null), 3500)
+  }
+
   const todayLabel = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric' })
   const tomorrowLabel = tmrw.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric' })
 
@@ -447,6 +500,21 @@ export default function CalendarPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text3)' }}>
           <CalendarIcon />
         </div>
+        <button
+          onClick={() => setShowAddModal(true)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '5px 12px', borderRadius: 7,
+            background: 'var(--red)', color: 'white',
+            border: 'none', cursor: 'pointer',
+            fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+            transition: 'opacity 150ms ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+        >
+          + Add Event
+        </button>
         <PillRed>{events.length} Events</PillRed>
       </TopBar>
 
@@ -567,7 +635,280 @@ export default function CalendarPage() {
           0% { background-position: 200% 0; }
           100% { background-position: -200% 0; }
         }
+        @keyframes modalFadeIn {
+          from { opacity: 0; transform: translateY(8px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0)   scale(1); }
+        }
+        @keyframes toastIn {
+          from { opacity: 0; transform: translateY(-8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
       `}</style>
+
+      {/* Save toast */}
+      {saveToast && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 10002,
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '12px 16px', borderRadius: 10,
+          background: saveToast.type === 'success' ? 'var(--green-bg)' : 'var(--red-soft)',
+          border: `1px solid ${saveToast.type === 'success' ? '#bbf7d0' : 'var(--red-border)'}`,
+          color: saveToast.type === 'success' ? 'var(--green)' : 'var(--red)',
+          fontSize: 13, fontWeight: 500,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+          animation: 'toastIn 0.25s ease forwards',
+          maxWidth: 320, fontFamily: 'inherit',
+        }}>
+          {saveToast.type === 'success' ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          )}
+          {saveToast.message}
+        </div>
+      )}
+
+      {/* Add Event Modal */}
+      {showAddModal && (
+        <div
+          onClick={() => setShowAddModal(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              width: 480,
+              maxWidth: 'calc(100vw - 32px)',
+              maxHeight: 'calc(100vh - 64px)',
+              overflowY: 'auto',
+              animation: 'modalFadeIn 180ms ease',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border)',
+            }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Add Calendar Event</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>Manually add an event to the calendar</div>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--text3)', padding: 4, borderRadius: 6,
+                  display: 'flex', alignItems: 'center',
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Form */}
+            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+              {/* All Day toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>All Day Event</label>
+                <button
+                  onClick={() => setForm(f => ({ ...f, isAllDay: !f.isAllDay }))}
+                  style={{
+                    width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                    background: form.isAllDay ? 'var(--red)' : 'var(--border2)',
+                    position: 'relative', transition: 'background 150ms ease',
+                  }}
+                >
+                  <div style={{
+                    position: 'absolute', top: 3, left: form.isAllDay ? 21 : 3,
+                    width: 16, height: 16, borderRadius: '50%', background: 'white',
+                    transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }} />
+                </button>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Title <span style={{ color: 'var(--red)' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.title}
+                  onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                  placeholder="Event title"
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Date */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Date <span style={{ color: 'var(--red)' }}>*</span>
+                </label>
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Start / End Time */}
+              {!form.isAllDay && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Start Time <span style={{ color: 'var(--red)' }}>*</span>
+                    </label>
+                    <input
+                      type="time"
+                      value={form.startTime}
+                      onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      End Time
+                    </label>
+                    <input
+                      type="time"
+                      value={form.endTime}
+                      onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Organizer */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Organizer
+                </label>
+                <input
+                  type="text"
+                  value={form.organizer}
+                  onChange={e => setForm(f => ({ ...f, organizer: e.target.value }))}
+                  placeholder="Calin Noonan"
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Location */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Location
+                </label>
+                <input
+                  type="text"
+                  value={form.location}
+                  onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                  placeholder="Conference room, address, etc."
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Teams Link */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Teams Link
+                </label>
+                <input
+                  type="url"
+                  value={form.teamsLink}
+                  onChange={e => setForm(f => ({ ...f, teamsLink: e.target.value }))}
+                  placeholder="https://teams.microsoft.com/..."
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+              padding: '14px 20px',
+              borderTop: '1px solid var(--border)',
+            }}>
+              <button
+                onClick={() => setShowAddModal(false)}
+                style={{
+                  padding: '8px 16px', borderRadius: 8,
+                  background: 'none', border: '1px solid var(--border2)',
+                  color: 'var(--text2)', fontSize: 13, fontWeight: 500,
+                  fontFamily: 'inherit', cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || !form.title || !form.date || (!form.isAllDay && !form.startTime)}
+                style={{
+                  padding: '8px 18px', borderRadius: 8,
+                  background: 'var(--red)', color: 'white',
+                  border: 'none', fontSize: 13, fontWeight: 600,
+                  fontFamily: 'inherit', cursor: 'pointer',
+                  opacity: (saving || !form.title || !form.date || (!form.isAllDay && !form.startTime)) ? 0.5 : 1,
+                  transition: 'opacity 150ms ease',
+                }}
+              >
+                {saving ? 'Saving…' : 'Add Event'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
