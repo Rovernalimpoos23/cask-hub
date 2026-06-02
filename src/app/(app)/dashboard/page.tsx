@@ -193,24 +193,25 @@ export default function DashboardPage() {
         setCalendarLoading(false)
       })
 
-    // Upcoming stat card: count all future events and get the next one's date
+    // This-week stat card: count events from start of today through end of Sunday (ET)
+    // etDayStartUTC is already computed above as the UTC ms for ET midnight today
+    const etDayOfWeek = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay() // 0=Sun … 6=Sat
+    const daysUntilSunday = etDayOfWeek === 0 ? 0 : 7 - etDayOfWeek
+    const etWeekEndUTC = etDayStartUTC + (daysUntilSunday + 1) * 24 * 60 * 60 * 1000 // exclusive end = start of next Monday ET
+
+    const fmtShort = (ms: number) => new Date(ms).toLocaleDateString('en-US', {
+      timeZone: 'America/New_York', month: 'short', day: 'numeric',
+    })
+    const weekRange = `${fmtShort(etDayStartUTC)} – ${fmtShort(etWeekEndUTC - 1)}`
+    setNextEventHint(weekRange)
+
     supabase
       .from('calendar_events')
-      .select('id, title, start_time')
-      .gte('start_time', now.toISOString())
-      .order('start_time', { ascending: true })
-      .then(({ data }) => {
-        const rows = data ?? []
-        setUpcomingCount(rows.length)
-        if (rows.length > 0) {
-          const nextDate = new Date(rows[0].start_time).toLocaleDateString('en-US', {
-            timeZone: 'America/New_York',
-            month: 'long', day: 'numeric', year: 'numeric',
-          })
-          setNextEventHint(nextDate)
-        } else {
-          setNextEventHint('No upcoming events')
-        }
+      .select('id', { count: 'exact', head: true })
+      .gte('start_time', new Date(etDayStartUTC).toISOString())
+      .lt('start_time', new Date(etWeekEndUTC).toISOString())
+      .then(({ count }) => {
+        setUpcomingCount(count ?? 0)
       })
 
   }, [])
@@ -288,7 +289,7 @@ export default function DashboardPage() {
           />
           <StatCard
             value={upcomingCount ?? '…'}
-            label="Upcoming Meetings"
+            label="Events This Week"
             hint={nextEventHint}
             variant="alert"
             index={1}

@@ -441,8 +441,15 @@ export default function CalendarPage() {
     thisWeekByDay[d].push(ev)
   }
 
-  // Stats
-  const weekTotal = events.filter(e => toDateStr(e.start_time) <= weekEndStr).length
+  // Stats — count events from now through end of this week's Sunday (ET)
+  const etNowApprox = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const etDayOfWeek = etNowApprox.getDay() // 0=Sun … 6=Sat
+  const daysUntilSunday = etDayOfWeek === 0 ? 0 : 7 - etDayOfWeek
+  const etSundayDateStr = new Date(now.getTime() + daysUntilSunday * 24 * 60 * 60 * 1000)
+    .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const weekTotal = events.filter(e =>
+    new Date(e.start_time) >= now && toDateStr(e.start_time) <= etSundayDateStr
+  ).length
   const nextMeeting = events.find(e => new Date(e.start_time) > now)
 
   function etToISO(dateStr: string, timeStr: string): string {

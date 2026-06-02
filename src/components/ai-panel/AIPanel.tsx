@@ -2,47 +2,121 @@
 // src/components/ai-panel/AIPanel.tsx
 
 import { useState, useRef, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import mammoth from 'mammoth'
 import type { AIMessage } from '@/types'
 import { createClient } from '@/lib/supabase'
 
-const SUGGESTED_QUESTIONS: Record<string, string[]> = {
-  Calin:   ['My open actions', 'Last leadership meeting', 'May 28th agenda', 'Design Center update'],
-  Kai:     ["Calin's action items", 'Prep for May 28', 'Last meeting summary', 'Due today'],
-  Rovern:  ['All sessions', 'Open action items', 'Generate agenda', 'Latest session'],
-  default: ['Last meeting summary', 'Open action items', 'May 28th agenda', 'Design Center update'],
+// ── Channel definitions ──────────────────────────────────────────────
+
+interface Channel {
+  key: string
+  icon: string
+  name: string
+  subtitle: string
+  placeholder: string
+  greeting: (name: string, timeGreeting: string) => string
+  buttons: string[]
 }
+
+const CHANNELS: Channel[] = [
+  {
+    key: '/dashboard',
+    icon: '📊',
+    name: 'Dashboard AI',
+    subtitle: 'General AI',
+    placeholder: 'Ask about sessions, calendar, action items...',
+    greeting: (name, time) => `${time}, ${name}. I have full context on all CASK data. What would you like to know?`,
+    buttons: ['Last meeting summary', 'Open action items', "Today's calendar", 'Design Center update'],
+  },
+  {
+    key: '/president/calendar',
+    icon: '📅',
+    name: 'Calendar AI',
+    subtitle: 'Schedule & meetings',
+    placeholder: "Ask about today's schedule, upcoming meetings...",
+    greeting: (name) => `Hi ${name}! I know Calin's full calendar and upcoming meetings. What would you like to know?`,
+    buttons: ["Today's meetings", 'This week', 'Next meeting', 'Free time today'],
+  },
+  {
+    key: '/president/pit-goals',
+    icon: '⚡',
+    name: 'PIT Goals AI',
+    subtitle: 'Goals & scores',
+    placeholder: 'Ask about PIT goals, scores, progress...',
+    greeting: (name) => `Hi ${name}! I know all PIT goals, scores, and leaderboard data. What would you like to know?`,
+    buttons: ['PIT leaderboard', 'Q2 progress', 'Inactive PITs', 'Top contributors'],
+  },
+  {
+    key: '/sessions',
+    icon: '💬',
+    name: 'Sessions AI',
+    subtitle: 'Meeting summaries',
+    placeholder: 'Ask about meeting summaries, decisions, action items...',
+    greeting: (name) => `Hi ${name}! I know all recorded sessions, summaries, and action items. What would you like to know?`,
+    buttons: ['Latest session', 'Open action items', 'Recent decisions', 'Generate agenda'],
+  },
+  {
+    key: '/design-center',
+    icon: '🏢',
+    name: 'Design Center AI',
+    subtitle: 'DC files & clients',
+    placeholder: 'Ask about clients, designers, DC files...',
+    greeting: (name) => `Hi ${name}! I'm your Design Center assistant. I know all DC files, referred clients, and designer partnerships. What would you like to know?`,
+    buttons: ['Referred clients', "Ana's clients", 'Contact Made', 'Design Center files'],
+  },
+  {
+    key: '/actions',
+    icon: '✅',
+    name: 'Action Items AI',
+    subtitle: 'Tasks & owners',
+    placeholder: 'Ask about open tasks, due dates, owners...',
+    greeting: (name) => `Hi ${name}! I can help you track and manage action items. What would you like to know?`,
+    buttons: ['My open items', 'Due this week', 'Overdue items', 'Completed items'],
+  },
+  {
+    key: '/customers/templates',
+    icon: '👥',
+    name: 'Client Journey AI',
+    subtitle: 'Templates & phases',
+    placeholder: 'Ask about client templates, phases, emails...',
+    greeting: (name) => `Hi ${name}! I know all 10 phases of the customer journey. What would you like to know?`,
+    buttons: ['Phase 1 steps', 'Pre-construction', 'Construction phases', 'Closeout steps'],
+  },
+  {
+    key: '/president/overview',
+    icon: '📋',
+    name: 'President AI',
+    subtitle: 'Meetings & agendas',
+    placeholder: 'Ask about agendas, DISC profiles, PIT goals...',
+    greeting: (name) => `Hi ${name}! I know all meeting agendas, DISC profiles, and PIT goals. What would you like to know?`,
+    buttons: ['View agendas', 'DISC profiles', 'PIT goals', 'Weekly meetings'],
+  },
+]
+
+function getChannelByKey(key: string): Channel {
+  return CHANNELS.find(c => c.key === key) ?? CHANNELS[0]
+}
+
+function getChannelForPath(pathname: string): Channel {
+  const sorted = [...CHANNELS].sort((a, b) => b.key.length - a.key.length)
+  return sorted.find(c => pathname.startsWith(c.key)) ?? CHANNELS[0]
+}
+
+function timeGreeting(): string {
+  const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
+  return hour >= 5 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 17 ? 'Good afternoon' : 'Good evening'
+}
+
+// ── Sound wave indicator ─────────────────────────────────────────────
 
 function SoundWave() {
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'flex-end',
-        gap: 2,
-        height: 12,
-        marginLeft: 5,
-        verticalAlign: 'middle',
-      }}
-    >
+    <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 12, marginLeft: 5, verticalAlign: 'middle' }}>
       {[0, 1, 2].map(i => (
-        <span
-          key={i}
-          style={{
-            display: 'block',
-            width: 2,
-            borderRadius: 2,
-            background: '#10b981',
-            animation: `soundBar 0.8s ease-in-out ${i * 0.15}s infinite alternate`,
-          }}
-        />
+        <span key={i} style={{ display: 'block', width: 2, borderRadius: 2, background: '#10b981', animation: `soundBar 0.8s ease-in-out ${i * 0.15}s infinite alternate` }} />
       ))}
-      <style>{`
-        @keyframes soundBar {
-          from { height: 3px; opacity: 0.5; }
-          to   { height: 11px; opacity: 1; }
-        }
-      `}</style>
+      <style>{`@keyframes soundBar { from { height: 3px; opacity: 0.5; } to { height: 11px; opacity: 1; } }`}</style>
     </span>
   )
 }
@@ -53,39 +127,20 @@ type DownloadOption = { label: string; filename: string; content: string; mimeTy
 
 function detectDownloads(content: string): DownloadOption[] {
   const opts: DownloadOption[] = []
-
   const csvMatch = content.match(/```csv\r?\n([\s\S]*?)```/)
-  if (csvMatch) {
-    opts.push({ label: '⬇ Download CSV', filename: 'cask-export.csv', content: csvMatch[1].trim(), mimeType: 'text/csv' })
-  }
-
+  if (csvMatch) opts.push({ label: '⬇ Download CSV', filename: 'cask-export.csv', content: csvMatch[1].trim(), mimeType: 'text/csv' })
   const jsonMatch = content.match(/```json\r?\n([\s\S]*?)```/)
-  if (jsonMatch) {
-    opts.push({ label: '⬇ Download JSON', filename: 'cask-export.json', content: jsonMatch[1].trim(), mimeType: 'application/json' })
-  }
-
+  if (jsonMatch) opts.push({ label: '⬇ Download JSON', filename: 'cask-export.json', content: jsonMatch[1].trim(), mimeType: 'application/json' })
   const textMatch = content.match(/```text\r?\n([\s\S]*?)```/)
-  if (textMatch) {
-    opts.push({ label: '⬇ Download TXT', filename: 'cask-export.txt', content: textMatch[1].trim(), mimeType: 'text/plain' })
-  }
-
-  // Markdown table — at least a header row + separator row + one data row
+  if (textMatch) opts.push({ label: '⬇ Download TXT', filename: 'cask-export.txt', content: textMatch[1].trim(), mimeType: 'text/plain' })
   const lines = content.split('\n')
   const tableLines = lines.filter(l => /^\|.+\|$/.test(l.trim()))
   if (!csvMatch && tableLines.length >= 3) {
     const csvRows = tableLines
       .filter(l => !/^\|[\s\-:|]+\|$/.test(l.trim()))
-      .map(l =>
-        l.trim().slice(1, -1).split('|').map(cell => {
-          const v = cell.trim()
-          return v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
-        }).join(',')
-      )
-    if (csvRows.length >= 1) {
-      opts.push({ label: '⬇ Download Excel', filename: 'cask-export.csv', content: csvRows.join('\n'), mimeType: 'text/csv' })
-    }
+      .map(l => l.trim().slice(1, -1).split('|').map(cell => { const v = cell.trim(); return v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v }).join(','))
+    if (csvRows.length >= 1) opts.push({ label: '⬇ Download Excel', filename: 'cask-export.csv', content: csvRows.join('\n'), mimeType: 'text/csv' })
   }
-
   return opts
 }
 
@@ -93,18 +148,18 @@ function triggerDownload(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
+  a.href = url; a.download = filename; a.click()
   URL.revokeObjectURL(url)
 }
+
+// ── Main component ───────────────────────────────────────────────────
 
 export default function AIPanel() {
   const [sessionCount, setSessionCount] = useState<number | null>(null)
   const [userName, setUserName] = useState('there')
   const [userRole, setUserRole] = useState('')
   const [messages, setMessages] = useState<AIMessage[]>([
-    { role: 'assistant', content: 'Good morning. Loading session data...' },
+    { role: 'assistant', content: 'Loading...' },
   ])
   const [input, setInput] = useState('')
   const [isThinking, setIsThinking] = useState(false)
@@ -116,24 +171,27 @@ export default function AIPanel() {
   const [isProcessingFile, setIsProcessingFile] = useState(false)
   const [userEmail, setUserEmail] = useState('')
 
+  const pathname = usePathname()
+  const [activeChannelKey, setActiveChannelKey] = useState(() => getChannelForPath(pathname).key)
+
+  const activeChannelKeyRef = useRef(getChannelForPath(pathname).key)
+  const hasInitializedRef = useRef(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // FIX 1: Keep a ref so speakText always reads the CURRENT voiceEnabled,
-  // regardless of which render closure captured it.
   const voiceEnabledRef = useRef(false)
-  // Keep email in a ref so saveMessage/clearHistory closures always read the latest value
   const userEmailRef = useRef('')
 
-  // Fetch session count + user name, then set personalised greeting
+  const activeChannel = getChannelByKey(activeChannelKey)
+
+  // ── Initialise: fetch user, session count, load channel history ──
+
   useEffect(() => {
     const supabase = createClient()
 
     async function init() {
-      const [{ count }, { count: calCount }, { data: { user } }] = await Promise.all([
+      const [{ count }, { data: { user } }] = await Promise.all([
         supabase.from('meetings').select('*', { count: 'exact', head: true }),
-        supabase.from('calendar_events').select('*', { count: 'exact', head: true }).gte('start_time', new Date().toISOString()),
         supabase.auth.getUser(),
       ])
 
@@ -143,11 +201,7 @@ export default function AIPanel() {
         email = user.email
         setUserEmail(email)
         userEmailRef.current = email
-        const { data } = await supabase
-          .from('users')
-          .select('name, role')
-          .eq('email', user.email)
-          .single()
+        const { data } = await supabase.from('users').select('name, role').eq('email', user.email).single()
         if (data?.name) firstName = data.name.split(' ')[0]
         if (data?.role) setUserRole(data.role)
       }
@@ -155,44 +209,37 @@ export default function AIPanel() {
       setSessionCount(count)
       setUserName(firstName)
 
-      // Load persisted chat history for this user + page
       if (email) {
         const { data: history } = await supabase
           .from('chat_history')
           .select('role, content')
           .eq('user_email', email)
-          .eq('page_context', window.location.pathname)
+          .eq('page_context', activeChannelKeyRef.current)
           .order('created_at', { ascending: true })
           .limit(20)
         if (history && history.length > 0) {
           setMessages(history as AIMessage[])
+          hasInitializedRef.current = true
           return
         }
       }
 
-      const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
-      const timeGreeting = (hour >= 5 && hour < 12) ? 'Good morning' : (hour >= 12 && hour < 17) ? 'Good afternoon' : 'Good evening'
-      setMessages([
-        {
-          role: 'assistant',
-          content: `${timeGreeting}, ${firstName}. I have full context on ${count ?? 0} sessions, ${calCount ?? 0} upcoming meetings, and all CASK data — clients, action items, and more. What would you like to know?`,
-        },
-      ])
+      const tg = timeGreeting()
+      const ch = getChannelByKey(activeChannelKeyRef.current)
+      setMessages([{ role: 'assistant', content: ch.greeting(firstName, tg) }])
+      hasInitializedRef.current = true
     }
 
     init()
   }, [])
 
-  // Restore voice preference from localStorage
+  // ── Voice preference ─────────────────────────────────────────────
+
   useEffect(() => {
     const saved = localStorage.getItem('cask-voice-enabled') === 'true'
-    if (saved) {
-      setVoiceEnabled(true)
-      voiceEnabledRef.current = true
-    }
+    if (saved) { setVoiceEnabled(true); voiceEnabledRef.current = true }
   }, [])
 
-  // Persist voice preference + keep ref in sync
   useEffect(() => {
     voiceEnabledRef.current = voiceEnabled
     localStorage.setItem('cask-voice-enabled', voiceEnabled.toString())
@@ -202,33 +249,27 @@ export default function AIPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isThinking])
 
+  // ── Helpers ──────────────────────────────────────────────────────
+
   function stopSpeech() {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current = null
-    }
-    setIsSpeaking(false)
-    setSpeakingIndex(null)
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null }
+    setIsSpeaking(false); setSpeakingIndex(null)
   }
 
   function toggleVoice() {
     const next = !voiceEnabledRef.current
-    console.log('Voice toggled to:', next)
     voiceEnabledRef.current = next
     setVoiceEnabled(next)
     if (!next && audioRef.current) stopSpeech()
   }
 
-  function clearFile() {
-    setAttachedFile(null)
-    setFileError(null)
-  }
+  function clearFile() { setAttachedFile(null); setFileError(null) }
 
   function saveMessage(role: string, content: string) {
     if (!userEmailRef.current) return
     createClient()
       .from('chat_history')
-      .insert({ user_email: userEmailRef.current, page_context: window.location.pathname, role, content })
+      .insert({ user_email: userEmailRef.current, page_context: activeChannelKeyRef.current, role, content })
       .then(({ error }) => { if (error) console.error('[chat history] save error:', error.message) })
   }
 
@@ -238,18 +279,49 @@ export default function AIPanel() {
       .from('chat_history')
       .delete()
       .eq('user_email', userEmailRef.current)
-      .eq('page_context', window.location.pathname)
-    const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
-    const timeGreeting = (hour >= 5 && hour < 12) ? 'Good morning' : (hour >= 12 && hour < 17) ? 'Good afternoon' : 'Good evening'
-    setMessages([{ role: 'assistant', content: `${timeGreeting}, ${userName}. Chat history cleared. What would you like to know?` }])
+      .eq('page_context', activeChannelKeyRef.current)
+    const tg = timeGreeting()
+    setMessages([{ role: 'assistant', content: `${tg}, ${userName}. Chat history cleared. What would you like to know?` }])
   }
+
+  // ── Channel switching ─────────────────────────────────────────────
+
+  async function switchChannel(key: string) {
+    if (key === activeChannelKeyRef.current) return
+    setActiveChannelKey(key)
+    activeChannelKeyRef.current = key
+    setInput('')
+    setAttachedFile(null)
+    setFileError(null)
+    stopSpeech()
+
+    if (userEmailRef.current) {
+      const supabase = createClient()
+      const { data: history } = await supabase
+        .from('chat_history')
+        .select('role, content')
+        .eq('user_email', userEmailRef.current)
+        .eq('page_context', key)
+        .order('created_at', { ascending: true })
+        .limit(20)
+      if (history && history.length > 0) {
+        setMessages(history as AIMessage[])
+        return
+      }
+    }
+
+    const ch = getChannelByKey(key)
+    const tg = timeGreeting()
+    setMessages([{ role: 'assistant', content: ch.greeting(userName || 'there', tg) }])
+  }
+
+  // ── File handling ─────────────────────────────────────────────────
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
     setFileError(null)
     if (!file) return
-
     const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
     if (!['pdf', 'docx', 'xlsx', 'txt'].includes(ext)) {
       setFileError('Unsupported file type. Attach a PDF, Word (.docx), Excel (.xlsx), or .txt file.')
@@ -259,36 +331,25 @@ export default function AIPanel() {
       setFileError(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.`)
       return
     }
-
     setIsProcessingFile(true)
     const reader = new FileReader()
-    reader.onerror = () => {
-      setFileError('Failed to read file. Please try again.')
-      setIsProcessingFile(false)
-    }
-
+    reader.onerror = () => { setFileError('Failed to read file. Please try again.'); setIsProcessingFile(false) }
     if (ext === 'txt') {
-      reader.onload = () => {
-        setAttachedFile({ name: file.name, data: reader.result as string, rawType: 'text', mimeType: 'text/plain' })
-        setIsProcessingFile(false)
-      }
+      reader.onload = () => { setAttachedFile({ name: file.name, data: reader.result as string, rawType: 'text', mimeType: 'text/plain' }); setIsProcessingFile(false) }
       reader.readAsText(file)
     } else if (ext === 'docx') {
       reader.onload = async () => {
         try {
           const result = await mammoth.extractRawText({ arrayBuffer: reader.result as ArrayBuffer })
           setAttachedFile({ name: file.name, data: result.value, rawType: 'text', mimeType: 'text/plain' })
-        } catch {
-          setFileError('Failed to extract text from Word document. Please try again.')
-        }
+        } catch { setFileError('Failed to extract text from Word document. Please try again.') }
         setIsProcessingFile(false)
       }
       reader.readAsArrayBuffer(file)
     } else {
       reader.onload = () => {
         const base64 = (reader.result as string).split(',')[1]
-        const mimeType = ext === 'pdf' ? 'application/pdf'
-          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        const mimeType = ext === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         setAttachedFile({ name: file.name, data: base64, rawType: ext === 'pdf' ? 'pdf' : 'binary', mimeType })
         setIsProcessingFile(false)
       }
@@ -296,464 +357,348 @@ export default function AIPanel() {
     }
   }
 
+  // ── Voice playback ────────────────────────────────────────────────
+
   async function speakText(text: string, msgIndex: number) {
-    // FIX 1: Read from ref, not stale closure value
-    console.log('speakText called, voiceEnabled:', voiceEnabledRef.current)
     if (!voiceEnabledRef.current) return
-
     stopSpeech()
-    setIsSpeaking(true)
-    setSpeakingIndex(msgIndex)
-
+    setIsSpeaking(true); setSpeakingIndex(msgIndex)
     try {
-      console.log('Calling speak API with text length:', text.length)
-      const res = await fetch('/api/speak', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-      console.log('Speak API response status:', res.status)
-
+      const res = await fetch('/api/speak', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
       if (!res.ok) throw new Error(`Speak API error: ${res.status}`)
-
       const blob = await res.blob()
-      console.log('Audio blob size:', blob.size, 'bytes')
-
       if (blob.size === 0) throw new Error('Empty audio blob returned')
-
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
       audioRef.current = audio
-
-      audio.onended = () => {
-        setIsSpeaking(false)
-        setSpeakingIndex(null)
-        URL.revokeObjectURL(url)
-        audioRef.current = null
-      }
-
-      // FIX 3: Catch autoplay policy rejection explicitly
-      audio.play().catch(e => {
-        console.error('audio.play() failed — autoplay policy or format issue:', e)
-        setIsSpeaking(false)
-        setSpeakingIndex(null)
-        URL.revokeObjectURL(url)
-        audioRef.current = null
-      })
-    } catch (err) {
-      console.error('speakText error:', err)
-      setIsSpeaking(false)
-      setSpeakingIndex(null)
-    }
+      audio.onended = () => { setIsSpeaking(false); setSpeakingIndex(null); URL.revokeObjectURL(url); audioRef.current = null }
+      audio.play().catch(e => { console.error('audio.play() failed:', e); setIsSpeaking(false); setSpeakingIndex(null); URL.revokeObjectURL(url); audioRef.current = null })
+    } catch (err) { console.error('speakText error:', err); setIsSpeaking(false); setSpeakingIndex(null) }
   }
+
+  // ── Send message ──────────────────────────────────────────────────
 
   async function sendMessage(text?: string) {
     const msg = (text || input).trim()
     if (!msg && !attachedFile) return
     setInput('')
-
     const fileToSend = attachedFile
-    setAttachedFile(null)
-    setFileError(null)
-
-    const displayContent = fileToSend
-      ? (msg ? `📄 ${fileToSend.name}\n\n${msg}` : `📄 ${fileToSend.name}`)
-      : msg
-
+    setAttachedFile(null); setFileError(null)
+    const displayContent = fileToSend ? (msg ? `📄 ${fileToSend.name}\n\n${msg}` : `📄 ${fileToSend.name}`) : msg
     const userMsg: AIMessage = { role: 'user', content: displayContent }
     const nextMessages = [...messages, userMsg]
     setMessages(nextMessages)
     saveMessage('user', displayContent)
     setIsThinking(true)
-
     try {
-      console.log('[CASK AI] Sending message to /api/chat', { userName, userRole })
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: nextMessages.map(m => ({ role: m.role, content: m.content })),
-          userName,
-          userRole,
-          pageContext: window.location.pathname,
-          ...(fileToSend ? {
-            fileName: fileToSend.name,
-            fileData: fileToSend.data,
-            fileType: fileToSend.rawType,
-            fileMimeType: fileToSend.mimeType,
-            userMessage: msg || 'Please analyze this file.',
-          } : {}),
+          userName, userRole,
+          pageContext: activeChannelKeyRef.current,
+          ...(fileToSend ? { fileName: fileToSend.name, fileData: fileToSend.data, fileType: fileToSend.rawType, fileMimeType: fileToSend.mimeType, userMessage: msg || 'Please analyze this file.' } : {}),
         }),
       })
-
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '(no body)')
-        console.error('[CASK AI] API returned', res.status, errBody)
-        throw new Error(`API error ${res.status}: ${errBody}`)
-      }
-
+      if (!res.ok) { const errBody = await res.text().catch(() => '(no body)'); throw new Error(`API error ${res.status}: ${errBody}`) }
       const data = await res.json()
-      console.log('[CASK AI] Response received:', data)
       const aiContent: string = data.content
-
       const newMessages: AIMessage[] = [...nextMessages, { role: 'assistant', content: aiContent }]
       setMessages(newMessages)
       saveMessage('assistant', aiContent)
       speakText(aiContent, newMessages.length - 1)
-
     } catch (err) {
-      console.error('[CASK AI] sendMessage error:', err)
       const errorMsg = err instanceof Error ? `Error: ${err.message}` : 'Something went wrong. Please try again.'
-      const newMessages: AIMessage[] = [...nextMessages, { role: 'assistant', content: errorMsg }]
-      setMessages(newMessages)
-    } finally {
-      setIsThinking(false)
-    }
+      setMessages([...nextMessages, { role: 'assistant', content: errorMsg }])
+    } finally { setIsThinking(false) }
   }
 
   function handleKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
   }
 
+  // ── Render ────────────────────────────────────────────────────────
+
   return (
-    <aside
-      className="flex flex-col overflow-hidden"
-      style={{ background: 'var(--white)', borderLeft: '1px solid var(--border)' }}
-    >
-      {/* Header */}
-      <div
-        className="px-[18px] py-3.5 flex items-center gap-2.5"
-        style={{
+    <aside style={{ display: 'flex', flexDirection: 'row', overflow: 'hidden', borderLeft: '1px solid var(--border)' }}>
+
+      {/* ── Channel list (left) ── */}
+      <div style={{
+        width: 160, minWidth: 160, flexShrink: 0,
+        background: 'var(--surface2)',
+        borderRight: '1px solid var(--border)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        {/* Sidebar header */}
+        <div style={{ padding: '14px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '1.2px', textTransform: 'uppercase', color: 'var(--text3)', fontFamily: 'var(--font-geist), sans-serif' }}>
+            AI Channels
+          </div>
+        </div>
+
+        {/* Channel items */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 7px' }}>
+          {CHANNELS.map(ch => {
+            const isActive = activeChannelKey === ch.key
+            return (
+              <button
+                key={ch.key}
+                onClick={() => switchChannel(ch.key)}
+                style={{
+                  width: '100%', display: 'block',
+                  padding: '10px 10px 10px',
+                  borderRadius: 8,
+                  border: isActive ? '1px solid var(--border)' : '1px solid transparent',
+                  background: isActive ? 'var(--surface)' : 'transparent',
+                  cursor: 'pointer', textAlign: 'left',
+                  transition: 'all 120ms ease',
+                  marginBottom: 2,
+                  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                  borderLeft: isActive ? '3px solid var(--red)' : '3px solid transparent',
+                }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(0,0,0,0.04)' }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
+                  <span style={{ fontSize: 16, lineHeight: 1, flexShrink: 0 }}>{ch.icon}</span>
+                  <span style={{
+                    fontSize: 13, fontWeight: isActive ? 700 : 500,
+                    color: isActive ? 'var(--text)' : 'var(--text2)',
+                    lineHeight: 1.2,
+                    fontFamily: 'var(--font-geist), sans-serif',
+                    wordBreak: 'break-word',
+                  }}>
+                    {ch.name}
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: 9.5, paddingLeft: 23,
+                  color: 'var(--text3)',
+                  fontFamily: 'var(--font-geist), sans-serif',
+                  lineHeight: 1.3,
+                }}>
+                  {ch.subtitle}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Sidebar footer */}
+        <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-geist), sans-serif', lineHeight: 1.5 }}>
+            Powered by<br />Claude AI
+          </div>
+        </div>
+      </div>
+
+      {/* ── Chat area (right) ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--white)' }}>
+
+        {/* Chat header */}
+        <div style={{
+          padding: '10px 12px',
           borderBottom: '1px solid var(--border)',
           background: 'linear-gradient(to bottom, var(--white), var(--bg))',
-        }}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              className="text-[13px] font-semibold tracking-[-0.2px]"
-              style={{ color: 'var(--text)' }}
-            >
-              CASK Intelligence
-            </span>
-            <span
-              className="text-[9px] font-semibold tracking-[0.5px] uppercase px-1.5 py-[2px] rounded-[3px]"
-              style={{ color: 'rgba(255,255,255,0.7)', background: 'var(--charcoal)' }}
-            >
-              CLAUDE AI
-            </span>
+          display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', fontFamily: 'var(--font-geist), sans-serif' }}>
+                {activeChannel.name}
+              </span>
+              <span style={{ fontSize: 7.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.75)', background: 'var(--charcoal)', padding: '2px 4px', borderRadius: 3, flexShrink: 0, fontFamily: 'var(--font-geist), sans-serif' }}>
+                Active
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
+              <div className="status-blink" style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 5px rgba(16,185,129,0.4)', flexShrink: 0 }} />
+              <span style={{ fontSize: 9.5, color: 'var(--text3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'var(--font-geist), sans-serif' }}>
+                {sessionCount !== null ? `${sessionCount} sessions loaded` : 'Loading...'}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 mt-1">
-            <div
-              className="w-[7px] h-[7px] rounded-full status-blink"
-              style={{ background: '#10b981', boxShadow: '0 0 6px rgba(16,185,129,0.4)' }}
-            />
-            <span className="text-[11px]" style={{ color: 'var(--text3)' }}>
-              {sessionCount !== null ? `${sessionCount} sessions loaded` : 'Loading sessions...'}
-            </span>
-          </div>
-        </div>
 
-        {/* Voice controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          {userEmail && (
-            <button
-              onClick={clearHistory}
-              title="Clear chat history for this page"
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                padding: '3px 7px',
-                borderRadius: 20,
-                border: '1px solid var(--border)',
-                background: 'var(--surface2)',
-                color: 'var(--text3)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                transition: 'all 150ms ease',
-                flexShrink: 0,
-              }}
-            >
-              Clear
-            </button>
-          )}
-          {isSpeaking && (
-            <button
-              onClick={stopSpeech}
-              title="Stop speaking"
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: 6,
-                border: '1px solid #10b981',
-                background: 'rgba(16,185,129,0.08)',
-                color: '#10b981',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 150ms ease',
-                flexShrink: 0,
-              }}
-            >
-              <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
-                <rect x="1" y="1" width="8" height="8" rx="1" />
-              </svg>
-            </button>
-          )}
-
-          <button
-            onClick={toggleVoice}
-            title={voiceEnabled ? 'Voice on — click to mute' : 'Voice off — click to enable'}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '3px 8px 3px 6px',
-              borderRadius: 20,
-              border: voiceEnabled ? '1px solid #10b981' : '1px solid var(--border)',
-              background: voiceEnabled ? 'rgba(16,185,129,0.08)' : 'var(--surface2)',
-              color: voiceEnabled ? '#10b981' : 'var(--text3)',
-              fontSize: 10,
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 200ms ease',
-              boxShadow: voiceEnabled ? '0 0 0 2px rgba(16,185,129,0.15)' : 'none',
-              fontFamily: 'inherit',
-              flexShrink: 0,
-            }}
-          >
-            {voiceEnabled ? (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-              </svg>
-            ) : (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <line x1="23" y1="9" x2="17" y2="15" />
-                <line x1="17" y1="9" x2="23" y2="15" />
-              </svg>
-            )}
-            <span>{voiceEnabled ? 'Voice' : 'Muted'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-        {messages.map((msg, i) => {
-          const isCurrentlySpeaking = speakingIndex === i
-          const downloads = msg.role === 'assistant' ? detectDownloads(msg.content) : []
-          return (
-            <div
-              key={i}
-              className={`flex flex-col gap-1.5 max-w-[88%] ${msg.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
-            >
-              <div
-                className="text-[12px] leading-relaxed rounded-lg px-3 py-2.5 w-full"
-                style={
-                  msg.role === 'user'
-                    ? {
-                        background: 'var(--glass-msg-user)',
-                        backdropFilter: 'var(--card-backdrop)',
-                        WebkitBackdropFilter: 'var(--card-backdrop)',
-                        color: 'rgba(255,255,255,0.9)',
-                        borderRadius: '10px 10px 2px 10px',
-                      }
-                    : {
-                        background: 'var(--glass-msg-assist)',
-                        backdropFilter: 'var(--card-backdrop)',
-                        WebkitBackdropFilter: 'var(--card-backdrop)',
-                        color: 'var(--text2)',
-                        border: `1px solid ${isCurrentlySpeaking ? '#10b981' : 'var(--border)'}`,
-                        borderLeft: isCurrentlySpeaking ? '3px solid #10b981' : '1px solid var(--border)',
-                        borderRadius: '2px 10px 10px 10px',
-                        whiteSpace: 'pre-wrap',
-                        transition: 'border-color 200ms ease',
-                      }
-                }
+          {/* Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            {userEmail && (
+              <button
+                onClick={clearHistory}
+                title="Clear chat history for this channel"
+                style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 150ms ease' }}
               >
-                {msg.content}
-                {isCurrentlySpeaking && <SoundWave />}
-              </div>
+                Clear
+              </button>
+            )}
+            {isSpeaking && (
+              <button
+                onClick={stopSpeech}
+                title="Stop speaking"
+                style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid #10b981', background: 'rgba(16,185,129,0.08)', color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 150ms ease' }}
+              >
+                <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1" /></svg>
+              </button>
+            )}
+            <button
+              onClick={toggleVoice}
+              title={voiceEnabled ? 'Voice on — click to mute' : 'Voice off — click to enable'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px 2px 5px', borderRadius: 20, border: voiceEnabled ? '1px solid #10b981' : '1px solid var(--border)', background: voiceEnabled ? 'rgba(16,185,129,0.08)' : 'var(--surface2)', color: voiceEnabled ? '#10b981' : 'var(--text3)', fontSize: 9, fontWeight: 600, cursor: 'pointer', transition: 'all 200ms ease', boxShadow: voiceEnabled ? '0 0 0 2px rgba(16,185,129,0.15)' : 'none', fontFamily: 'inherit' }}
+            >
+              {voiceEnabled ? (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                </svg>
+              ) : (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
+                </svg>
+              )}
+              <span>{voiceEnabled ? 'Voice' : 'Muted'}</span>
+            </button>
+          </div>
+        </div>
 
-              {downloads.length > 0 && (
-                <div className="flex gap-1.5 flex-wrap">
-                  {downloads.map(opt => (
-                    <button
-                      key={opt.filename}
-                      onClick={() => triggerDownload(opt.content, opt.filename, opt.mimeType)}
-                      className="text-[10px] font-semibold px-2.5 py-1 rounded-full transition-all duration-150"
-                      style={{
-                        background: 'rgba(109,40,217,0.08)',
-                        border: '1px solid rgba(109,40,217,0.25)',
-                        color: '#7c3aed',
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+        {/* Messages */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {messages.map((msg, i) => {
+            const isCurrentlySpeaking = speakingIndex === i
+            const downloads = msg.role === 'assistant' ? detectDownloads(msg.content) : []
+            return (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: '92%', alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                <div
+                  style={msg.role === 'user' ? {
+                    fontSize: 12, lineHeight: 1.55, padding: '8px 10px',
+                    background: 'var(--glass-msg-user)',
+                    backdropFilter: 'var(--card-backdrop)', WebkitBackdropFilter: 'var(--card-backdrop)',
+                    color: 'rgba(255,255,255,0.9)',
+                    borderRadius: '10px 10px 2px 10px',
+                    fontFamily: 'var(--font-geist), sans-serif',
+                  } : {
+                    fontSize: 12, lineHeight: 1.55, padding: '8px 10px',
+                    background: 'var(--glass-msg-assist)',
+                    backdropFilter: 'var(--card-backdrop)', WebkitBackdropFilter: 'var(--card-backdrop)',
+                    color: 'var(--text2)',
+                    border: `1px solid ${isCurrentlySpeaking ? '#10b981' : 'var(--border)'}`,
+                    borderLeft: isCurrentlySpeaking ? '3px solid #10b981' : '1px solid var(--border)',
+                    borderRadius: '2px 10px 10px 10px',
+                    whiteSpace: 'pre-wrap',
+                    transition: 'border-color 200ms ease',
+                    fontFamily: 'var(--font-geist), sans-serif',
+                  }}
+                >
+                  {msg.content}
+                  {isCurrentlySpeaking && <SoundWave />}
                 </div>
+                {downloads.length > 0 && (
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    {downloads.map(opt => (
+                      <button
+                        key={opt.filename}
+                        onClick={() => triggerDownload(opt.content, opt.filename, opt.mimeType)}
+                        style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: 'rgba(109,40,217,0.08)', border: '1px solid rgba(109,40,217,0.25)', color: '#7c3aed', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 150ms ease' }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {isThinking && (
+            <div style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 5, padding: '8px 10px', background: 'var(--glass-msg-assist)', backdropFilter: 'var(--card-backdrop)', border: '1px solid var(--border)', borderRadius: '2px 10px 10px 10px' }}>
+              <div className="thinking-dot" /><div className="thinking-dot" /><div className="thinking-dot" />
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Quick action buttons */}
+        {messages.length <= 1 && (
+          <div style={{ padding: '0 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {activeChannel.buttons.map(q => (
+              <button
+                key={q}
+                onClick={() => sendMessage(q)}
+                style={{ fontSize: 10, fontWeight: 500, padding: '5px 9px', borderRadius: 20, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text2)', cursor: 'pointer', fontFamily: 'var(--font-geist), sans-serif', transition: 'border-color 150ms ease' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Input area */}
+        <div style={{ padding: '10px 14px 12px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+
+          {/* File attachment */}
+          {(attachedFile || isProcessingFile) && (
+            <div style={{ marginBottom: 6 }}>
+              {isProcessingFile ? (
+                <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 20, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text3)' }}>
+                  Reading file…
+                </span>
+              ) : attachedFile && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, padding: '3px 8px', borderRadius: 20, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text2)', maxWidth: '100%' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>📄 {attachedFile.name}</span>
+                  <button onClick={clearFile} style={{ color: 'var(--text3)', fontSize: 13, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} title="Remove file">×</button>
+                </span>
               )}
             </div>
-          )
-        })}
+          )}
 
-        {isThinking && (
-          <div
-            className="self-start flex items-center gap-1.5 px-3 py-2.5 rounded-lg"
-            style={{
-              background: 'var(--glass-msg-assist)',
-              backdropFilter: 'var(--card-backdrop)',
-              WebkitBackdropFilter: 'var(--card-backdrop)',
-              border: '1px solid var(--border)',
-              borderRadius: '2px 10px 10px 10px',
-            }}
-          >
-            <div className="thinking-dot" />
-            <div className="thinking-dot" />
-            <div className="thinking-dot" />
-          </div>
-        )}
+          {/* File error */}
+          {fileError && (
+            <div style={{ fontSize: 10, padding: '5px 8px', borderRadius: 6, marginBottom: 6, lineHeight: 1.4, background: 'var(--red-soft)', color: 'var(--red)', border: '1px solid var(--red-border)' }}>
+              {fileError}
+            </div>
+          )}
 
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Suggested questions */}
-      {messages.length <= 1 && (
-        <div className="px-3 pb-2 flex flex-wrap gap-1.5">
-          {(SUGGESTED_QUESTIONS[userName] ?? SUGGESTED_QUESTIONS.default).map((q) => (
+          {/* Input row */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, borderRadius: 8, padding: 4, border: '1px solid var(--border)', background: 'var(--bg)' }}>
             <button
-              key={q}
-              onClick={() => sendMessage(q)}
-              className="text-[11px] font-medium px-2.5 py-1.5 rounded-full transition-all duration-150 hover:border-[var(--border2)]"
-              style={{
-                background: 'var(--surface2)',
-                border: '1px solid var(--border)',
-                color: 'var(--text2)',
-                fontFamily: 'var(--font-geist), sans-serif',
-              }}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isThinking || isProcessingFile}
+              title="Attach a file (PDF, DOCX, XLSX, TXT — max 10 MB)"
+              style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', color: attachedFile ? 'var(--charcoal)' : 'var(--text3)', border: 'none', cursor: isThinking || isProcessingFile ? 'not-allowed' : 'pointer', marginBottom: 1 }}
             >
-              {q}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
             </button>
-          ))}
-        </div>
-      )}
 
-      {/* Input */}
-      <div className="p-3" style={{ borderTop: '1px solid var(--border)' }}>
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder={activeChannel.placeholder}
+              rows={1}
+              style={{ flex: 1, resize: 'none', background: 'transparent', fontSize: 11, padding: '4px 4px', outline: 'none', lineHeight: 1.5, color: 'var(--text)', fontFamily: 'var(--font-geist), sans-serif', maxHeight: 72, overflowY: 'auto', border: 'none' }}
+            />
 
-        {/* File attachment tag */}
-        {(attachedFile || isProcessingFile) && (
-          <div className="flex items-center gap-1.5 mb-1.5">
-            {isProcessingFile ? (
-              <span
-                className="text-[11px] px-2.5 py-1 rounded-full"
-                style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text3)' }}
-              >
-                Reading file…
-              </span>
-            ) : attachedFile && (
-              <span
-                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full max-w-full"
-                style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text2)' }}
-              >
-                <span className="truncate" style={{ maxWidth: 160 }}>📄 {attachedFile.name}</span>
-                <button
-                  onClick={clearFile}
-                  className="shrink-0 leading-none"
-                  style={{ color: 'var(--text3)', fontSize: 13, lineHeight: 1 }}
-                  title="Remove file"
-                >
-                  ×
-                </button>
-              </span>
-            )}
+            <button
+              onClick={() => sendMessage()}
+              disabled={(!input.trim() && !attachedFile) || isThinking || isProcessingFile}
+              style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', background: (input.trim() || attachedFile) && !isThinking && !isProcessingFile ? 'var(--charcoal)' : 'var(--border)', color: (input.trim() || attachedFile) && !isThinking && !isProcessingFile ? 'white' : 'var(--text3)', border: 'none', cursor: (!input.trim() && !attachedFile) || isThinking || isProcessingFile ? 'not-allowed' : 'pointer', marginBottom: 1, transition: 'background 150ms ease' }}
+            >
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M6 1L11 6L6 11M11 6H1" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
-        )}
 
-        {/* File error */}
-        {fileError && (
-          <div
-            className="text-[11px] px-2.5 py-1.5 rounded-md mb-1.5 leading-relaxed"
-            style={{ background: 'var(--red-soft)', color: 'var(--red)', border: '1px solid var(--red-border)' }}
-          >
-            {fileError}
-          </div>
-        )}
+          <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.txt" style={{ display: 'none' }} onChange={handleFileSelect} />
 
-        <div
-          className="flex items-end gap-1.5 rounded-lg p-1"
-          style={{ border: '1px solid var(--border)', background: 'var(--bg)' }}
-        >
-          {/* Paperclip button */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isThinking || isProcessingFile}
-            title="Attach a file (PDF, DOCX, XLSX, TXT — max 10 MB)"
-            className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-all duration-150 mb-0.5"
-            style={{
-              background: 'transparent',
-              color: attachedFile ? 'var(--charcoal)' : 'var(--text3)',
-              border: 'none',
-              cursor: isThinking || isProcessingFile ? 'not-allowed' : 'pointer',
-            }}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-            </svg>
-          </button>
-
-          <textarea
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKey}
-            placeholder="Ask about sessions, actions, agenda..."
-            rows={1}
-            className="flex-1 resize-none bg-transparent text-[12px] px-2 py-1.5 outline-none leading-relaxed"
-            style={{
-              color: 'var(--text)',
-              fontFamily: 'var(--font-geist), sans-serif',
-              maxHeight: '80px',
-              overflowY: 'auto',
-            }}
-          />
-
-          {/* Send button */}
-          <button
-            onClick={() => sendMessage()}
-            disabled={(!input.trim() && !attachedFile) || isThinking || isProcessingFile}
-            className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-all duration-150 mb-0.5"
-            style={{
-              background: (input.trim() || attachedFile) && !isThinking && !isProcessingFile ? 'var(--charcoal)' : 'var(--border)',
-              color: (input.trim() || attachedFile) && !isThinking && !isProcessingFile ? 'white' : 'var(--text3)',
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <path d="M6 1L11 6L6 11M11 6H1" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+          <p style={{ fontSize: 9, textAlign: 'center', marginTop: 5, color: 'var(--text3)', fontFamily: 'var(--font-geist), sans-serif' }}>
+            Powered by Claude · CASK Hub AI
+          </p>
         </div>
-
-        {/* Hidden file input */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.docx,.xlsx,.txt"
-          style={{ display: 'none' }}
-          onChange={handleFileSelect}
-        />
-
-        <p className="text-[10px] text-center mt-1.5" style={{ color: 'var(--text3)' }}>
-          Powered by Claude · CASK Hub AI
-        </p>
       </div>
     </aside>
   )
