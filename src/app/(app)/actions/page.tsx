@@ -3,22 +3,17 @@
 
 import { useState, useEffect } from 'react'
 import { TopBar, ActionItemRow, SectionLabel } from '@/components/ui'
-import { fetchAllMeetings, updateActionItemDone } from '@/lib/meetings-client'
-import type { ActionItem, Meeting } from '@/types'
+import { createClient } from '@/lib/supabase'
+import type { ActionItem } from '@/types'
 
 const OWNER_FILTERS = ['All', 'Calin', 'Kai', 'Chad', 'Rovern', 'All Leaders', 'All VPs']
 
-// Extend ActionItem locally to track which meeting it belongs to
-type RichActionItem = ActionItem & { meeting_id: string }
-
 export default function ActionsPage() {
-  const [items, setItems] = useState<RichActionItem[]>([])
-  const [meetingsMap, setMeetingsMap] = useState<Record<string, Meeting>>({})
+  const [items, setItems] = useState<ActionItem[]>([])
   const [loading, setLoading] = useState(true)
   const [ownerFilter, setOwnerFilter] = useState('Mine')
   const [showAll, setShowAll] = useState(false)
 
-  const CORE_OWNERS = ['calin', 'kai', 'rovern']
   function isCoreOwner(owner: string) {
     const o = owner.toLowerCase().trim()
     return (
@@ -29,19 +24,15 @@ export default function ActionsPage() {
   }
 
   useEffect(() => {
-    fetchAllMeetings().then(meetings => {
-      const map: Record<string, Meeting> = {}
-      const rich: RichActionItem[] = []
-      for (const m of meetings) {
-        map[m.id] = m
-        for (const item of m.action_items) {
-          rich.push({ ...item, meeting_id: m.id })
-        }
-      }
-      setMeetingsMap(map)
-      setItems(rich)
-      setLoading(false)
-    })
+    const supabase = createClient()
+    supabase
+      .from('action_items')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setItems((data ?? []) as ActionItem[])
+        setLoading(false)
+      })
   }, [])
 
   const baseItems = showAll ? items : items.filter(a => isCoreOwner(a.owner))
@@ -57,28 +48,14 @@ export default function ActionsPage() {
   )
   const completedItems = filtered.filter(a => a.done)
 
-  function handleToggle(id: string, done: boolean) {
+  async function handleToggle(id: string, done: boolean) {
     setItems(prev => prev.map(item => item.id === id ? { ...item, done } : item))
-
-    // Persist to Supabase: find the meeting and update its action_items JSONB
-    const target = items.find(i => i.id === id)
-    if (target) {
-      const meeting = meetingsMap[target.meeting_id]
-      if (meeting) {
-        updateActionItemDone(target.meeting_id, id, done, meeting.action_items)
-          .catch(err => console.error('[actions] toggle persist failed:', err))
-        // Update local map so subsequent toggles have fresh data
-        setMeetingsMap(prev => ({
-          ...prev,
-          [target.meeting_id]: {
-            ...prev[target.meeting_id],
-            action_items: prev[target.meeting_id].action_items.map(i =>
-              i.id === id ? { ...i, done } : i
-            ),
-          },
-        }))
-      }
-    }
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('action_items')
+      .update({ done })
+      .eq('id', id)
+    if (error) console.error('[actions] toggle persist failed:', error)
   }
 
   return (

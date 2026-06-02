@@ -15,7 +15,7 @@ import {
 } from '@/components/ui'
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
-import type { Meeting } from '@/types'
+import type { Meeting, ActionItem } from '@/types'
 
 function getCurrentMonthYear(): string {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/New_York' })
@@ -113,6 +113,8 @@ export default function DashboardPage() {
   const [upcomingCount, setUpcomingCount] = useState<number | null>(null)
   const [nextEventHint, setNextEventHint] = useState<string>('Loading…')
   const [clockStr, setClockStr] = useState('')
+  const [actionItems, setActionItems] = useState<ActionItem[]>([])
+  const [actionItemsLoading, setActionItemsLoading] = useState(true)
 
   useEffect(() => {
     const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
@@ -213,12 +215,23 @@ export default function DashboardPage() {
 
   }, [])
 
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('action_items')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setActionItems((data ?? []) as ActionItem[])
+        setActionItemsLoading(false)
+      })
+  }, [])
+
   const todayLabel = new Date().toLocaleDateString('en-US', {
     timeZone: 'America/New_York',
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   })
 
-  const CORE_OWNERS = ['calin', 'kai', 'rovern']
   function isCoreOwner(owner: string) {
     const o = owner.toLowerCase().trim()
     return (
@@ -227,12 +240,11 @@ export default function DashboardPage() {
       o === 'rovern' || o.startsWith('rovern ')
     )
   }
-  const allActions = meetings.flatMap(m => m.action_items)
-  const coreActions = allActions.filter(a => isCoreOwner(a.owner))
+  const coreActions = actionItems.filter(a => isCoreOwner(a.owner))
   const openActions = coreActions.filter(a => !a.done)
   const completedActions = coreActions.filter(a => a.done)
   const recentMeetings = meetings.slice(0, 3)
-  const recentOpenActions = openActions.slice(0, 3)
+  const recentOpenActions = openActions.slice(0, 5)
   const recentCompletedActions = completedActions.slice(0, 2)
 
   return (
@@ -283,7 +295,7 @@ export default function DashboardPage() {
             icon={<IconCalendar />}
           />
           <StatCard
-            value={loading ? '…' : openActions.length}
+            value={actionItemsLoading ? '…' : openActions.length}
             label="Open Action Items"
             hint="Across all sessions"
             variant="default"
@@ -291,7 +303,7 @@ export default function DashboardPage() {
             icon={<IconList />}
           />
           <StatCard
-            value={loading ? '…' : completedActions.length}
+            value={actionItemsLoading ? '…' : completedActions.length}
             label="Completed"
             hint="All time"
             variant="success"
@@ -576,7 +588,7 @@ export default function DashboardPage() {
           <SectionLabel action="View all →" href="/actions">
             Open Action Items — Calin, Kai &amp; Rovern
           </SectionLabel>
-          {loading ? (
+          {actionItemsLoading ? (
             <div className="flex flex-col gap-[5px]">
               {[0, 1, 2].map(i => (
                 <div key={i} className="rounded-[6px] h-[56px] shimmer" style={{ border: '1px solid var(--border)' }} />

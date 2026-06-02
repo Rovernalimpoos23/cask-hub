@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { MeetingTypeTag, ActionItemRow, TopBar } from '@/components/ui'
 import { useState, useEffect } from 'react'
 import { fetchMeetingById } from '@/lib/meetings-client'
-import type { Meeting } from '@/types'
+import { createClient } from '@/lib/supabase'
+import type { Meeting, ActionItem } from '@/types'
 
 function BackLink() {
   return (
@@ -23,6 +24,8 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   const [meeting, setMeeting] = useState<Meeting | null>(null)
   const [loading, setLoading] = useState(true)
   const [transcriptExpanded, setTranscriptExpanded] = useState(false)
+  const [actionItems, setActionItems] = useState<ActionItem[]>([])
+  const [actionItemsLoading, setActionItemsLoading] = useState(true)
 
   useEffect(() => {
     fetchMeetingById(params.id).then(data => {
@@ -30,6 +33,29 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       setLoading(false)
     })
   }, [params.id])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('action_items')
+      .select('*')
+      .eq('meeting_id', params.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        setActionItems((data ?? []) as ActionItem[])
+        setActionItemsLoading(false)
+      })
+  }, [params.id])
+
+  async function handleToggle(id: string, done: boolean) {
+    setActionItems(prev => prev.map(item => item.id === id ? { ...item, done } : item))
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('action_items')
+      .update({ done })
+      .eq('id', id)
+    if (error) console.error('[session] toggle persist failed:', error)
+  }
 
   if (loading) {
     return (
@@ -66,7 +92,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     day: 'numeric',
   })
 
-  const openActions = meeting.action_items.filter(a => !a.done)
+  const openActions = actionItems.filter(a => !a.done)
 
   return (
     <>
@@ -186,11 +212,16 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
             </span>
           </div>
           <div className="flex flex-col gap-[5px]">
-            {meeting.action_items.map(item => (
-              <ActionItemRow key={item.id} item={item} />
-            ))}
-            {meeting.action_items.length === 0 && (
+            {actionItemsLoading ? (
+              [0, 1, 2].map(i => (
+                <div key={i} className="rounded-[6px] h-[56px] shimmer" style={{ border: '1px solid var(--border)' }} />
+              ))
+            ) : actionItems.length === 0 ? (
               <p className="text-[12px]" style={{ color: 'var(--text3)' }}>No action items recorded.</p>
+            ) : (
+              actionItems.map(item => (
+                <ActionItemRow key={item.id} item={item} onToggle={handleToggle} />
+              ))
             )}
           </div>
         </div>
