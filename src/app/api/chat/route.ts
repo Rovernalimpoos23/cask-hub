@@ -155,12 +155,92 @@ Human Resources: Kaitlyn Grunenberg (VP)
 Data & AI: Joseph Estelloso (Data Analyst), Rovern Alimpoos (AI Workflow Specialist)
 `
 
+function buildPageFocusSection(pageContext: string): string {
+  const p = pageContext ?? ''
+
+  if (p.startsWith('/design-center')) {
+    return `
+== CURRENT PAGE: DESIGN CENTER ==
+The user is viewing the Design Center section. Prioritize this context:
+- Design Center team: Shannon Halvorsen (Creative Director), Jeff Azcona (VP Sales & Marketing), Calin Noonan (President)
+- Referred Client Tracker: active referred clients with assigned designers and project stages — use LIVE CLIENT DATA above
+- Design Center materials include Leadership Briefing, Discoveries, and Lamont's Agenda
+- When asked about a specific client or designer, look up from the client data above
+- Example questions to answer directly:
+  "Who are Ana Filippone's clients?" → find clients assigned to that designer in client data
+  "What stage is Jess Resch?" → find that client and report their status/stage
+  "How many design center clients do we have?" → count from client data
+  "What's Shannon working on?" → summarize Creative Director's clients and pipeline`
+  }
+
+  if (p.startsWith('/president/calendar')) {
+    return `
+== CURRENT PAGE: PRESIDENT'S CALENDAR ==
+The user is viewing Calin's calendar. Focus exclusively on calendar data:
+- Lead every answer with specific times (ET) and event titles from CALIN'S CALENDAR above
+- Today's schedule is the primary focus; surface it proactively
+- Example questions to answer directly:
+  "What's on my calendar today?" → list all Today events with exact ET times
+  "When is my next meeting?" → first event after current time in Today section
+  "What meetings do I have this week?" → list the This Week section
+  "Do I have anything this afternoon?" → filter Today events after 12 PM ET
+  "Am I free at 2pm?" → check if any event overlaps 2 PM ET today`
+  }
+
+  if (p.startsWith('/president/overview') || p === '/president') {
+    return `
+== CURRENT PAGE: PRESIDENT'S MEETINGS ==
+The user is on the President's Meetings overview. Prioritize:
+- Full meeting hierarchy: Annual → Quarterly → Monthly → Weekly → Daily (see PRESIDENT'S MEETINGS HIERARCHY above)
+- DISC profiles for all department VPs (Jeff Azcona, Lamont Gilyot, Kaitlyn Grunenberg, Matteo Carpani)
+- PIT Goals data and tracking (see PIT GOALS SUMMARY above)
+- All agendas and recurring meeting structures
+- Example questions to answer directly:
+  "What's on the quarterly agenda?" → describe quarterly meeting structure from hierarchy
+  "What is Jeff's DISC profile?" → provide Jeff Azcona's DISC information
+  "How are we tracking on PITs?" → compare submitted vs targets from PIT GOALS SUMMARY
+  "What happens at the weekly meeting?" → detail weekly meeting components from hierarchy`
+  }
+
+  if (p.startsWith('/sessions')) {
+    return `
+== CURRENT PAGE: SESSIONS ==
+The user is browsing coaching sessions. Focus on session data:
+- All session data is in LIVE SESSION & MEETING DATA above (6 sessions, Feb–Apr 2026, with Juliet from ActionCOACH Tampa Bay)
+- Surface summaries, key decisions, and action items from specific sessions when asked
+- Example questions to answer directly:
+  "What were the action items from last week?" → find the most recent session's open action items
+  "Summarize the last leadership meeting" → use the most recent meeting entry above
+  "What decisions were made in the last coaching session?" → find latest coaching-type meeting
+  "What are the recurring themes across sessions?" → analyze summaries across all meetings`
+  }
+
+  if (p.startsWith('/actions')) {
+    return `
+== CURRENT PAGE: ACTION ITEMS ==
+The user is on the Action Items page. Focus on action item data:
+- Default view shows Calin, Kai, and Rovern's items only; "View All" shows everyone
+- Action items come from LIVE SESSION & MEETING DATA above — look in Open/Completed Action Items for each meeting
+- Example questions to answer directly:
+  "What are my open action items?" → list open items for the logged-in user from the meeting data above
+  "What's due this week?" → filter action items with due dates within the next 7 days
+  "How many open items do I have?" → count open items assigned to the logged-in user
+  "What action items are overdue?" → items with past due dates that are still open`
+  }
+
+  // /dashboard or any other page — full context (default behavior)
+  return `
+== CURRENT PAGE: DASHBOARD ==
+The user is on the main dashboard. You have full context on all CASK data — sessions, calendar, clients, action items, PIT goals, templates, and more. Answer any question about any part of CASK Hub.`
+}
+
 function buildSystemPrompt(
   userName: string,
   userRole: string,
   meetingsContext: string,
   clientsContext: string,
   calendarContext: string,
+  pageContext: string,
 ) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -184,6 +264,7 @@ ${clientsContext}
 
 == CALIN'S CALENDAR (Microsoft 365 — Eastern Time) ==
 ${calendarContext}
+${buildPageFocusSection(pageContext)}
 
 == RESPONSE BEHAVIOR ==
 - You have full knowledge of everything above — never say you don't have access to this data
@@ -219,7 +300,7 @@ ${calendarContext}
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, userName, userRole, fileName, fileData, fileType, fileMimeType, userMessage } = await req.json()
+    const { messages, userName, userRole, pageContext, fileName, fileData, fileType, fileMimeType, userMessage } = await req.json()
     console.log('[chat] POST hit — user:', userName, '| role:', userRole, '| messages:', messages?.length)
 
     // Initialise client inside handler so env var is always resolved at request time
@@ -428,7 +509,7 @@ export async function POST(req: NextRequest) {
     console.log('[chat] Calling Claude API with', processedMessages.length, 'messages...', fileData ? `+ file: ${fileName}` : '')
     const completion = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      system: buildSystemPrompt(userName ?? '', userRole ?? '', meetingsContext, clientsContext, calendarContext),
+      system: buildSystemPrompt(userName ?? '', userRole ?? '', meetingsContext, clientsContext, calendarContext, pageContext ?? ''),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: processedMessages as any,
       max_tokens: fileData ? 2000 : 600,

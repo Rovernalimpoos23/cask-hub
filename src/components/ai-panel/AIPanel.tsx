@@ -375,6 +375,7 @@ export default function AIPanel() {
           messages: nextMessages.map(m => ({ role: m.role, content: m.content })),
           userName,
           userRole,
+          pageContext: window.location.pathname,
           ...(fileToSend ? {
             fileName: fileToSend.name,
             fileData: fileToSend.data,
