@@ -2,6 +2,7 @@
 // Requires ANTHROPIC_API_KEY in environment (set in Vercel dashboard + .env.local)
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase-server'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -26,20 +27,43 @@ Format output as plain text with the time | section name structure. No markdown 
 
 export async function POST(req: NextRequest) {
   try {
-    const { meetingType, duration, education, topics } = await req.json()
+    const { meetingType, duration, time, education, topics, date } = await req.json()
+
+    // Fetch the 6 most recent sessions from Supabase for context
+    const supabase = createClient()
+    const { data: sessions } = await supabase
+      .from('meetings')
+      .select('title, date, summary, key_decisions')
+      .order('date', { ascending: false })
+      .limit(6)
+
+    let sessionContext = ''
+    if (sessions && sessions.length > 0) {
+      sessionContext = `\n\nPast session context (${sessions.length} most recent sessions):\n` +
+        sessions.map((s, i) => {
+          const lines: string[] = [`Session ${i + 1}: ${s.title} (${s.date})`]
+          if (Array.isArray(s.summary) && s.summary.length > 0) {
+            lines.push('  Key themes: ' + s.summary.slice(0, 3).join(' | '))
+          }
+          if (Array.isArray(s.key_decisions) && s.key_decisions.length > 0) {
+            lines.push('  Decisions: ' + s.key_decisions.slice(0, 2).join(' | '))
+          }
+          return lines.join('\n')
+        }).join('\n\n')
+    }
 
     const userPrompt = `Generate a CASK ${meetingType} agenda.
+Date: ${date}
+${time ? `Start time: ${time}` : ''}
 Duration: ${duration}
 ${education ? `Education topic: ${education}` : ''}
 ${topics ? `Key topics to include: ${topics}` : ''}
-Date: May 28, 2026
-Start time: 11:00 AM
 Standard attendees: Calin, Chad, Lamont, Jeff, Matteo, Kait, Juliet
-
-Create a complete, detailed agenda with time slots that add up to exactly ${duration}.`
+${sessionContext}
+Create a complete, detailed agenda with time slots that add up to exactly ${duration}. Reference relevant themes or open items from past sessions where appropriate.`
 
     const completion = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userPrompt }],
       max_tokens: 1200,

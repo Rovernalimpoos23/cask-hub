@@ -43,10 +43,19 @@ Attendees: Calin, Chad, Lamont, Jeff, Matteo, Kait, Juliet
 export default function GeneratePage() {
   const [meetingType, setMeetingType] = useState('Leadership Meeting')
   const [duration, setDuration] = useState('4 hours')
+  const [time, setTime] = useState('')
   const [education, setEducation] = useState('')
   const [topics, setTopics] = useState('')
   const [loading, setLoading] = useState(false)
   const [output, setOutput] = useState('')
+
+  const today = new Date().toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 
   async function generate() {
     setLoading(true)
@@ -56,7 +65,7 @@ export default function GeneratePage() {
       const res = await fetch('/api/generate-agenda', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meetingType, duration, education, topics }),
+        body: JSON.stringify({ meetingType, duration, time, education, topics, date: today }),
       })
       if (!res.ok) throw new Error('API error')
       const data = await res.json()
@@ -103,7 +112,7 @@ export default function GeneratePage() {
             Meeting Details
           </h2>
           <p className="text-[13px] mb-5 leading-relaxed" style={{ color: 'var(--text3)' }}>
-            Fill in the details below. Claude will use all 6 past sessions as context.
+            Fill in the details below. Claude will read your past sessions from the database as context.
           </p>
 
           <div className="grid grid-cols-2 gap-3 mb-3">
@@ -159,6 +168,28 @@ export default function GeneratePage() {
                 <option>6 hours</option>
               </select>
             </div>
+          </div>
+
+          <div className="flex flex-col gap-[5px] mb-3">
+            <label
+              className="text-[11px] font-semibold tracking-[0.5px]"
+              style={{ color: 'var(--text2)' }}
+            >
+              Start Time <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={time}
+              onChange={e => setTime(e.target.value)}
+              placeholder="e.g. 11:00 AM"
+              className="rounded-[6px] px-3 py-[9px] text-[13px] outline-none transition-colors duration-150"
+              style={{
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                fontFamily: 'var(--font-geist), sans-serif',
+              }}
+            />
           </div>
 
           <div className="flex flex-col gap-[5px] mb-3">
