@@ -115,6 +115,8 @@ export default function DashboardPage() {
   const [clockStr, setClockStr] = useState('')
   const [actionItems, setActionItems] = useState<ActionItem[]>([])
   const [actionItemsLoading, setActionItemsLoading] = useState(true)
+  const [bottomActionItems, setBottomActionItems] = useState<ActionItem[]>([])
+  const [bottomLoading, setBottomLoading] = useState(true)
 
   useEffect(() => {
     const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
@@ -216,7 +218,7 @@ export default function DashboardPage() {
 
   }, [])
 
-  useEffect(() => {
+  const loadAllActionItems = useCallback(() => {
     const supabase = createClient()
     supabase
       .from('action_items')
@@ -227,6 +229,33 @@ export default function DashboardPage() {
         setActionItemsLoading(false)
       })
   }, [])
+
+  const loadBottomActionItems = useCallback(() => {
+    const supabase = createClient()
+    supabase
+      .from('action_items')
+      .select('*')
+      .eq('done', false)
+      .in('owner', ['Calin', 'Kai', 'Rovern', 'Calin Noonan', 'Kai Mapoy', 'Rovern Alimpoos'])
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(({ data }) => {
+        setBottomActionItems((data ?? []) as ActionItem[])
+        setBottomLoading(false)
+      })
+  }, [])
+
+  useEffect(() => {
+    loadAllActionItems()
+    loadBottomActionItems()
+  }, [loadAllActionItems, loadBottomActionItems])
+
+  async function handleBottomToggle(id: string, done: boolean) {
+    const supabase = createClient()
+    await supabase.from('action_items').update({ done }).eq('id', id)
+    loadBottomActionItems()
+    loadAllActionItems()
+  }
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     timeZone: 'America/New_York',
@@ -245,8 +274,6 @@ export default function DashboardPage() {
   const openActions = coreActions.filter(a => !a.done)
   const completedActions = coreActions.filter(a => a.done)
   const recentMeetings = meetings.slice(0, 3)
-  const recentOpenActions = openActions.slice(0, 5)
-  const recentCompletedActions = completedActions.slice(0, 2)
 
   return (
     <>
@@ -589,7 +616,7 @@ export default function DashboardPage() {
           <SectionLabel action="View all →" href="/actions">
             Open Action Items — Calin, Kai &amp; Rovern
           </SectionLabel>
-          {actionItemsLoading ? (
+          {bottomLoading ? (
             <div className="flex flex-col gap-[5px]">
               {[0, 1, 2].map(i => (
                 <div key={i} className="rounded-[6px] h-[56px] shimmer" style={{ border: '1px solid var(--border)' }} />
@@ -597,11 +624,8 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="flex flex-col gap-[5px]">
-              {recentOpenActions.map(item => (
-                <ActionItemRow key={item.id} item={item} />
-              ))}
-              {recentCompletedActions.map(item => (
-                <ActionItemRow key={item.id} item={item} />
+              {bottomActionItems.map(item => (
+                <ActionItemRow key={item.id} item={item} onToggle={handleBottomToggle} />
               ))}
             </div>
           )}
