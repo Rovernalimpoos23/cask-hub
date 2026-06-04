@@ -43,120 +43,6 @@ interface ClientData {
   meetings: MeetingItem[]
 }
 
-// ── Sample Data ───────────────────────────────────────────────────────────────
-
-const SAMPLE_CLIENTS: Record<string, ClientData> = {
-  'sample-1': {
-    id: 'sample-1',
-    name: 'John Smith',
-    initials: 'JS',
-    project_type: 'Custom Home',
-    project_value: 485000,
-    location: 'St. Petersburg, FL',
-    start_date: 'January 2026',
-    happiness: 'green',
-    meetings_completed: 3,
-    total_meetings: 40,
-    owner: 'Jeff',
-    personality_tags: ['Verbal communicator', 'Direct', 'Excited by visuals', 'Budget-focused', 'Tampa Bay Rays fan', 'Fast decision maker'],
-    communication_style: 'Prefers excitement in the moment. Makes decisions quickly. Loves in-person walkthroughs. Lead with vision and feeling not details.',
-    key_interests: 'Tampa Bay Rays baseball, modern design, open floor plans',
-    ai_tip: 'Lead with excitement and visuals. Save detailed numbers for follow-up email. John decides fast — give him the feeling first.',
-    priorities: [
-      { text: 'Budget alignment', status: 'unresolved' },
-      { text: 'Financing confirmed', status: 'in_progress' },
-      { text: 'Floor plan approved', status: 'done' },
-      { text: 'Design alignment', status: 'done' },
-      { text: 'Contract signed', status: 'unresolved' },
-    ],
-    meetings: [
-      { number: 1, title: 'First In-Person Sales Meeting', completed: true },
-      { number: 2, title: 'Budget & Financing Discussion', completed: true },
-      { number: 3, title: 'Floor Plan Selection', completed: true },
-      { number: 4, title: 'Design Center Walkthrough', completed: false },
-      { number: 5, title: 'Contract Signing', completed: false },
-      { number: 6, title: 'Pre-Construction Meeting', completed: false },
-      { number: 7, title: 'Foundation Review', completed: false },
-      { number: 8, title: 'Framing Walkthrough', completed: false },
-    ],
-  },
-  'sample-2': {
-    id: 'sample-2',
-    name: 'Jennifer Lee',
-    initials: 'JL',
-    project_type: 'ADU',
-    project_value: 120000,
-    location: 'Tampa, FL',
-    start_date: 'March 2026',
-    happiness: 'yellow',
-    meetings_completed: 8,
-    total_meetings: 40,
-    owner: 'Jeff',
-    personality_tags: ['Detail-oriented', 'Analytical', 'Needs time to decide', 'Email communicator', 'Budget-conscious'],
-    communication_style: 'Sends detailed emails with questions. Needs time to process information. Follow up with written summaries after every meeting.',
-    key_interests: 'Rental income potential, energy efficiency, modern finishes',
-    ai_tip: 'Always follow up meetings with detailed written summaries. Jennifer needs to process before deciding — give her space and information.',
-    priorities: [
-      { text: 'Budget alignment', status: 'done' },
-      { text: 'Financing confirmed', status: 'done' },
-      { text: 'Floor plan approved', status: 'done' },
-      { text: 'Permit approval', status: 'in_progress' },
-      { text: 'Contract signed', status: 'done' },
-    ],
-    meetings: [
-      { number: 1, title: 'First In-Person Sales Meeting', completed: true },
-      { number: 2, title: 'Budget & Financing Discussion', completed: true },
-      { number: 3, title: 'Floor Plan Selection', completed: true },
-      { number: 4, title: 'Design Center Walkthrough', completed: true },
-      { number: 5, title: 'Contract Signing', completed: true },
-      { number: 6, title: 'Pre-Construction Meeting', completed: true },
-      { number: 7, title: 'Permit Submission Review', completed: true },
-      { number: 8, title: 'Foundation Review', completed: true },
-      { number: 9, title: 'Framing Walkthrough', completed: false },
-      { number: 10, title: 'Electrical & Plumbing Rough-in', completed: false },
-    ],
-  },
-  'sample-3': {
-    id: 'sample-3',
-    name: 'Robert Davis',
-    initials: 'RD',
-    project_type: 'Detached Garage',
-    project_value: 65000,
-    location: 'Clearwater, FL',
-    start_date: 'February 2026',
-    happiness: 'red',
-    meetings_completed: 12,
-    total_meetings: 40,
-    owner: 'Chad',
-    personality_tags: ['Skeptical', 'Price-sensitive', 'Needs reassurance', 'Prefers phone calls', 'Detail-oriented'],
-    communication_style: 'Prefers phone calls over email. Gets anxious about delays. Needs frequent check-ins and reassurance that project is on track.',
-    key_interests: 'On-time delivery, staying on budget, clear communication',
-    ai_tip: 'Robert needs more frequent communication — schedule weekly check-in calls. Address his concerns proactively before he brings them up.',
-    priorities: [
-      { text: 'Budget alignment', status: 'done' },
-      { text: 'Timeline concerns addressed', status: 'unresolved' },
-      { text: 'Material selection finalized', status: 'in_progress' },
-      { text: 'Permit approved', status: 'done' },
-      { text: 'Weekly check-in scheduled', status: 'unresolved' },
-    ],
-    meetings: [
-      { number: 1, title: 'First In-Person Sales Meeting', completed: true },
-      { number: 2, title: 'Budget Discussion', completed: true },
-      { number: 3, title: 'Design Selection', completed: true },
-      { number: 4, title: 'Contract Signing', completed: true },
-      { number: 5, title: 'Pre-Construction Meeting', completed: true },
-      { number: 6, title: 'Foundation Review', completed: true },
-      { number: 7, title: 'Framing Walkthrough', completed: true },
-      { number: 8, title: 'Electrical Rough-in', completed: true },
-      { number: 9, title: 'Plumbing Rough-in', completed: true },
-      { number: 10, title: 'Insulation Review', completed: true },
-      { number: 11, title: 'Drywall Walkthrough', completed: true },
-      { number: 12, title: 'Paint & Finishes Review', completed: true },
-      { number: 13, title: 'Final Walkthrough', completed: false },
-      { number: 14, title: 'Punch List Review', completed: false },
-    ],
-  },
-}
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -390,13 +276,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   }, [])
 
   useEffect(() => {
-    const SAMPLE_IDS = ['sample-1', 'sample-2', 'sample-3']
-
-    if (SAMPLE_IDS.includes(params.id)) {
-      setClient(SAMPLE_CLIENTS[params.id] ?? null)
-      return
-    }
-
     async function fetchClient() {
       const supabase = createClient()
 
@@ -470,9 +349,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       i === index ? { ...m, completed: !m.completed } : m
     )
     setLocalMeetings(updated)
-
-    const isSample = ['sample-1', 'sample-2', 'sample-3'].includes(params.id)
-    if (isSample) return
 
     const supabase = createClient()
     if (meeting.id) {

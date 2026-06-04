@@ -19,41 +19,6 @@ interface Client {
   owner: string
 }
 
-const SAMPLE_CLIENTS: Client[] = [
-  {
-    id: 'sample-1',
-    name: 'John Smith',
-    project_type: 'Custom Home',
-    project_value: 485000,
-    location: 'St. Petersburg, FL',
-    happiness: 'green',
-    meetings_completed: 3,
-    total_meetings: 40,
-    owner: 'Jeff',
-  },
-  {
-    id: 'sample-2',
-    name: 'Jennifer Lee',
-    project_type: 'ADU',
-    project_value: 120000,
-    location: 'Tampa, FL',
-    happiness: 'yellow',
-    meetings_completed: 8,
-    total_meetings: 40,
-    owner: 'Jeff',
-  },
-  {
-    id: 'sample-3',
-    name: 'Robert Davis',
-    project_type: 'Detached Garage',
-    project_value: 65000,
-    location: 'Clearwater, FL',
-    happiness: 'red',
-    meetings_completed: 12,
-    total_meetings: 40,
-    owner: 'Chad',
-  },
-]
 
 const HAPPINESS_CONFIG = {
   green: {
@@ -241,10 +206,9 @@ export default function ActiveClientsPage() {
           .select('*')
           .order('name')
 
-        const realClients = (data as Client[]) ?? []
-        setClients([...realClients, ...SAMPLE_CLIENTS])
+        setClients((data as Client[]) ?? [])
       } catch {
-        setClients(SAMPLE_CLIENTS)
+        setClients([])
       } finally {
         setLoading(false)
       }
@@ -332,6 +296,17 @@ export default function ActiveClientsPage() {
               }}
             />
           ))}
+        </div>
+      ) : clients.length === 0 ? (
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '60px 0',
+            color: 'var(--text3, #a8a29e)',
+            fontSize: 14,
+          }}
+        >
+          No active clients yet. Add your first client to get started.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
