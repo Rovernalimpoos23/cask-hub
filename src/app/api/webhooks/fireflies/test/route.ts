@@ -38,19 +38,22 @@ CASK Construction context:
 - If multiple department heads present — type is "leadership" or "planning"
 - Use first names only in attendees array`
 
-const SAMPLE_TRANSCRIPT = `Calin: Good morning everyone. Let's get started with our weekly leadership meeting.
-Juliet: Morning Calin. Before we dive in, how are you tracking against the $20M goal?
-Calin: We're at $14.2M YTD which puts us about 8% ahead of plan.
-Chad: Operations-wise we've completed the Phoenix project handover. Two new sites starting next week.
-Calin: Great. Chad, can you make sure the site safety checklist is updated before the new sites open?
-Chad: Will do. I'll have that done by end of week.
-Jeff: Sales pipeline is strong. We closed three contracts this week totaling $1.8M.
-Calin: Excellent. Rovern, can you have the new reporting dashboard ready for the board meeting?
-Rovern: Yes, I'll have it ready by May 30th.
-Juliet: Key decision from today — CASK will prioritize commercial contracts over residential for Q3.
-Calin: Agreed. That's the call. Kait, please update the hiring plan to reflect commercial focus.
-Kait: Got it, I'll revise the hiring plan by June 3rd.
-Calin: Let's wrap up. Good session everyone.`
+const SAMPLE_TRANSCRIPT = `Meeting Title: PR1m Internal Sales to Pre-Con Pass-Off: John Smith
+Date: ${new Date().toISOString().split('T')[0]}
+Module: Customer Journey — Active Clients
+
+Jeff: Alright, let's get this handoff started. John, welcome to the pre-construction team.
+John: Thanks Jeff, really excited to get this project underway.
+Jeff: So the purpose of this meeting is to pass John off from sales to the pre-construction team. We've reviewed his property, confirmed the ADU option, and the budget is aligned.
+Matteo: Great to meet you John. I'll be your project manager through the design and permitting phases.
+Jeff: We went through the customer avatar and ADU checklist during the sales process. John is looking at a detached ADU, no flood zone, standard setbacks.
+Matteo: Perfect. John, our next step is the initial alignment meeting where we'll go deeper into your vision for the project — layout preferences, timeline, and any site considerations.
+John: Sounds good. I want to make sure we stay on budget and on schedule.
+Matteo: Absolutely. We'll cover all of that. Rovern, can you set up the pre-construction meeting template in the system for John's project?
+Rovern: Yes, I'll get that done right away.
+Jeff: We decided to move forward with pre-construction planning as of today. Everything looks good on the sales side.
+Matteo: Great. John, we'll be in touch shortly to schedule your alignment meeting. This is a test meeting summary for John Smith pre-construction phase.
+John: Perfect, looking forward to it.`
 
 function extractJSON(text: string): Record<string, unknown> {
   const match = text.match(/\{[\s\S]*\}/)
@@ -74,33 +77,128 @@ async function runExtraction(transcript: string, save: boolean) {
     return { extracted, saved: false, db_error: null }
   }
 
-  // 2. Optionally save to Supabase
+  // 2. Run the same client-matching logic as the real webhook
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const record = {
-    title:           extracted.title         ?? 'Test Meeting',
-    date:            extracted.date          ?? new Date().toISOString().split('T')[0],
-    time_start:      extracted.time_start    ?? null,
-    time_end:        extracted.time_end      ?? null,
-    attendees:       extracted.attendees     ?? [],
-    meeting_type:    extracted.meeting_type  ?? null,
-    module:          extracted.module        ?? null,
-    summary:         extracted.summary       ?? [],
-    action_items:    extracted.action_items  ?? [],
-    key_decisions:   extracted.key_decisions ?? [],
-    full_transcript: transcript,
-    owner:           'calin',
+  const today = new Date().toISOString().split('T')[0]
+  const extractedTitle = (extracted.title as string) ?? ''
+  const rawDate  = extracted.date as string | undefined
+  const safeDate = (rawDate && rawDate.match(/^\d{4}-\d{2}-\d{2}$/)) ? rawDate : today
+
+  // Parse title — two supported formats:
+  //   Format 1: "John Smith — PR1m — Internal Sales to Pre-Con Pass-Off"
+  //   Format 2: "PR1m Internal Sales to Pre-Con Pass-Off: John Smith"
+  let candidateClientName: string | null = null
+  let meetingCode: string | null = null
+
+  // Format 1: split on " — ", client name first, code second
+  const dashParts = extractedTitle.split(' — ')
+  if (dashParts.length >= 2) {
+    const codeMatch1 = extractedTitle.match(/\b(PR|PD|PP|PS|PB|CG|CS|CR|CF|CC)\d+(?:\.\d+)?[a-zA-Z](?:\.\d+)?\b/i)
+    if (codeMatch1) {
+      candidateClientName = dashParts[0].trim()
+      meetingCode = codeMatch1[0]
+    }
   }
 
-  const { error } = await supabase.from('meetings').insert(record)
+  // Format 2: "PR1m ... : Client Name" — code is first word, client name follows last ":"
+  if (!meetingCode) {
+    const firstWord = extractedTitle.split(' ')[0] ?? ''
+    const codeMatch2 = firstWord.match(/^(PR|PD|PP|PS|PB|CG|CS|CR|CF|CC)\d+(?:\.\d+)?[a-zA-Z](?:\.\d+)?$/i)
+    const colonIdx = extractedTitle.lastIndexOf(':')
+    if (codeMatch2 && colonIdx !== -1) {
+      meetingCode = codeMatch2[0]
+      candidateClientName = extractedTitle.slice(colonIdx + 1).trim() || null
+    }
+  }
+
+  if (!candidateClientName || !meetingCode) {
+    return {
+      extracted,
+      saved: false,
+      db_error: `Could not parse client name or meeting code from title: "${extractedTitle}"`,
+      client_matched: null,
+    }
+  }
+
+  const { data: matchedClient } = await supabase
+    .from('clients')
+    .select('id, name')
+    .ilike('name', candidateClientName)
+    .maybeSingle()
+
+  if (!matchedClient) {
+    return {
+      extracted,
+      saved: false,
+      db_error: `No client found matching name: "${candidateClientName}"`,
+      client_matched: null,
+    }
+  }
+
+  const summaryArr    = Array.isArray(extracted.summary)       ? (extracted.summary as string[])       : []
+  const decisionsArr  = Array.isArray(extracted.key_decisions) ? (extracted.key_decisions as string[])  : []
+  const actionArr     = Array.isArray(extracted.action_items)  ? extracted.action_items                 : []
+
+  const recapText = summaryArr.length > 0
+    ? summaryArr.join(' ')
+    : String(extracted.summary ?? 'No summary available.')
+
+  const notesJson = JSON.stringify({
+    summary:       summaryArr,
+    key_decisions: decisionsArr,
+    action_items:  actionArr,
+  })
+
+  // Check if a row already exists for (client_id, meeting_id)
+  const { data: existingRow } = await supabase
+    .from('client_meetings')
+    .select('id')
+    .eq('client_id', matchedClient.id)
+    .eq('meeting_id', meetingCode)
+    .maybeSingle()
+
+  let dbError: string | null = null
+
+  if (existingRow) {
+    const { error } = await supabase
+      .from('client_meetings')
+      .update({
+        title:        extractedTitle,
+        recap:        recapText,
+        notes:        notesJson,
+        completed:    true,
+        completed_at: new Date().toISOString(),
+        date:         safeDate,
+      })
+      .eq('id', existingRow.id)
+    dbError = error ? error.message : null
+  } else {
+    const { error } = await supabase
+      .from('client_meetings')
+      .insert({
+        client_id:    matchedClient.id,
+        meeting_id:   meetingCode,
+        title:        extractedTitle,
+        completed:    true,
+        completed_at: new Date().toISOString(),
+        recap:        recapText,
+        notes:        notesJson,
+        date:         safeDate,
+      })
+    dbError = error ? error.message : null
+  }
 
   return {
     extracted,
-    saved: !error,
-    db_error: error ? error.message : null,
+    saved: !dbError,
+    db_error: dbError,
+    client_matched: matchedClient.name,
+    meeting_code: meetingCode,
+    action: existingRow ? 'updated' : 'inserted',
   }
 }
 

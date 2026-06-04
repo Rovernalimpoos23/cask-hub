@@ -166,6 +166,108 @@ export async function POST(req: NextRequest) {
       ? today
       : rawDate
 
+    // 5. Try to match transcript to a client journey meeting
+    //    Format 1: "John Smith — PR1m — Internal Sales to Pre-Con Pass-Off"
+    //    Format 2: "PR1m Internal Sales to Pre-Con Pass-Off: John Smith"
+    const rawTitle = transcript.title ?? ''
+
+    let candidateClientName: string | null = null
+    let meetingCode: string | null = null
+
+    // Format 1: split on " — ", client name first, code second
+    const dashParts = rawTitle.split(' — ')
+    if (dashParts.length >= 2) {
+      const codeMatch1 = rawTitle.match(/\b(PR|PD|PP|PS|PB|CG|CS|CR|CF|CC)\d+(?:\.\d+)?[a-zA-Z](?:\.\d+)?\b/i)
+      if (codeMatch1) {
+        candidateClientName = dashParts[0].trim()
+        meetingCode = codeMatch1[0]
+      }
+    }
+
+    // Format 2: "PR1m ... : Client Name" — code is first word, client name follows last ":"
+    if (!meetingCode) {
+      const firstWord = rawTitle.split(' ')[0] ?? ''
+      const codeMatch2 = firstWord.match(/^(PR|PD|PP|PS|PB|CG|CS|CR|CF|CC)\d+(?:\.\d+)?[a-zA-Z](?:\.\d+)?$/i)
+      const colonIdx = rawTitle.lastIndexOf(':')
+      if (codeMatch2 && colonIdx !== -1) {
+        meetingCode = codeMatch2[0]
+        candidateClientName = rawTitle.slice(colonIdx + 1).trim() || null
+      }
+    }
+
+    if (candidateClientName && meetingCode) {
+      const { data: matchedClient } = await supabase
+        .from('clients')
+        .select('id, name')
+        .ilike('name', candidateClientName)
+        .maybeSingle()
+
+      if (matchedClient) {
+        console.log('[fireflies] matched client journey:', matchedClient.name, '/', meetingCode)
+
+        const recapText = Array.isArray(extracted.summary)
+          ? (extracted.summary as string[]).join('\n\n')
+          : String(extracted.summary ?? '')
+
+        const notesJson = JSON.stringify({
+          summary:       extracted.summary       ?? [],
+          key_decisions: extracted.key_decisions ?? [],
+          action_items:  extracted.action_items  ?? [],
+        })
+
+        // Check if a row already exists for (client_id, meeting_id)
+        const { data: existingRow } = await supabase
+          .from('client_meetings')
+          .select('id')
+          .eq('client_id', matchedClient.id)
+          .eq('meeting_id', meetingCode)
+          .maybeSingle()
+
+        if (existingRow) {
+          const { error: upErr } = await supabase
+            .from('client_meetings')
+            .update({
+              title:        rawTitle,
+              recap:        recapText,
+              notes:        notesJson,
+              completed:    true,
+              completed_at: new Date().toISOString(),
+              date:         safeDate,
+            })
+            .eq('id', existingRow.id)
+
+          if (upErr) {
+            console.error('[fireflies] client_meetings update error:', upErr.message)
+          } else {
+            console.log('[fireflies] client_meetings updated:', matchedClient.name, '/', meetingCode)
+          }
+        } else {
+          const { error: insErr } = await supabase
+            .from('client_meetings')
+            .insert({
+              client_id:    matchedClient.id,
+              meeting_id:   meetingCode,
+              title:        rawTitle,
+              completed:    true,
+              completed_at: new Date().toISOString(),
+              recap:        recapText,
+              notes:        notesJson,
+              date:         safeDate,
+            })
+
+          if (insErr) {
+            console.error('[fireflies] client_meetings insert error:', insErr.message)
+          } else {
+            console.log('[fireflies] client_meetings inserted:', matchedClient.name, '/', meetingCode)
+          }
+        }
+
+        // Client journey meeting — do NOT save to meetings (ActionCoach) table
+        return ok
+      }
+    }
+
+    // 6. No client match — save to meetings table as normal (ActionCoach session)
     const sessionTitle = (extracted.title as string) ?? transcript.title ?? 'Untitled Meeting'
 
     const { data: existing } = await supabase

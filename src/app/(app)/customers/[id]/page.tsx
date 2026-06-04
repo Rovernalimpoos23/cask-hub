@@ -43,7 +43,15 @@ interface ClientMeetingRow {
   completed: boolean
   completed_at?: string | null
   recap?: string | null
+  notes?: string | null
+  date?: string | null
   teams_link?: string | null
+}
+
+interface RecapNotes {
+  summary: string[]
+  key_decisions: string[]
+  action_items: { task: string; owner: string; due_date: string | null }[]
 }
 
 interface JourneyMeetingDef {
@@ -416,6 +424,262 @@ function IntelligencePanel({ client, journeyRows, messages, onSend }: {
   )
 }
 
+// ── Recap modal ───────────────────────────────────────────────────────────────
+
+function RecapModal({ meetingCode, meetingTitle, row, onClose }: {
+  meetingCode: string
+  meetingTitle: string
+  row: ClientMeetingRow
+  onClose: () => void
+}) {
+  let parsed: RecapNotes | null = null
+  try {
+    if (row.notes) parsed = JSON.parse(row.notes) as RecapNotes
+  } catch {
+    // notes not valid JSON — fall back to recap text
+  }
+
+  const summary       = parsed?.summary       ?? (row.recap ? [row.recap] : [])
+  const keyDecisions  = parsed?.key_decisions ?? []
+  const actionItems   = parsed?.action_items  ?? []
+
+  const displayDate = row.date
+    ? new Date(row.date + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : null
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        style={{
+          background: '#fff',
+          borderRadius: 14,
+          width: '100%', maxWidth: 560,
+          maxHeight: '88vh',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Header — dark charcoal */}
+        <div
+          style={{
+            background: 'var(--charcoal, #1a1917)',
+            padding: '18px 22px 16px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span
+              style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.4px',
+                background: 'rgba(255,255,255,0.12)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                color: 'rgba(255,255,255,0.85)',
+                padding: '3px 7px', borderRadius: 4,
+                fontFamily: 'monospace',
+                flexShrink: 0,
+              }}
+            >
+              {meetingCode}
+            </span>
+            <div>
+              <div
+                style={{
+                  fontSize: 9, fontWeight: 600, letterSpacing: '1.2px',
+                  textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)',
+                  marginBottom: 3,
+                }}
+              >
+                Meeting Recap
+              </div>
+              <div
+                style={{
+                  fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.9)',
+                  lineHeight: 1.3,
+                }}
+              >
+                {meetingTitle}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'rgba(255,255,255,0.4)', fontSize: 20, lineHeight: 1,
+              padding: '0 2px', flexShrink: 0, fontFamily: 'inherit',
+              transition: 'color 120ms ease',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.85)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Body — scrollable */}
+        <div style={{ overflowY: 'auto', padding: '20px 22px 24px' }}>
+
+          {/* Date */}
+          {displayDate && (
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                fontSize: 12, color: 'var(--text3)',
+                marginBottom: 18,
+                paddingBottom: 14,
+                borderBottom: '1px solid var(--border)',
+              }}
+            >
+              <span>📅</span>
+              <span>{displayDate}</span>
+            </div>
+          )}
+
+          {/* Summary */}
+          {summary.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div
+                className="text-[10px] font-semibold tracking-[1px] uppercase mb-2.5"
+                style={{ color: 'var(--text3)' }}
+              >
+                📝 Summary
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {summary.map((item, i) => (
+                  <li
+                    key={i}
+                    style={{
+                      fontSize: 13, color: 'var(--text2)',
+                      lineHeight: 1.6, marginBottom: 5,
+                    }}
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Key Decisions */}
+          {keyDecisions.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div
+                className="text-[10px] font-semibold tracking-[1px] uppercase mb-2.5"
+                style={{ color: 'var(--text3)' }}
+              >
+                🎯 Key Decisions
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {keyDecisions.map((item, i) => (
+                  <li
+                    key={i}
+                    style={{
+                      fontSize: 13, color: 'var(--text2)',
+                      lineHeight: 1.6, marginBottom: 5,
+                    }}
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Action Items */}
+          {actionItems.length > 0 && (
+            <div>
+              <div
+                className="text-[10px] font-semibold tracking-[1px] uppercase mb-2.5"
+                style={{ color: 'var(--text3)' }}
+              >
+                ✅ Action Items
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {actionItems.map((item, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10,
+                      padding: '9px 12px',
+                      background: 'var(--surface2, #f4f3f1)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 7,
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 3 }}>
+                        {item.task}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                        {item.owner}
+                        {item.due_date && (
+                          <span style={{ marginLeft: 8, color: 'var(--amber, #92400e)' }}>
+                            · Due {item.due_date}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {summary.length === 0 && keyDecisions.length === 0 && actionItems.length === 0 && (
+            <p style={{ fontSize: 13, color: 'var(--text3)', margin: 0 }}>
+              No recap content available.
+            </p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            padding: '12px 22px 16px',
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            flexShrink: 0,
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: 'none', border: '1px solid var(--border)',
+              borderRadius: 7, padding: '7px 16px',
+              fontSize: 12, fontWeight: 500, color: 'var(--text2)',
+              cursor: 'pointer', fontFamily: 'inherit',
+              transition: 'border-color 120ms ease',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Journey phase card ────────────────────────────────────────────────────────
 
 function PhaseCard({
@@ -423,11 +687,13 @@ function PhaseCard({
   journeyRows,
   markingIds,
   onMarkComplete,
+  onOpenRecap,
 }: {
   phase: JourneyPhaseDef
   journeyRows: Map<string, ClientMeetingRow>
   markingIds: Set<string>
   onMarkComplete: (code: string, phaseNumber: number, title: string) => void
+  onOpenRecap: (code: string, title: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -520,7 +786,6 @@ function PhaseCard({
             const isCompleted = row?.completed ?? false
             const isMarking = markingIds.has(meeting.code)
             const hasRecap = !!(row?.recap)
-            const hasTeamsLink = !!(row?.teams_link)
 
             return (
               <div
@@ -626,32 +891,7 @@ function PhaseCard({
                       </Link>
                     )}
 
-                    {/* Join Teams — only if teams_link exists */}
-                    {hasTeamsLink && (
-                      <a
-                        href={row!.teams_link!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontSize: 11,
-                          fontWeight: 500,
-                          color: '#2563eb',
-                          background: '#eff6ff',
-                          border: '1px solid #bfdbfe',
-                          padding: '3px 8px',
-                          borderRadius: 5,
-                          whiteSpace: 'nowrap',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        🔗 Teams
-                      </a>
-                    )}
-
-                    {/* Mark Complete / Undo */}
+                    {/* Mark Complete / Done */}
                     <button
                       type="button"
                       onClick={() => onMarkComplete(meeting.code, phase.number, meeting.title)}
@@ -676,34 +916,43 @@ function PhaseCard({
                     >
                       {isMarking ? '…' : isCompleted ? '✅ Done' : '✅ Mark Complete'}
                     </button>
+
+                    {/* View Recap — shown when recap exists */}
+                    {hasRecap && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenRecap(meeting.code, meeting.title)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: 'var(--text2)',
+                          background: 'var(--surface2, #f4f3f1)',
+                          border: '1px solid var(--border)',
+                          padding: '3px 8px',
+                          borderRadius: 5,
+                          whiteSpace: 'nowrap',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          transition: 'border-color 120ms ease, color 120ms ease',
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.borderColor = 'var(--border2)'
+                          e.currentTarget.style.color = 'var(--text)'
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.borderColor = 'var(--border)'
+                          e.currentTarget.style.color = 'var(--text2)'
+                        }}
+                      >
+                        🎙️ View Recap
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Recap block */}
-                {hasRecap && (
-                  <div
-                    style={{
-                      margin: '0 16px 10px',
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      background: 'var(--surface2, #f4f3f1)',
-                      border: '1px solid var(--border)',
-                    }}
-                  >
-                    <div
-                      className="text-[10px] font-semibold tracking-[0.6px] uppercase mb-1"
-                      style={{ color: 'var(--text3)' }}
-                    >
-                      🎙️ Meeting Recap
-                    </div>
-                    <p
-                      className="text-[12px] leading-relaxed m-0"
-                      style={{ color: 'var(--text2)' }}
-                    >
-                      {row!.recap}
-                    </p>
-                  </div>
-                )}
               </div>
             )
           })}
@@ -726,6 +975,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [client, setClient] = useState<ClientData | null | 'loading'>('loading')
   const [journeyRows, setJourneyRows] = useState<Map<string, ClientMeetingRow>>(new Map())
   const [markingIds, setMarkingIds] = useState<Set<string>>(new Set())
+  const [recapModal, setRecapModal] = useState<{ code: string; title: string } | null>(null)
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
 
   useEffect(() => {
@@ -946,6 +1196,15 @@ Use this information to give specific, actionable advice about how to work with 
 
   return (
     <>
+      {recapModal && journeyRows.get(recapModal.code) && (
+        <RecapModal
+          meetingCode={recapModal.code}
+          meetingTitle={recapModal.title}
+          row={journeyRows.get(recapModal.code)!}
+          onClose={() => setRecapModal(null)}
+        />
+      )}
+
       <TopBar title={client.name} subtitle="Customer Journey" />
 
       <div ref={containerRef} className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ scrollbarGutter: 'stable' }}>
@@ -1215,6 +1474,7 @@ Use this information to give specific, actionable advice about how to work with 
                 journeyRows={journeyRows}
                 markingIds={markingIds}
                 onMarkComplete={markComplete}
+                onOpenRecap={(code, title) => setRecapModal({ code, title })}
               />
             ))}
           </div>
