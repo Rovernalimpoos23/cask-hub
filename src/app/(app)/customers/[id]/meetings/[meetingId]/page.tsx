@@ -18,6 +18,7 @@ interface RecapNotes {
   summary: string[]
   key_decisions: string[]
   action_items: ActionItemEntry[]
+  transcript?: string
 }
 
 interface ClientMeetingData {
@@ -102,6 +103,7 @@ export default function MeetingRecapPage({ params }: { params: { id: string; mee
   const summary      = parsed?.summary       ?? (meeting.recap ? [meeting.recap] : [])
   const keyDecisions = parsed?.key_decisions ?? []
   const actionItems  = parsed?.action_items  ?? []
+  const fullTranscript = parsed?.transcript  ?? null
 
   const formattedDate = meeting.date
     ? new Date(meeting.date + 'T00:00:00').toLocaleDateString('en-US', {
@@ -283,41 +285,43 @@ export default function MeetingRecapPage({ params }: { params: { id: string; mee
         </div>
 
         {/* ── Full Transcript (collapsible) ─────────────────────────────── */}
-        {meeting.recap && (
-          <div className="rounded-lg overflow-hidden" style={{ background: 'var(--white)', border: '1px solid var(--border)' }}>
-            <button
-              onClick={() => setTranscriptExpanded(!transcriptExpanded)}
-              className="w-full px-5 py-4 flex items-center justify-between text-left transition-colors hover:bg-[var(--surface2)]"
+        <div className="rounded-lg overflow-hidden" style={{ background: 'var(--white)', border: '1px solid var(--border)' }}>
+          <button
+            onClick={() => setTranscriptExpanded(!transcriptExpanded)}
+            className="w-full px-5 py-4 flex items-center justify-between text-left transition-colors hover:bg-[var(--surface2)]"
+            style={{
+              borderBottom: transcriptExpanded ? '1px solid var(--border)' : 'none',
+              background: 'none',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            <span className="text-[10px] font-semibold tracking-[1.5px] uppercase" style={{ color: 'var(--text3)' }}>
+              Full Transcript
+            </span>
+            <span
+              className="text-[11px] font-medium transition-transform duration-200"
               style={{
-                borderBottom: transcriptExpanded ? '1px solid var(--border)' : 'none',
-                background: 'none',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
+                color: 'var(--text3)',
+                transform: transcriptExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                display: 'inline-block',
               }}
             >
-              <span className="text-[10px] font-semibold tracking-[1.5px] uppercase" style={{ color: 'var(--text3)' }}>
-                Full Recap
-              </span>
-              <span
-                className="text-[11px] font-medium transition-transform duration-200"
-                style={{
-                  color: 'var(--text3)',
-                  transform: transcriptExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                  display: 'inline-block',
-                }}
-              >
-                ▾
-              </span>
-            </button>
-            {transcriptExpanded && (
-              <div className="p-5">
+              ▾
+            </span>
+          </button>
+          {transcriptExpanded && (
+            <div className="p-5">
+              {fullTranscript ? (
                 <pre className="text-[12px] leading-[1.9] font-mono whitespace-pre-wrap" style={{ color: 'var(--text2)' }}>
-                  {meeting.recap}
+                  {fullTranscript}
                 </pre>
-              </div>
-            )}
-          </div>
-        )}
+              ) : (
+                <p className="text-[12px]" style={{ color: 'var(--text3)' }}>No transcript available.</p>
+              )}
+            </div>
+          )}
+        </div>
 
       </div>
     </>

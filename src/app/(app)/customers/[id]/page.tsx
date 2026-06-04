@@ -4,6 +4,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 
@@ -265,6 +266,17 @@ function SectionLabel({ icon, children }: { icon: string; children: React.ReactN
   )
 }
 
+function buildGreeting(client: ClientData, journeyRows: Map<string, ClientMeetingRow>): string {
+  const completedCount = Array.from(journeyRows.values()).filter(r => r.completed).length
+  for (const phase of JOURNEY_PHASES) {
+    const allDone = phase.meetings.every(m => journeyRows.get(m.code)?.completed)
+    if (!allDone) {
+      return `Hey! I have full context on ${client.name}. They're in Phase ${phase.number} — ${phase.label}, ${completedCount} of ${TOTAL_MEETINGS} meetings completed. How can I help?`
+    }
+  }
+  return `Hey! I have full context on ${client.name}. All ${TOTAL_MEETINGS} meetings completed — journey finished! How can I help?`
+}
+
 function IntelligencePanel({ client, journeyRows, messages, onSend }: {
   client: ClientData
   journeyRows: Map<string, ClientMeetingRow>
@@ -274,6 +286,7 @@ function IntelligencePanel({ client, journeyRows, messages, onSend }: {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const greeting = buildGreeting(client, journeyRows)
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -327,7 +340,7 @@ function IntelligencePanel({ client, journeyRows, messages, onSend }: {
               border: '1px solid rgba(255,255,255,0.08)',
             }}
           >
-            {client.ai_tip}
+            {greeting}
           </div>
         </div>
 
@@ -348,7 +361,7 @@ function IntelligencePanel({ client, journeyRows, messages, onSend }: {
           ) : (
             <div key={i} className="flex justify-start">
               <div
-                className="text-[12px] leading-relaxed px-3.5 py-2.5 max-w-[88%]"
+                className="text-[12px] leading-relaxed px-3.5 py-2.5 max-w-[88%] ai-bubble"
                 style={{
                   background: 'rgba(255,255,255,0.06)',
                   color: 'rgba(255,255,255,0.8)',
@@ -356,7 +369,24 @@ function IntelligencePanel({ client, journeyRows, messages, onSend }: {
                   border: '1px solid rgba(255,255,255,0.08)',
                 }}
               >
-                {m.content}
+                <ReactMarkdown
+                  components={{
+                    h1: ({ children }) => <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, marginBottom: 6, marginTop: 4 }}>{children}</div>,
+                    h2: ({ children }) => <div style={{ color: '#fff', fontWeight: 700, fontSize: 13, marginBottom: 5, marginTop: 4 }}>{children}</div>,
+                    h3: ({ children }) => <div style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 600, fontSize: 12, marginBottom: 4, marginTop: 3 }}>{children}</div>,
+                    strong: ({ children }) => <strong style={{ color: '#fff', fontWeight: 600 }}>{children}</strong>,
+                    em: ({ children }) => <em style={{ color: 'rgba(255,255,255,0.7)', fontStyle: 'italic' }}>{children}</em>,
+                    p: ({ children }) => <p style={{ margin: '0 0 6px', lineHeight: 1.6 }}>{children}</p>,
+                    ul: ({ children }) => <ul style={{ margin: '4px 0 6px', paddingLeft: 16, listStyleType: 'disc' }}>{children}</ul>,
+                    ol: ({ children }) => <ol style={{ margin: '4px 0 6px', paddingLeft: 16 }}>{children}</ol>,
+                    li: ({ children }) => <li style={{ margin: '2px 0', color: 'rgba(255,255,255,0.8)', lineHeight: 1.55 }}>{children}</li>,
+                    a: ({ children, href }) => <a href={href} style={{ color: '#c8311a', textDecoration: 'underline' }}>{children}</a>,
+                    code: ({ children }) => <code style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 3, padding: '1px 5px', fontSize: 11, fontFamily: 'monospace' }}>{children}</code>,
+                    hr: () => <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.1)', margin: '8px 0' }} />,
+                  }}
+                >
+                  {m.content}
+                </ReactMarkdown>
               </div>
             </div>
           )
@@ -844,48 +874,108 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     setChatMessages(newMessages)
 
     try {
-      const completedCodes = Array.from(journeyRows.entries())
-        .filter(([, r]) => r.completed)
-        .map(([code]) => code)
+      if (!client || client === 'loading') {
+        setChatMessages([...newMessages, { role: 'assistant', content: 'Client data is still loading. Please try again.' }])
+        return
+      }
 
-      const clientSystemMsg = client && client !== 'loading'
-        ? {
-            role: 'system' as const,
-            content: `You are CASK Hub AI helping the CASK Construction sales team.
-You have full context on this client:
+      // ── Build journey context ─────────────────────────────────────────────
+      const allMeetingDefs = JOURNEY_PHASES.flatMap(p => p.meetings.map(m => ({ ...m, phaseNumber: p.number, phaseLabel: p.label })))
+
+      const completedEntries = Array.from(journeyRows.entries())
+        .filter(([, r]) => r.completed)
+        .sort((a, b) => {
+          const ta = a[1].completed_at ? new Date(a[1].completed_at).getTime() : 0
+          const tb = b[1].completed_at ? new Date(b[1].completed_at).getTime() : 0
+          return tb - ta
+        })
+      const completedCount = completedEntries.length
+
+      const completedList = completedEntries.map(([code, r]) => {
+        const def = allMeetingDefs.find(m => m.code === code)
+        return `  ${code} — ${r.title || def?.title || code}${r.completed_at ? ` (completed ${new Date(r.completed_at).toLocaleDateString()})` : ''}`
+      })
+
+      // Recaps from completed meetings, most recent first, up to 5
+      const recapLines = completedEntries
+        .filter(([, r]) => r.recap)
+        .slice(0, 5)
+        .map(([code, r]) => {
+          const def = allMeetingDefs.find(m => m.code === code)
+          return `RECAP — ${code} (${r.title || def?.title || code}):\n${r.recap}`
+        })
+
+      // Current phase = first phase not fully complete
+      let currentPhaseNum = 0
+      let currentPhaseLabel = 'All phases complete'
+      for (const phase of JOURNEY_PHASES) {
+        if (!phase.meetings.every(m => journeyRows.get(m.code)?.completed)) {
+          currentPhaseNum = phase.number
+          currentPhaseLabel = phase.label
+          break
+        }
+      }
+
+      // Next incomplete meeting
+      const nextMeeting = allMeetingDefs.find(m => !journeyRows.get(m.code)?.completed)
+
+      const happinessLabel = client.happiness === 'green' ? 'Happy' : client.happiness === 'yellow' ? 'At Risk' : 'Needs Attention'
+      const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+
+      const systemContent = `You are CASK Hub AI assistant for CASK Construction.
+You have full context about this specific client.
 
 CLIENT PROFILE:
-Name: ${client.name}
-Project: ${client.project_type}
-Value: $${client.project_value}
-Location: ${client.location}
-Happiness: ${client.happiness}
-Owner: ${client.owner}
+- Name: ${client.name}
+- Project Type: ${client.project_type}
+- Project Value: $${client.project_value.toLocaleString()}
+- Location: ${client.location}
+- Start Date: ${client.start_date}
+- Owner: ${client.owner}
+- Happiness Status: ${happinessLabel}
 
-PERSONALITY:
-Tags: ${client.personality_tags?.join(', ') || 'None added'}
-Communication style: ${client.communication_style}
-Key interests: ${client.key_interests}
+PERSONALITY & COMMUNICATION:
+- Personality Tags: ${client.personality_tags?.join(', ') || 'None added'}
+- Communication Style: ${client.communication_style || 'Not specified'}
+- Key Interests: ${client.key_interests || 'Not specified'}
+- How to Communicate: ${client.ai_tip || 'Not specified'}
 
 KEY PRIORITIES:
-${client.priorities.map(p => `- ${p.text}: ${p.status}`).join('\n') || 'None added'}
+${client.priorities.map(p => `- ${p.text}: ${p.status}`).join('\n') || '- None added'}
 
-MEETING PROGRESS:
-${completedCodes.length} of ${TOTAL_MEETINGS} meetings completed.
-Completed: ${completedCodes.join(', ') || 'None yet'}
+MEETING JOURNEY:
+- Progress: ${completedCount} of ${TOTAL_MEETINGS} meetings completed
+- Current Phase: ${currentPhaseNum > 0 ? `Phase ${currentPhaseNum} — ${currentPhaseLabel}` : currentPhaseLabel}
+- Next Incomplete Meeting: ${nextMeeting ? `${nextMeeting.code} — ${nextMeeting.title}` : 'All meetings complete'}
+${completedList.length ? `- Completed Meetings:\n${completedList.join('\n')}` : '- Completed Meetings: None yet'}
 
-Use this information to give specific, actionable advice about how to work with ${client.name.split(' ')[0]}. Always refer to the client by their first name. Be concise and practical.`,
-          }
-        : null
+${recapLines.length ? `MEETING RECAPS (most recent first):\n${recapLines.join('\n\n')}` : 'MEETING RECAPS: No recaps recorded yet.'}
 
-      const res = await fetch('/api/chat', {
+Use this context to answer questions about this client.
+Help Calin and the team understand:
+- How to communicate with this client based on their personality
+- What phase they are in and what comes next
+- What was discussed in recent meetings
+- What action items may be pending based on recaps
+- How the client is feeling about the project
+- What to focus on in the next meeting
+
+Always be specific to ${client.name}. Never mix up with other clients.
+Today's date is ${today}.
+
+## Response formatting
+- Use **bold** for important names, values, or terms
+- Use ## for section headers when listing multiple topics
+- Use - for bullet points; max 2 levels of nesting
+- Keep responses concise — 2–4 sentences or a short list unless detail is clearly needed
+- Do not wrap the entire response in a code block`
+
+      const res = await fetch('/api/chat/client', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [
-            ...(clientSystemMsg ? [clientSystemMsg] : []),
-            ...newMessages,
-          ],
+          systemPrompt: systemContent,
+          messages: newMessages,
         }),
       })
 

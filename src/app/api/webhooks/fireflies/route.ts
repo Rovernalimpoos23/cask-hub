@@ -198,7 +198,7 @@ export async function POST(req: NextRequest) {
     if (candidateClientName && meetingCode) {
       const { data: matchedClient } = await supabase
         .from('clients')
-        .select('id, name')
+        .select('id, name, personality_tags, communication_style, key_interests, happiness, ai_tip')
         .ilike('name', candidateClientName)
         .maybeSingle()
 
@@ -213,6 +213,7 @@ export async function POST(req: NextRequest) {
           summary:       extracted.summary       ?? [],
           key_decisions: extracted.key_decisions ?? [],
           action_items:  extracted.action_items  ?? [],
+          transcript:    fullTranscript,
         })
 
         // Check if a row already exists for (client_id, meeting_id)
@@ -260,6 +261,95 @@ export async function POST(req: NextRequest) {
           } else {
             console.log('[fireflies] client_meetings inserted:', matchedClient.name, '/', meetingCode)
           }
+        }
+
+        // ── Profile update via second Claude call ─────────────────────────
+        try {
+          const profilePrompt = `You are analyzing a meeting transcript for a CASK Construction client.
+Based on this transcript, extract and update the client profile.
+
+CURRENT CLIENT PROFILE:
+- Name: ${matchedClient.name}
+- Personality Tags: ${Array.isArray(matchedClient.personality_tags) ? (matchedClient.personality_tags as string[]).join(', ') : 'None'}
+- Communication Style: ${matchedClient.communication_style ?? 'Not set'}
+- Key Interests: ${matchedClient.key_interests ?? 'Not set'}
+- Happiness Status: ${matchedClient.happiness === 'green' ? 'Happy' : matchedClient.happiness === 'yellow' ? 'At Risk' : matchedClient.happiness === 'red' ? 'Needs Attention' : 'Not set'}
+
+MEETING TRANSCRIPT:
+${fullTranscript || '(no transcript)'}
+
+MEETING SUMMARY:
+${recapText}
+
+Based on the transcript, respond ONLY with a JSON object:
+{
+  "personality_tags": ["tag1", "tag2"],
+  "communication_style": "how this client communicates",
+  "key_interests": "what this client cares about",
+  "happiness": "green" or "yellow" or "red",
+  "how_to_communicate": "specific tips for communicating with this client"
+}
+
+RULES:
+- Only include tags from this list: Verbal communicator, Direct, Detail-oriented, Analytical, Visual learner, Budget-focused, Fast decision maker, Slow processor, Needs reassurance, Email communicator, Relationship-driven, Skeptical
+- Keep existing personality tags unless the transcript clearly contradicts them
+- Only update happiness if the transcript shows clear positive (green) or negative (yellow/red) sentiment; otherwise keep existing value
+- If the transcript doesn't reveal something new — keep the existing value
+- Return ONLY the JSON, no other text`
+
+          const profileRes = await anthropic.messages.create({
+            model: 'claude-sonnet-4-6',
+            messages: [{ role: 'user', content: profilePrompt }],
+            max_tokens: 600,
+          })
+
+          const profileRaw = profileRes.content[0].type === 'text' ? profileRes.content[0].text : ''
+          console.log('[fireflies] profile Claude raw:', profileRaw.slice(0, 300))
+
+          const profileData = extractJSON(profileRaw) as {
+            personality_tags?: string[]
+            communication_style?: string
+            key_interests?: string
+            happiness?: string
+            how_to_communicate?: string
+          }
+
+          const profileUpdate: Record<string, unknown> = {}
+          if (Array.isArray(profileData.personality_tags) && profileData.personality_tags.length > 0) {
+            profileUpdate.personality_tags = profileData.personality_tags
+          }
+          if (profileData.communication_style?.trim()) {
+            profileUpdate.communication_style = profileData.communication_style.trim()
+          }
+          if (profileData.key_interests?.trim()) {
+            profileUpdate.key_interests = profileData.key_interests.trim()
+          }
+          if (profileData.how_to_communicate?.trim()) {
+            profileUpdate.how_to_communicate = profileData.how_to_communicate.trim()
+            profileUpdate.ai_tip = profileData.how_to_communicate.trim()
+          }
+          const validHappiness = ['green', 'yellow', 'red']
+          if (profileData.happiness && validHappiness.includes(profileData.happiness)) {
+            profileUpdate.happiness = profileData.happiness
+          }
+
+          if (Object.keys(profileUpdate).length > 0) {
+            const { error: profileErr } = await supabase
+              .from('clients')
+              .update(profileUpdate)
+              .eq('id', matchedClient.id)
+
+            if (profileErr) {
+              console.error('[fireflies] client profile update error:', profileErr.message)
+            } else {
+              console.log('[fireflies] client profile updated for:', matchedClient.name, '| fields:', Object.keys(profileUpdate).join(', '))
+            }
+          } else {
+            console.log('[fireflies] no profile fields to update for:', matchedClient.name)
+          }
+        } catch (profileErr) {
+          const msg = profileErr instanceof Error ? profileErr.message : String(profileErr)
+          console.error('[fireflies] profile update failed (non-fatal):', msg)
         }
 
         // Client journey meeting — do NOT save to meetings (ActionCoach) table

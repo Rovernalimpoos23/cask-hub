@@ -151,6 +151,7 @@ async function runExtraction(transcript: string, save: boolean) {
     summary:       summaryArr,
     key_decisions: decisionsArr,
     action_items:  actionArr,
+    transcript:    transcript,
   })
 
   // Check if a row already exists for (client_id, meeting_id)
