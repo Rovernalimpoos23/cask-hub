@@ -160,6 +160,7 @@ export async function POST(req: NextRequest) {
     //    Format 1: "John Smith — PR1m — Internal Sales to Pre-Con Pass-Off"
     //    Format 2: "PR1m Internal Sales to Pre-Con Pass-Off: John Smith"
     const rawTitle = transcript.title ?? ''
+    console.log('[fireflies] rawTitle:', rawTitle)
 
     let candidateClientName: string | null = null
     let meetingCode: string | null = null
@@ -173,6 +174,7 @@ export async function POST(req: NextRequest) {
         meetingCode = codeMatch1[0]
       }
     }
+    console.log('[fireflies] after Format1 — candidateClientName:', candidateClientName, '| meetingCode:', meetingCode)
 
     // Format 2: "PR1m ... : Client Name" — code is first word, client name follows last ":"
     if (!meetingCode) {
@@ -184,6 +186,7 @@ export async function POST(req: NextRequest) {
         candidateClientName = rawTitle.slice(colonIdx + 1).trim() || null
       }
     }
+    console.log('[fireflies] after Format2 — candidateClientName:', candidateClientName, '| meetingCode:', meetingCode)
 
     if (candidateClientName && meetingCode) {
       const { data: matchedClient } = await supabase
@@ -191,6 +194,7 @@ export async function POST(req: NextRequest) {
         .select('id, name, personality_tags, communication_style, key_interests, happiness, ai_tip')
         .ilike('name', candidateClientName)
         .maybeSingle()
+      console.log('[fireflies] matchedClient:', matchedClient ?? 'NO MATCH')
 
       if (matchedClient) {
         console.log('[fireflies] matched client journey:', matchedClient.name, '/', meetingCode)
