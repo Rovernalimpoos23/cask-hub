@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase-server'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -143,10 +143,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Save to Supabase using service role key (bypasses RLS)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
+    const supabase = createClient()
 
     // Validate extracted date — Claude sometimes hallucinates the wrong year
     const rawDate: string = (extracted.date as string) ?? meetingDate
