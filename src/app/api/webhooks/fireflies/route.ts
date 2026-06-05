@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
       const { data: matchedClient } = await supabase
         .from('clients')
         .select('id, name, personality_tags, communication_style, key_interests, happiness, ai_tip')
-        .ilike('name', candidateClientName)
+        .ilike('name', `%${candidateClientName}%`)
         .maybeSingle()
       console.log('[fireflies] matchedClient:', matchedClient ?? 'NO MATCH')
 
