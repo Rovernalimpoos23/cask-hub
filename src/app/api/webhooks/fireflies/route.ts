@@ -353,120 +353,224 @@ RULES:
         }
 
         // ── Auto-generate email draft for the next email step ─────────────
-        const EMAIL_TRIGGERS: Record<string, { code: string; subject: string; templateText: string }> = {
-          PR1m: {
-            code: 'PR2e',
-            subject: `Next Steps — Initial Alignment Meeting: ${matchedClient.name}`,
-            templateText: `Hi [Customer Name],
 
-Congratulations on moving forward with your ADU project — we're thrilled to be part of this exciting journey with you!
+        // Maps each completed meeting code to the email code it should trigger
+        const MEETING_TO_EMAIL: Record<string, string> = {
+          PR1m: 'PR2e', PR3m: 'PR4e', PR5m: 'PR6e',
+          PD1m: 'PD2e', PD4m: 'PD5e',
+          PS2m: 'PS3e', PS4m: 'PS5e', PS6m: 'PS7e', PS8m: 'PS9e',
+          PB2m: 'PB3e', PB5m: 'PB6e',
+          CG1m: 'CG2e', CG3m: 'CG4e',
+          CS2m: 'CS3e',
+          CR1m: 'CR2e',
+          CF1m: 'CF2e',
+          CC2m: 'CC3e',
+        }
 
-[PM Name], your dedicated Project Manager, is looking forward to meeting you at your upcoming initial alignment meeting and starting to plan your exciting project!
+        // Specific templates for key email codes
+        const EMAIL_TEMPLATES: Record<string, { subject: string; body: string }> = {
+          PR2e: {
+            subject: `Next Steps on Your [Project Type] Journey — Let's Schedule Your Initial Alignment Meeting`,
+            body: `Hi [Customer Name],
 
-To keep things moving smoothly, we'd like to schedule your Initial Alignment Meeting. During this meeting we'll walk through key details and objectives to ensure everything is aligned as we transition into the next phase.
+Congratulations on moving forward with your [Project Type] project — we're thrilled to be part of this exciting journey with you!
 
-SCHEDULING OPTIONS:
-Please choose one of the following timeslots:
-• [Option 1: Day, Time]
-• [Option 2: Day, Time]
-• [Option 3: Day, Time]
+[PM Name], your dedicated Project Manager, is looking forward to meeting you at our upcoming initial alignment meeting and to start planning your exciting project!
 
-As part of our preparation, we'll also be coordinating the sanitary line camera location, which needs to be completed in the coming weeks. We'll handle the logistics and keep you informed every step of the way.
+To keep things moving smoothly, we'd like to schedule your Initial Alignment Meeting. During this meeting, we'll walk through key details and objectives to ensure everything is aligned as we transition into the next phase.
 
-Looking forward to hearing from you!
-Warm regards,`,
+Please reply with your availability or we will follow up with available times shortly.
+
+Warm regards,
+Kai Mapoy
+CASK Construction`,
           },
-          PR3m: {
-            code: 'PR4e',
-            subject: `Alignment Meeting Recap: ${matchedClient.name}`,
-            templateText: `Dear [Owner Name],
+          PR4e: {
+            subject: `Alignment Meeting Recap — [Client Name] [Project Type] Project`,
+            body: `Hi [Customer Name],
 
-Thank you for your time and engagement during our kickoff in-person meeting. It was great getting to meet you and hearing about your vision for this project!
+Thank you for joining us for your Initial Alignment Meeting — it was great connecting and diving into the vision for your [Project Type] project!
 
-As expressed, effective communication during the design stages is extremely important to us. Here are the next steps of your design journey:
+Here is a quick recap of what we covered:
+- Reviewed your project vision and key priorities
+- Discussed timeline expectations and key milestones
+- Confirmed next steps heading into the design phase
 
-NEXT STEPS:
-1. 50% Floorplan Meeting — Initial site plan layout, exterior dimensions, wall layout, kitchen layout
-2. 50% Floorplan Meeting Recap — Emailed within 24-48 hours with summary and budget update
-3. 75% Floorplan Meeting — MEP layout, exterior finishes, elevations
-4. 75% Floorplan Meeting Recap — Emailed within 24-48 hours with summary and budget update
-5. 95% Drawing Review — Emailed 1-2 weeks post 75% meeting for your approval before permit submission
-6. Permit Submission Confirmation — Provided within 24 hours of submitting permit
+We are excited to bring your vision to life. We will follow up shortly with the next steps.
 
-BUDGET UPDATE TIMELINE:
-You will receive budget updates at each design milestone from Initial Proposal through Construction Contract.
-
-Thanks for trusting CASK Construction with your project. Please don't hesitate to reach out with any questions.
-Best regards,`,
+Warm regards,
+Kai Mapoy
+CASK Construction`,
           },
-          PR5m: {
-            code: 'PR6e',
-            subject: `Flag Meeting Recap: ${matchedClient.name}`,
-            templateText: `Dear Customer,
+          PR6e: {
+            subject: `Flag Meeting Recap — [Client Name] [Project Type] Project`,
+            body: `Hi [Customer Name],
 
-Thank you for your time during our recent Flag meeting. We covered important information relating to your future project, and it is critical that this is correctly documented so that your vision is accurately transformed into reality.
+Thank you for joining us for the on-site flag meeting at your [Location] property.
 
-I have prepared the below meeting summary. Please reply if you feel I have missed anything or have any additional requests since our last meeting.
+Here is a summary of what we covered:
+- Reviewed and confirmed property boundaries and setbacks
+- Discussed placement and orientation of the [Project Type]
+- Aligned on any site-specific considerations
 
-ATTENDEES:
-[Attendee list]
+We will follow up with the next steps as we move into the design phase.
 
-RECAP:
-[Key discussion points from the flag meeting]
-
-ACTION ITEMS:
-[Action items from the meeting]
-
-NEXT MEETING AGENDA:
-[Upcoming meeting agenda items]
-
-Thanks for trusting CASK Construction with your project. Let's keep this positive momentum going!
-Regards,
-The Cask Team`,
+Warm regards,
+Kai Mapoy
+CASK Construction`,
           },
         }
 
-        const emailTrigger = EMAIL_TRIGGERS[meetingCode]
-        if (emailTrigger) {
+        const GENERAL_EMAIL_TEMPLATE = `Hi [Customer Name],
+
+Thank you for your continued partnership with CASK Construction on your [Project Type] project in [Location].
+
+Following our recent meeting, we wanted to follow up with the next steps and keep things moving smoothly on your project.
+
+Please don't hesitate to reach out if you have any questions.
+
+Warm regards,
+Kai Mapoy
+CASK Construction`
+
+        // Meeting titles for subject generation (fallback for unlisted codes)
+        const EMAIL_TITLES: Record<string, string> = {
+          PR2e: 'Initial Alignment Scheduling',
+          PR4e: 'Alignment Meeting Recap',
+          PR6e: 'Flag Meeting Recap',
+          PD2e: '50% Floorplan Meeting Recap',
+          PD5e: '75% Floorplan Meeting Recap',
+          PS3e: 'Post 1st Selections Meeting Recap',
+          PS5e: 'Post 2nd Selections Meeting Recap',
+          PS7e: 'Post 3rd Selections Meeting Recap',
+          PS9e: 'Post 4th Selections Meeting Recap',
+          PB3e: 'Project Out to Bid',
+          PB6e: 'Contract Approval',
+          CG2e: 'Kickoff Meeting Recap',
+          CG4e: 'Foundation and Slab Meeting Recap',
+          CS3e: 'Structure Complete Celebration Recap',
+          CR2e: 'Release to Hang',
+          CF2e: 'Finish Stage Meeting Recap',
+          CC3e: 'Punch List Walkthrough Recap',
+        }
+
+        const nextEmailCode = MEETING_TO_EMAIL[meetingCode]
+        if (nextEmailCode) {
           try {
             const { data: clientFull } = await supabase
               .from('clients')
-              .select('email, project_type, location, communication_style, personality_tags')
+              .select('email, project_type, project_value, location, communication_style, personality_tags, owner')
               .eq('id', matchedClient.id)
               .single()
 
-            const personalityStr = Array.isArray(clientFull?.personality_tags)
+            const projectType     = clientFull?.project_type ?? 'ADU'
+            const location        = clientFull?.location ?? 'St. Petersburg, FL'
+            const owner           = clientFull?.owner ?? 'your Project Manager'
+            const projectValue    = clientFull?.project_value ? `$${Number(clientFull.project_value).toLocaleString('en-US')}` : 'Not specified'
+            const personalityStr  = Array.isArray(clientFull?.personality_tags)
               ? (clientFull.personality_tags as string[]).join(', ')
               : 'Not specified'
+            const clientFirstName = matchedClient.name.split(' ')[0]
 
-            const emailPrompt = `You are drafting a professional email for CASK Construction.
+            // Format meeting data for prompt
+            const attendeesList = Array.isArray(extracted.attendees)
+              ? (extracted.attendees as string[]).join(', ')
+              : (transcript.meeting_attendees ?? []).map((a: { displayName: string }) => a.displayName).join(', ') || 'Not recorded'
 
-BASE TEMPLATE:
-${emailTrigger.templateText}
+            const summaryText = Array.isArray(extracted.summary)
+              ? (extracted.summary as string[]).join('\n')
+              : String(extracted.summary ?? 'No summary available')
+
+            const decisionsText = Array.isArray(extracted.key_decisions) && (extracted.key_decisions as string[]).length > 0
+              ? (extracted.key_decisions as string[]).join('\n')
+              : 'None recorded'
+
+            const actionItemsText = Array.isArray(extracted.action_items) && (extracted.action_items as Array<{ task: string; owner: string }>).length > 0
+              ? (extracted.action_items as Array<{ task: string; owner: string }>)
+                  .map(a => `${a.task} — ${a.owner}`)
+                  .join('\n')
+              : 'None recorded'
+
+            // Pick template — specific for PR2e/PR4e/PR6e, general for everything else
+            const tmpl = EMAIL_TEMPLATES[nextEmailCode]
+            const templateBody = tmpl?.body ?? GENERAL_EMAIL_TEMPLATE
+
+            // Build subject per meeting code
+            let subject: string
+            if (nextEmailCode === 'PR2e') {
+              subject = `Next Steps on Your ${projectType} Journey — Initial Alignment Meeting: ${matchedClient.name}`
+            } else if (nextEmailCode === 'PR4e') {
+              subject = `Alignment Meeting Recap — ${matchedClient.name} ${projectType} Project`
+            } else if (nextEmailCode === 'PR6e') {
+              subject = `CASK Construction Flag Meeting Recap — ${matchedClient.name} ${projectType}`
+            } else {
+              const meetingTitle = EMAIL_TITLES[nextEmailCode] ?? nextEmailCode
+              subject = `${meetingTitle} — ${matchedClient.name} ${projectType} Project`
+            }
+
+            const emailPrompt = `You are drafting a professional client email for CASK Construction.
+You have access to the full meeting data and client profile.
+
+BASE TEMPLATE FOR THIS MEETING CODE (${nextEmailCode}):
+${templateBody}
 
 CLIENT PROFILE:
-- Name: ${matchedClient.name}
-- Project Type: ${clientFull?.project_type ?? 'ADU'}
-- Location: ${clientFull?.location ?? 'St. Petersburg, FL'}
+- Client Name: ${matchedClient.name}
+- First Name: ${clientFirstName}
+- Project Type: ${projectType}
+- Location: ${location}
+- Project Value: ${projectValue}
 - Communication Style: ${clientFull?.communication_style ?? 'Not specified'}
-- Personality: ${personalityStr}
+- Personality Tags: ${personalityStr}
+- Assigned PM: ${owner}
 
-LAST MEETING RECAP:
-${recapText}
+MEETING DATA:
+- Meeting Code: ${meetingCode}
+- Meeting Date: ${safeDate}
+- Attendees: ${attendeesList}
+- Summary: ${summaryText}
+- Key Decisions: ${decisionsText}
+- Action Items: ${actionItemsText}
 
-Write a personalized version of this email for this specific client. Keep the same structure and key points from the template but personalize it using the client's name, project details, and what was discussed in the last meeting.
+INSTRUCTIONS:
+Fill in every placeholder in the template with real data:
 
-Communication style notes:
-- If client is Direct/Fast decision maker: keep it short and clear
-- If client is Detail-oriented/Analytical: include more details
-- If client is Relationship-driven: use a warmer tone
+[Customer Name] → use client first name only: ${clientFirstName}
+[Project Type] → use: ${projectType}
+[Project Name] → use: ${matchedClient.name} ${projectType}
+[PM Name] → use: ${owner}
+[Location] → use: ${location}
+[Attendee 1], [Attendee 2] etc → use meeting attendees: ${attendeesList}
+[Recap item 1], [Recap item 2] etc → use meeting summary bullets
+[Action item 1], [Action item 2] etc → use meeting action items, format each as: Task description — Owner Name
+[Agenda item 1] etc → suggest relevant next steps based on current phase and what was discussed
+[Option 1: Day, Time] etc → write exactly: We will follow up shortly with available time slots
+NPS SURVEY LINK → write: https://caskconstruction.com/nps-survey
 
-Return ONLY the email body text. No subject line. No preamble.`
+TONE RULES:
+- Direct/Fast decision maker = concise, no fluff
+- Detail-oriented/Analytical = keep all details and structure
+- Relationship-driven = warm and personal tone
+- Skeptical = factual, professional, no overselling
+- Default = professional and friendly
+Current client personality: ${personalityStr}
+
+OUTPUT RULES:
+- Plain text only
+- No markdown
+- No ** bold **
+- No bullet symbols like bullet or dash
+- Use clean line breaks between sections
+- Keep all section headers from the template (ATTENDEES, RECAP, ACTION ITEMS etc)
+- Replace every single placeholder — never leave [brackets] in the final email
+- Return ONLY the email body
+- No subject line in the body
+- No preamble or explanation`
 
             const emailRes = await anthropic.messages.create({
               model: 'claude-sonnet-4-6',
               messages: [{ role: 'user', content: emailPrompt }],
-              max_tokens: 1000,
+              max_tokens: 1200,
             })
 
             const emailBody = emailRes.content[0].type === 'text' ? emailRes.content[0].text.trim() : ''
@@ -476,9 +580,9 @@ Return ONLY the email body text. No subject line. No preamble.`
                 .from('client_email_drafts')
                 .insert({
                   client_id:       matchedClient.id,
-                  meeting_id:      emailTrigger.code,
-                  email_code:      emailTrigger.code,
-                  subject:         emailTrigger.subject,
+                  meeting_id:      nextEmailCode,
+                  email_code:      nextEmailCode,
+                  subject,
                   body:            emailBody,
                   status:          'draft',
                   recipient_email: clientFull?.email ?? null,
@@ -488,7 +592,7 @@ Return ONLY the email body text. No subject line. No preamble.`
               if (draftErr) {
                 console.error('[fireflies] email draft insert error:', draftErr.message)
               } else {
-                console.log('[fireflies] email draft generated:', matchedClient.name, '/', emailTrigger.code)
+                console.log('[fireflies] email draft generated:', matchedClient.name, '/', nextEmailCode)
               }
             }
           } catch (emailErr) {
