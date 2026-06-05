@@ -189,6 +189,7 @@ export async function POST(req: NextRequest) {
     console.log('[fireflies] after Format2 — candidateClientName:', candidateClientName, '| meetingCode:', meetingCode)
 
     if (candidateClientName && meetingCode) {
+      console.log('[fireflies] querying client with name:', JSON.stringify(candidateClientName), 'length:', candidateClientName?.length)
       const { data: matchedClient } = await supabase
         .from('clients')
         .select('id, name, personality_tags, communication_style, key_interests, happiness, ai_tip')
