@@ -142,16 +142,6 @@ export async function POST(req: NextRequest) {
       // Fall through — save with Fireflies metadata only
     }
 
-    const hasMeaningfulContent =
-      extracted.summary &&
-      (extracted.summary as string[]).length > 0 &&
-      (extracted.summary as string[])[0].length > 10
-
-    if (!hasMeaningfulContent) {
-      console.log('[fireflies] skipping save — insufficient content extracted for:', transcript.title)
-      return NextResponse.json({ success: true, message: 'Skipped — insufficient content extracted' })
-    }
-
     // 4. Save to Supabase using service role key (bypasses RLS)
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -556,16 +546,36 @@ TONE RULES:
 Current client personality: ${personalityStr}
 
 OUTPUT RULES:
-- Plain text only
-- No markdown
-- No ** bold **
-- No bullet symbols like bullet or dash
-- Use clean line breaks between sections
-- Keep all section headers from the template (ATTENDEES, RECAP, ACTION ITEMS etc)
-- Replace every single placeholder — never leave [brackets] in the final email
-- Return ONLY the email body
-- No subject line in the body
-- No preamble or explanation`
+Return the email as clean HTML formatted for Microsoft Outlook.
+Use these HTML elements only:
+- <p> for paragraphs
+- <br> for line breaks within a paragraph
+- <strong> for section headers (ATTENDEES, RECAP, ACTION ITEMS etc)
+- <ul> and <li> for lists (attendees, recap items, action items)
+- No CSS styles — keep it simple
+- No <html>, <head>, or <body> tags — just the content
+
+Format like this example:
+<p>Dear John,</p>
+<p>Thank you for...</p>
+<strong>ATTENDEES</strong>
+<ul>
+  <li>Calin Noonan</li>
+  <li>Kai Mapoy</li>
+</ul>
+<strong>RECAP</strong>
+<ul>
+  <li>Recap item 1</li>
+  <li>Recap item 2</li>
+</ul>
+<strong>ACTION ITEMS</strong>
+<ul>
+  <li>Task description — Owner Name</li>
+</ul>
+<p>Regards,<br>The CASK Team</p>
+
+Replace every single placeholder — never leave [brackets] in the final email.
+Return ONLY the HTML email body. No subject line. No preamble or explanation.`
 
             const emailRes = await anthropic.messages.create({
               model: 'claude-sonnet-4-6',
@@ -606,7 +616,18 @@ OUTPUT RULES:
       }
     }
 
-    // 6. No client match — save to meetings table as normal (ActionCoach session)
+    // 6. No client match — guard: skip sessions insert if Claude extracted insufficient content
+    const hasMeaningfulContent =
+      extracted.summary &&
+      (extracted.summary as string[]).length > 0 &&
+      (extracted.summary as string[])[0].length > 10
+
+    if (!hasMeaningfulContent) {
+      console.log('[fireflies] skipping sessions save — insufficient content extracted for:', transcript.title)
+      return NextResponse.json({ success: true, message: 'Skipped — insufficient content extracted' })
+    }
+
+    // No client match — save to meetings table as normal (ActionCoach session)
     const sessionTitle = (extracted.title as string) ?? transcript.title ?? 'Untitled Meeting'
 
     const { data: existing } = await supabase

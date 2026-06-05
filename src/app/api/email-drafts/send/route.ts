@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const makeRes = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to_email, to_name, subject, body: emailBody, client_name, meeting_code }),
+      body: JSON.stringify({ to_email, to_name, subject, body: emailBody, content_type: 'html', client_name, meeting_code }),
     })
 
     if (!makeRes.ok) {

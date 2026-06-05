@@ -1346,9 +1346,10 @@ Today's date is ${today}.
               >×</button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-              <pre style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.65, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>
-                {previewDraft.body}
-              </pre>
+              <div
+                style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.65 }}
+                dangerouslySetInnerHTML={{ __html: previewDraft.body }}
+              />
             </div>
             <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button
