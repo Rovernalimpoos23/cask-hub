@@ -190,12 +190,13 @@ export async function POST(req: NextRequest) {
 
     if (candidateClientName && meetingCode) {
       console.log('[fireflies] querying client with name:', JSON.stringify(candidateClientName), 'length:', candidateClientName?.length)
-      const { data: matchedClient } = await supabase
+      const { data: matchedClient, error: matchError } = await supabase
         .from('clients')
         .select('id, name, personality_tags, communication_style, key_interests, happiness, ai_tip')
         .ilike('name', `%${candidateClientName}%`)
         .maybeSingle()
-      console.log('[fireflies] matchedClient:', matchedClient ?? 'NO MATCH')
+
+      console.log('[fireflies] matchedClient:', matchedClient ?? 'NO MATCH', '| matchError:', matchError?.message ?? 'none')
 
       if (matchedClient) {
         console.log('[fireflies] matched client journey:', matchedClient.name, '/', meetingCode)
