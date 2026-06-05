@@ -352,6 +352,151 @@ RULES:
           console.error('[fireflies] profile update failed (non-fatal):', msg)
         }
 
+        // ── Auto-generate email draft for the next email step ─────────────
+        const EMAIL_TRIGGERS: Record<string, { code: string; subject: string; templateText: string }> = {
+          PR1m: {
+            code: 'PR2e',
+            subject: `Next Steps — Initial Alignment Meeting: ${matchedClient.name}`,
+            templateText: `Hi [Customer Name],
+
+Congratulations on moving forward with your ADU project — we're thrilled to be part of this exciting journey with you!
+
+[PM Name], your dedicated Project Manager, is looking forward to meeting you at your upcoming initial alignment meeting and starting to plan your exciting project!
+
+To keep things moving smoothly, we'd like to schedule your Initial Alignment Meeting. During this meeting we'll walk through key details and objectives to ensure everything is aligned as we transition into the next phase.
+
+SCHEDULING OPTIONS:
+Please choose one of the following timeslots:
+• [Option 1: Day, Time]
+• [Option 2: Day, Time]
+• [Option 3: Day, Time]
+
+As part of our preparation, we'll also be coordinating the sanitary line camera location, which needs to be completed in the coming weeks. We'll handle the logistics and keep you informed every step of the way.
+
+Looking forward to hearing from you!
+Warm regards,`,
+          },
+          PR3m: {
+            code: 'PR4e',
+            subject: `Alignment Meeting Recap: ${matchedClient.name}`,
+            templateText: `Dear [Owner Name],
+
+Thank you for your time and engagement during our kickoff in-person meeting. It was great getting to meet you and hearing about your vision for this project!
+
+As expressed, effective communication during the design stages is extremely important to us. Here are the next steps of your design journey:
+
+NEXT STEPS:
+1. 50% Floorplan Meeting — Initial site plan layout, exterior dimensions, wall layout, kitchen layout
+2. 50% Floorplan Meeting Recap — Emailed within 24-48 hours with summary and budget update
+3. 75% Floorplan Meeting — MEP layout, exterior finishes, elevations
+4. 75% Floorplan Meeting Recap — Emailed within 24-48 hours with summary and budget update
+5. 95% Drawing Review — Emailed 1-2 weeks post 75% meeting for your approval before permit submission
+6. Permit Submission Confirmation — Provided within 24 hours of submitting permit
+
+BUDGET UPDATE TIMELINE:
+You will receive budget updates at each design milestone from Initial Proposal through Construction Contract.
+
+Thanks for trusting CASK Construction with your project. Please don't hesitate to reach out with any questions.
+Best regards,`,
+          },
+          PR5m: {
+            code: 'PR6e',
+            subject: `Flag Meeting Recap: ${matchedClient.name}`,
+            templateText: `Dear Customer,
+
+Thank you for your time during our recent Flag meeting. We covered important information relating to your future project, and it is critical that this is correctly documented so that your vision is accurately transformed into reality.
+
+I have prepared the below meeting summary. Please reply if you feel I have missed anything or have any additional requests since our last meeting.
+
+ATTENDEES:
+[Attendee list]
+
+RECAP:
+[Key discussion points from the flag meeting]
+
+ACTION ITEMS:
+[Action items from the meeting]
+
+NEXT MEETING AGENDA:
+[Upcoming meeting agenda items]
+
+Thanks for trusting CASK Construction with your project. Let's keep this positive momentum going!
+Regards,
+The Cask Team`,
+          },
+        }
+
+        const emailTrigger = EMAIL_TRIGGERS[meetingCode]
+        if (emailTrigger) {
+          try {
+            const { data: clientFull } = await supabase
+              .from('clients')
+              .select('email, project_type, location, communication_style, personality_tags')
+              .eq('id', matchedClient.id)
+              .single()
+
+            const personalityStr = Array.isArray(clientFull?.personality_tags)
+              ? (clientFull.personality_tags as string[]).join(', ')
+              : 'Not specified'
+
+            const emailPrompt = `You are drafting a professional email for CASK Construction.
+
+BASE TEMPLATE:
+${emailTrigger.templateText}
+
+CLIENT PROFILE:
+- Name: ${matchedClient.name}
+- Project Type: ${clientFull?.project_type ?? 'ADU'}
+- Location: ${clientFull?.location ?? 'St. Petersburg, FL'}
+- Communication Style: ${clientFull?.communication_style ?? 'Not specified'}
+- Personality: ${personalityStr}
+
+LAST MEETING RECAP:
+${recapText}
+
+Write a personalized version of this email for this specific client. Keep the same structure and key points from the template but personalize it using the client's name, project details, and what was discussed in the last meeting.
+
+Communication style notes:
+- If client is Direct/Fast decision maker: keep it short and clear
+- If client is Detail-oriented/Analytical: include more details
+- If client is Relationship-driven: use a warmer tone
+
+Return ONLY the email body text. No subject line. No preamble.`
+
+            const emailRes = await anthropic.messages.create({
+              model: 'claude-sonnet-4-6',
+              messages: [{ role: 'user', content: emailPrompt }],
+              max_tokens: 1000,
+            })
+
+            const emailBody = emailRes.content[0].type === 'text' ? emailRes.content[0].text.trim() : ''
+
+            if (emailBody) {
+              const { error: draftErr } = await supabase
+                .from('client_email_drafts')
+                .insert({
+                  client_id:       matchedClient.id,
+                  meeting_id:      emailTrigger.code,
+                  email_code:      emailTrigger.code,
+                  subject:         emailTrigger.subject,
+                  body:            emailBody,
+                  status:          'draft',
+                  recipient_email: clientFull?.email ?? null,
+                  recipient_name:  matchedClient.name,
+                })
+
+              if (draftErr) {
+                console.error('[fireflies] email draft insert error:', draftErr.message)
+              } else {
+                console.log('[fireflies] email draft generated:', matchedClient.name, '/', emailTrigger.code)
+              }
+            }
+          } catch (emailErr) {
+            const msg = emailErr instanceof Error ? emailErr.message : String(emailErr)
+            console.error('[fireflies] email draft generation failed (non-fatal):', msg)
+          }
+        }
+
         // Client journey meeting — do NOT save to meetings (ActionCoach) table
         return ok
       }

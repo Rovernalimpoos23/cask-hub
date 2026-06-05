@@ -52,6 +52,20 @@ interface ClientMeetingRow {
 }
 
 
+interface EmailDraft {
+  id: string
+  client_id: string
+  meeting_id: string
+  email_code: string
+  subject: string
+  body: string
+  status: 'draft' | 'sent'
+  recipient_email: string | null
+  recipient_name: string
+  created_at: string
+  sent_at?: string | null
+}
+
 interface JourneyMeetingDef {
   code: string
   title: string
@@ -888,6 +902,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [markingIds, setMarkingIds] = useState<Set<string>>(new Set())
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [activeAgenda, setActiveAgenda] = useState<string | null>(null)
+  const [emailDrafts, setEmailDrafts] = useState<EmailDraft[]>([])
+  const [previewDraft, setPreviewDraft] = useState<EmailDraft | null>(null)
+  const [editDraft, setEditDraft] = useState<EmailDraft | null>(null)
+  const [editBody, setEditBody] = useState('')
+  const [sendingId, setSendingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -898,6 +917,20 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const scrollContainers = document.querySelectorAll('.overflow-y-auto')
     scrollContainers.forEach(el => { (el as HTMLElement).scrollTop = 0 })
   }, [])
+
+  useEffect(() => {
+    async function fetchEmailDrafts() {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('client_email_drafts')
+        .select('*')
+        .eq('client_id', params.id)
+        .eq('status', 'draft')
+        .order('created_at', { ascending: false })
+      if (data) setEmailDrafts(data as EmailDraft[])
+    }
+    fetchEmailDrafts()
+  }, [params.id])
 
   useEffect(() => {
     async function fetchClient() {
@@ -1008,6 +1041,47 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         return next
       })
     }
+  }
+
+  async function handleSend(draft: EmailDraft) {
+    setSendingId(draft.id)
+    try {
+      const res = await fetch('/api/email-drafts/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          draft_id:     draft.id,
+          to_email:     draft.recipient_email,
+          to_name:      draft.recipient_name,
+          subject:      draft.subject,
+          body:         draft.body,
+          client_name:  draft.recipient_name,
+          meeting_code: draft.email_code,
+        }),
+      })
+      if (res.ok) {
+        setEmailDrafts(prev => prev.filter(d => d.id !== draft.id))
+        if (previewDraft?.id === draft.id) setPreviewDraft(null)
+      } else {
+        alert('Failed to send email. Please try again.')
+      }
+    } catch {
+      alert('Failed to send email. Please try again.')
+    } finally {
+      setSendingId(null)
+    }
+  }
+
+  async function handleSaveEdit(draft: EmailDraft, newBody: string) {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('client_email_drafts')
+      .update({ body: newBody })
+      .eq('id', draft.id)
+    if (!error) {
+      setEmailDrafts(prev => prev.map(d => d.id === draft.id ? { ...d, body: newBody } : d))
+    }
+    setEditDraft(null)
   }
 
   async function handleChatSend(userMsg: string) {
@@ -1168,6 +1242,124 @@ Today's date is ${today}.
   return (
     <>
       {activeAgenda && <AgendaModal code={activeAgenda} onClose={() => setActiveAgenda(null)} />}
+
+      {/* Email Preview Modal */}
+      {previewDraft && (
+        <div
+          onClick={() => setPreviewDraft(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 620, maxHeight: '82vh', background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+          >
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
+              <div>
+                <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
+                  {previewDraft.email_code} — Email Preview
+                </h2>
+                <p style={{ fontSize: 12, color: 'var(--text3)', margin: '4px 0 0' }}>
+                  To: {previewDraft.recipient_name}{previewDraft.recipient_email ? ` (${previewDraft.recipient_email})` : ''}
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--text2)', margin: '3px 0 0', fontWeight: 500 }}>
+                  Subject: {previewDraft.subject}
+                </p>
+              </div>
+              <button
+                onClick={() => setPreviewDraft(null)}
+                style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >×</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+              <pre style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.65, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>
+                {previewDraft.body}
+              </pre>
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setEditDraft(previewDraft); setEditBody(previewDraft.body); setPreviewDraft(null) }}
+                style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', background: 'var(--surface2)', border: '1px solid var(--border)', padding: '7px 14px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+              >
+                ✏️ Edit
+              </button>
+              <button
+                onClick={() => handleSend(previewDraft)}
+                disabled={sendingId === previewDraft.id}
+                style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--red, #c8311a)', border: 'none', padding: '7px 14px', borderRadius: 7, cursor: sendingId === previewDraft.id ? 'not-allowed' : 'pointer', opacity: sendingId === previewDraft.id ? 0.6 : 1, fontFamily: 'inherit' }}
+              >
+                {sendingId === previewDraft.id ? 'Sending…' : '📤 Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Edit Modal */}
+      {editDraft && (
+        <div
+          onClick={() => setEditDraft(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 620, maxHeight: '88vh', background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+          >
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
+              <div>
+                <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
+                  ✏️ Edit Email Draft
+                </h2>
+                <p style={{ fontSize: 12, color: 'var(--text3)', margin: '4px 0 0' }}>
+                  {editDraft.subject}
+                </p>
+              </div>
+              <button
+                onClick={() => setEditDraft(null)}
+                style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >×</button>
+            </div>
+            <div style={{ flex: 1, padding: '16px 24px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <textarea
+                value={editBody}
+                onChange={e => setEditBody(e.target.value)}
+                style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', fontSize: 13, lineHeight: 1.65, color: 'var(--text)', background: 'var(--surface2)', fontFamily: 'inherit', outline: 'none', minHeight: 340 }}
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+              />
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setEditDraft(null)}
+                style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', background: 'transparent', border: '1px solid var(--border)', padding: '7px 14px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleSaveEdit(editDraft, editBody)}
+                style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--charcoal)', border: 'none', padding: '7px 14px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+              >
+                Save Changes
+              </button>
+              <button
+                onClick={() => { handleSaveEdit(editDraft, editBody).then(() => handleSend({ ...editDraft, body: editBody })) }}
+                disabled={sendingId === editDraft.id}
+                style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--red, #c8311a)', border: 'none', padding: '7px 14px', borderRadius: 7, cursor: sendingId === editDraft.id ? 'not-allowed' : 'pointer', opacity: sendingId === editDraft.id ? 0.6 : 1, fontFamily: 'inherit' }}
+              >
+                {sendingId === editDraft.id ? 'Sending…' : '📤 Save & Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <TopBar title={client.name} subtitle="Customer Journey" />
 
       <div ref={containerRef} className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ scrollbarGutter: 'stable' }}>
@@ -1395,6 +1587,114 @@ Today's date is ${today}.
             </div>
           </div>
         </div>
+
+        {/* ── Pending Emails ───────────────────────────────────────────── */}
+        {emailDrafts.length > 0 && (
+          <div
+            className="rounded-lg p-5 mb-3"
+            style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
+          >
+            <SectionLabel icon="📧">Pending Emails</SectionLabel>
+
+            <div className="flex flex-col gap-3">
+              {emailDrafts.map(draft => (
+                <div
+                  key={draft.id}
+                  className="rounded-[8px] p-4"
+                  style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
+                >
+                  {/* Draft header */}
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className="text-[10px] font-bold tracking-[0.4px] shrink-0"
+                          style={{
+                            background: '#fef3c7',
+                            color: '#92400e',
+                            border: '1px solid #fde68a',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          {draft.email_code}
+                        </span>
+                        <span
+                          className="text-[12px] font-semibold truncate"
+                          style={{ color: 'var(--text)' }}
+                        >
+                          {draft.subject}
+                        </span>
+                      </div>
+                      <div className="text-[11px]" style={{ color: 'var(--text3)' }}>
+                        To: {draft.recipient_name}{draft.recipient_email ? ` (${draft.recipient_email})` : ''}
+                      </div>
+                      {draft.created_at && (
+                        <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+                          Generated: {new Date(draft.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewDraft(draft)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        fontSize: 11, fontWeight: 600,
+                        color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)',
+                        padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                        transition: 'border-color 120ms ease',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+                    >
+                      👁 Preview
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setEditDraft(draft); setEditBody(draft.body) }}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        fontSize: 11, fontWeight: 600,
+                        color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)',
+                        padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                        transition: 'border-color 120ms ease',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+                    >
+                      ✏️ Edit
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSend(draft)}
+                      disabled={sendingId === draft.id}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        fontSize: 11, fontWeight: 600,
+                        color: '#fff', background: 'var(--red, #c8311a)', border: 'none',
+                        padding: '4px 10px', borderRadius: 6,
+                        cursor: sendingId === draft.id ? 'not-allowed' : 'pointer',
+                        opacity: sendingId === draft.id ? 0.6 : 1,
+                        fontFamily: 'inherit',
+                        transition: 'opacity 120ms ease',
+                      }}
+                    >
+                      {sendingId === draft.id ? '…Sending' : '📤 Send'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Meeting Journey ───────────────────────────────────────────── */}
         <div
