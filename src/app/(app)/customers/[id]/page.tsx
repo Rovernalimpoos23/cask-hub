@@ -3,10 +3,11 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import { AGENDAS, NPS_QUESTIONS, type AgendaContent, type AgendaItem, type AgendaSection } from '../_agendaData'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -450,6 +451,132 @@ function IntelligencePanel({ client, journeyRows, messages, onSend }: {
   )
 }
 
+// ── Agenda / Email modal ──────────────────────────────────────────────────────
+
+function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
+  const agenda = AGENDAS[code]
+  const close = useCallback(onClose, [onClose])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [close])
+
+  if (!agenda) return null
+
+  function renderItem(item: string | AgendaItem, index: number, numbered?: boolean) {
+    const isObj = typeof item === 'object'
+    const text = isObj ? item.text : item
+    const sub = isObj ? item.sub : undefined
+    const marker = numbered ? `${index + 1}.` : '•'
+
+    return (
+      <li key={index} style={{ marginBottom: sub?.length ? 8 : 5, listStyle: 'none' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <span style={{ color: 'var(--red, #c8311a)', fontWeight: 600, fontSize: 12, flexShrink: 0, minWidth: 16 }}>{marker}</span>
+          <span style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{text}</span>
+        </div>
+        {sub?.length ? (
+          <ul style={{ margin: '5px 0 0 24px', padding: 0 }}>
+            {sub.map((s, si) => (
+              <li key={si} style={{ listStyle: 'none', marginBottom: 3, display: 'flex', gap: 8 }}>
+                <span style={{ color: 'var(--text3)', fontSize: 12, flexShrink: 0 }}>›</span>
+                <span style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>{s}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </li>
+    )
+  }
+
+  return (
+    <div
+      onClick={close}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 10000,
+        background: 'rgba(0,0,0,0.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 600, maxHeight: '80vh',
+          background: 'var(--surface)',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.3)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3, letterSpacing: '-0.2px' }}>
+              {agenda.header}
+            </h2>
+            <p style={{ fontSize: 12, color: 'var(--text3)', margin: '4px 0 0' }}>
+              {agenda.subheader}
+            </p>
+          </div>
+          <button
+            onClick={close}
+            style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)'; e.currentTarget.style.color = 'var(--text)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {agenda.sections.map((section: AgendaSection, si: number) => (
+            <div key={si} style={{ marginBottom: 22 }}>
+              {section.title && (
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: 'var(--red, #c8311a)', marginBottom: 10 }}>
+                  {section.title}
+                </div>
+              )}
+              <ul style={{ margin: 0, padding: 0 }}>
+                {section.items.map((item, ii) => renderItem(item, ii, section.numbered))}
+              </ul>
+            </div>
+          ))}
+
+          {agenda.nps && (
+            <>
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0 20px' }} />
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: 'var(--red, #c8311a)', marginBottom: 10 }}>
+                NPS SURVEY
+              </div>
+              <ul style={{ margin: 0, padding: 0 }}>
+                {NPS_QUESTIONS.map((q, qi) => (
+                  <li key={qi} style={{ listStyle: 'none', marginBottom: 5, display: 'flex', gap: 8 }}>
+                    <span style={{ color: 'var(--red, #c8311a)', fontWeight: 600, fontSize: 12, flexShrink: 0 }}>•</span>
+                    <span style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{q}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, textAlign: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            CASK Construction · caskconstruction.com · 727-201-2551
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Journey phase card ────────────────────────────────────────────────────────
 
 function PhaseCard({
@@ -458,12 +585,14 @@ function PhaseCard({
   markingIds,
   onMarkComplete,
   onOpenRecap,
+  onViewAgenda,
 }: {
   phase: JourneyPhaseDef
   journeyRows: Map<string, ClientMeetingRow>
   markingIds: Set<string>
   onMarkComplete: (code: string, phaseNumber: number, title: string) => void
   onOpenRecap: (code: string, title: string) => void
+  onViewAgenda: (code: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -616,49 +745,60 @@ function PhaseCard({
                       flexWrap: 'wrap',
                     }}
                   >
-                    {/* View Template */}
-                    <Link
-                      href="/customers/templates"
-                      className="no-underline"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        color: 'var(--text3)',
-                        background: 'var(--surface2, #f4f3f1)',
-                        border: '1px solid var(--border)',
-                        padding: '3px 8px',
-                        borderRadius: 5,
-                        whiteSpace: 'nowrap',
-                        transition: 'color 120ms ease, border-color 120ms ease',
-                      }}
-                    >
-                      📋 Template
-                    </Link>
-
-                    {/* View Email — shown for email type */}
-                    {meeting.type === 'email' && (
-                      <Link
-                        href="/customers/templates"
-                        className="no-underline"
+                    {/* View Agenda — shown for meeting/internal types with content */}
+                    {meeting.type !== 'email' && AGENDAS[meeting.code] && (
+                      <button
+                        type="button"
+                        onClick={() => onViewAgenda(meeting.code)}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 4,
                           fontSize: 11,
                           fontWeight: 500,
-                          color: 'var(--text3)',
-                          background: 'var(--surface2, #f4f3f1)',
-                          border: '1px solid var(--border)',
+                          color: phase.color,
+                          background: phase.bgColor,
+                          border: `1px solid ${phase.borderColor}`,
                           padding: '3px 8px',
                           borderRadius: 5,
                           whiteSpace: 'nowrap',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          transition: 'opacity 120ms ease',
                         }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
                       >
-                        📧 Email
-                      </Link>
+                        📋 View Agenda
+                      </button>
+                    )}
+
+                    {/* View Email — shown for email types with content */}
+                    {meeting.type === 'email' && AGENDAS[meeting.code] && (
+                      <button
+                        type="button"
+                        onClick={() => onViewAgenda(meeting.code)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 500,
+                          color: '#92400e',
+                          background: '#fef3c7',
+                          border: '1px solid #fde68a',
+                          padding: '3px 8px',
+                          borderRadius: 5,
+                          whiteSpace: 'nowrap',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          transition: 'opacity 120ms ease',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                      >
+                        📧 View Email
+                      </button>
                     )}
 
                     {/* Mark Complete / Done */}
@@ -747,6 +887,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [journeyRows, setJourneyRows] = useState<Map<string, ClientMeetingRow>>(new Map())
   const [markingIds, setMarkingIds] = useState<Set<string>>(new Set())
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+  const [activeAgenda, setActiveAgenda] = useState<string | null>(null)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -1026,6 +1167,7 @@ Today's date is ${today}.
 
   return (
     <>
+      {activeAgenda && <AgendaModal code={activeAgenda} onClose={() => setActiveAgenda(null)} />}
       <TopBar title={client.name} subtitle="Customer Journey" />
 
       <div ref={containerRef} className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ scrollbarGutter: 'stable' }}>
@@ -1296,6 +1438,7 @@ Today's date is ${today}.
                 markingIds={markingIds}
                 onMarkComplete={markComplete}
                 onOpenRecap={(code) => router.push(`/customers/${params.id}/meetings/${code}`)}
+                onViewAgenda={setActiveAgenda}
               />
             ))}
           </div>
