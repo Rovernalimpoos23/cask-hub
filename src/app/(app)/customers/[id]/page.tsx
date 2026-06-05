@@ -600,6 +600,8 @@ function PhaseCard({
   onMarkComplete,
   onOpenRecap,
   onViewAgenda,
+  sentEmailsByCode,
+  onViewSentEmail,
 }: {
   phase: JourneyPhaseDef
   journeyRows: Map<string, ClientMeetingRow>
@@ -607,6 +609,8 @@ function PhaseCard({
   onMarkComplete: (code: string, phaseNumber: number, title: string) => void
   onOpenRecap: (code: string, title: string) => void
   onViewAgenda: (code: string) => void
+  sentEmailsByCode: Map<string, EmailDraft>
+  onViewSentEmail: (draft: EmailDraft) => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -699,6 +703,7 @@ function PhaseCard({
             const isCompleted = row?.completed ?? false
             const isMarking = markingIds.has(meeting.code)
             const hasRecap = !!(row?.recap)
+            const sentEmail = meeting.type === 'email' ? sentEmailsByCode.get(meeting.code) : undefined
 
             return (
               <div
@@ -787,8 +792,8 @@ function PhaseCard({
                       </button>
                     )}
 
-                    {/* View Email — shown for email types with content */}
-                    {meeting.type === 'email' && AGENDAS[meeting.code] && (
+                    {/* View Email — email type without sent record */}
+                    {meeting.type === 'email' && !sentEmail && AGENDAS[meeting.code] && (
                       <button
                         type="button"
                         onClick={() => onViewAgenda(meeting.code)}
@@ -815,31 +820,80 @@ function PhaseCard({
                       </button>
                     )}
 
-                    {/* Mark Complete / Done */}
-                    <button
-                      type="button"
-                      onClick={() => onMarkComplete(meeting.code, phase.number, meeting.title)}
-                      disabled={isMarking}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: isCompleted ? '#16a34a' : 'var(--text2)',
-                        background: isCompleted ? '#f0fdf4' : 'var(--surface2, #f4f3f1)',
-                        border: `1px solid ${isCompleted ? '#bbf7d0' : 'var(--border)'}`,
-                        padding: '3px 8px',
-                        borderRadius: 5,
-                        cursor: isMarking ? 'not-allowed' : 'pointer',
-                        opacity: isMarking ? 0.5 : 1,
-                        whiteSpace: 'nowrap',
-                        fontFamily: 'inherit',
-                        transition: 'all 120ms ease',
-                      }}
-                    >
-                      {isMarking ? '…' : isCompleted ? '✅ Done' : '✅ Mark Complete'}
-                    </button>
+                    {/* Email Sent badge + View — replaces View Email + Mark Complete */}
+                    {sentEmail && (
+                      <>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: '#166534',
+                            background: '#f0fdf4',
+                            border: '1px solid #bbf7d0',
+                            padding: '3px 8px',
+                            borderRadius: 5,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          ✅ Email Sent
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onViewSentEmail(sentEmail)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: '#166534',
+                            background: '#f0fdf4',
+                            border: '1px solid #bbf7d0',
+                            padding: '3px 8px',
+                            borderRadius: 5,
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            transition: 'opacity 120ms ease',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
+                          onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                        >
+                          View →
+                        </button>
+                      </>
+                    )}
+
+                    {/* Mark Complete / Done — hidden when email is sent */}
+                    {!sentEmail && (
+                      <button
+                        type="button"
+                        onClick={() => onMarkComplete(meeting.code, phase.number, meeting.title)}
+                        disabled={isMarking}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: isCompleted ? '#16a34a' : 'var(--text2)',
+                          background: isCompleted ? '#f0fdf4' : 'var(--surface2, #f4f3f1)',
+                          border: `1px solid ${isCompleted ? '#bbf7d0' : 'var(--border)'}`,
+                          padding: '3px 8px',
+                          borderRadius: 5,
+                          cursor: isMarking ? 'not-allowed' : 'pointer',
+                          opacity: isMarking ? 0.5 : 1,
+                          whiteSpace: 'nowrap',
+                          fontFamily: 'inherit',
+                          transition: 'all 120ms ease',
+                        }}
+                      >
+                        {isMarking ? '…' : isCompleted ? '✅ Done' : '✅ Mark Complete'}
+                      </button>
+                    )}
 
                     {/* View Recap — shown when recap exists */}
                     {hasRecap && (
@@ -903,10 +957,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
   const [activeAgenda, setActiveAgenda] = useState<string | null>(null)
   const [emailDrafts, setEmailDrafts] = useState<EmailDraft[]>([])
+  const [sentEmails, setSentEmails] = useState<EmailDraft[]>([])
   const [previewDraft, setPreviewDraft] = useState<EmailDraft | null>(null)
   const [editDraft, setEditDraft] = useState<EmailDraft | null>(null)
   const [editBody, setEditBody] = useState('')
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [viewSentEmail, setViewSentEmail] = useState<EmailDraft | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -921,16 +978,27 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   useEffect(() => {
     async function fetchEmailDrafts() {
       const supabase = createClient()
-      const { data } = await supabase
+      console.log('[email-drafts] fetching for client_id:', params.id)
+      const { data, error } = await supabase
         .from('client_email_drafts')
         .select('*')
         .eq('client_id', params.id)
-        .eq('status', 'draft')
         .order('created_at', { ascending: false })
-      if (data) setEmailDrafts(data as EmailDraft[])
+      console.log('[email-drafts] fetched:', data, 'error:', error)
+      if (data) {
+        const all = data as EmailDraft[]
+        setEmailDrafts(all.filter(d => d.status === 'draft'))
+        setSentEmails(all.filter(d => d.status === 'sent'))
+      }
     }
     fetchEmailDrafts()
   }, [params.id])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 3500)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   useEffect(() => {
     async function fetchClient() {
@@ -1060,8 +1128,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         }),
       })
       if (res.ok) {
+        const sentDraft: EmailDraft = { ...draft, status: 'sent', sent_at: new Date().toISOString() }
         setEmailDrafts(prev => prev.filter(d => d.id !== draft.id))
+        setSentEmails(prev => [sentDraft, ...prev])
         if (previewDraft?.id === draft.id) setPreviewDraft(null)
+        if (editDraft?.id === draft.id) setEditDraft(null)
+        setToast(`✅ Email sent to ${draft.recipient_name} successfully`)
       } else {
         alert('Failed to send email. Please try again.')
       }
@@ -1238,6 +1310,7 @@ Today's date is ${today}.
   const happiness = HAPPINESS[client.happiness]
   const completedCount = Array.from(journeyRows.values()).filter(r => r.completed).length
   const journeyPct = TOTAL_MEETINGS > 0 ? Math.round((completedCount / TOTAL_MEETINGS) * 100) : 0
+  const sentEmailsByCode = new Map(sentEmails.map(e => [e.email_code, e]))
 
   return (
     <>
@@ -1354,6 +1427,111 @@ Today's date is ${today}.
                 style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--red, #c8311a)', border: 'none', padding: '7px 14px', borderRadius: 7, cursor: sendingId === editDraft.id ? 'not-allowed' : 'pointer', opacity: sendingId === editDraft.id ? 0.6 : 1, fontFamily: 'inherit' }}
               >
                 {sendingId === editDraft.id ? 'Sending…' : '📤 Save & Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Toast */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 10002, background: '#166534', color: '#fff',
+            padding: '10px 20px', borderRadius: 9, fontSize: 13, fontWeight: 600,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.22)',
+            whiteSpace: 'nowrap', pointerEvents: 'none',
+          }}
+        >
+          {toast}
+        </div>
+      )}
+
+      {/* Sent Email Modal */}
+      {viewSentEmail && (
+        <div
+          onClick={() => setViewSentEmail(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 620, maxHeight: '84vh', background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+          >
+            {/* Dark header */}
+            <div style={{ padding: '20px 24px', background: 'var(--charcoal)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 14 }}>📧</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>Email Sent</span>
+                </div>
+                <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 18, fontWeight: 400, color: '#fff', margin: 0, lineHeight: 1.3 }}>
+                  {viewSentEmail.email_code} — {(() => {
+                    const phase = JOURNEY_PHASES.flatMap(p => p.meetings).find(m => m.code === viewSentEmail.email_code)
+                    return phase?.title ?? viewSentEmail.subject
+                  })()}
+                </h2>
+              </div>
+              <button
+                onClick={() => setViewSentEmail(null)}
+                style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >×</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+              {/* Recipient + sent time */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 3 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>Sent to:</span> {viewSentEmail.recipient_name}
+                </div>
+                {viewSentEmail.recipient_email && (
+                  <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 3 }}>
+                    <span style={{ fontWeight: 600, color: 'var(--text)' }}>Email:</span> {viewSentEmail.recipient_email}
+                  </div>
+                )}
+                {viewSentEmail.sent_at && (
+                  <div style={{ fontSize: 13, color: 'var(--text2)' }}>
+                    <span style={{ fontWeight: 600, color: 'var(--text)' }}>Sent on:</span>{' '}
+                    {new Date(viewSentEmail.sent_at).toLocaleString('en-US', {
+                      timeZone: 'America/New_York',
+                      month: 'long', day: 'numeric', year: 'numeric',
+                      hour: 'numeric', minute: '2-digit', hour12: true,
+                    })} ET
+                  </div>
+                )}
+              </div>
+
+              {/* Divider */}
+              <div style={{ height: 1, background: 'var(--border)', margin: '0 0 16px' }} />
+
+              {/* Subject */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 5 }}>Subject</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{viewSentEmail.subject}</div>
+              </div>
+
+              {/* Divider */}
+              <div style={{ height: 1, background: 'var(--border)', margin: '0 0 16px' }} />
+
+              {/* Email body */}
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 10 }}>Email Body</div>
+              <pre style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.65, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>
+                {viewSentEmail.body}
+              </pre>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+              <button
+                onClick={() => setViewSentEmail(null)}
+                style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', background: 'var(--surface2)', border: '1px solid var(--border)', padding: '7px 20px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+              >
+                Close
               </button>
             </div>
           </div>
@@ -1594,14 +1772,37 @@ Today's date is ${today}.
             className="rounded-lg p-5 mb-3"
             style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
           >
-            <SectionLabel icon="📧">Pending Emails</SectionLabel>
+            {/* Custom header — bigger + bolder than SectionLabel */}
+            <div className="flex items-center gap-2 mb-4">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.85 }}>
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <polyline points="2,4 12,13 22,4" />
+              </svg>
+              <span
+                className="text-[12px] font-bold tracking-[1.2px] uppercase"
+                style={{ color: '#92400e' }}
+              >
+                Pending Emails
+              </span>
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}
+              >
+                {emailDrafts.length}
+              </span>
+            </div>
 
             <div className="flex flex-col gap-3">
               {emailDrafts.map(draft => (
                 <div
                   key={draft.id}
                   className="rounded-[8px] p-4"
-                  style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
+                  style={{
+                    background: '#fffbeb',
+                    border: '1px solid #fde68a',
+                    borderLeft: '3px solid #d97706',
+                    boxShadow: '0 1px 4px rgba(217,119,6,0.08)',
+                  }}
                 >
                   {/* Draft header */}
                   <div className="flex items-start justify-between gap-3 mb-2">
@@ -1610,10 +1811,9 @@ Today's date is ${today}.
                         <span
                           className="text-[10px] font-bold tracking-[0.4px] shrink-0"
                           style={{
-                            background: '#fef3c7',
-                            color: '#92400e',
-                            border: '1px solid #fde68a',
-                            padding: '2px 6px',
+                            background: '#d97706',
+                            color: '#fff',
+                            padding: '2px 7px',
                             borderRadius: 4,
                             fontFamily: 'monospace',
                           }}
@@ -1622,16 +1822,16 @@ Today's date is ${today}.
                         </span>
                         <span
                           className="text-[12px] font-semibold truncate"
-                          style={{ color: 'var(--text)' }}
+                          style={{ color: '#92400e' }}
                         >
                           {draft.subject}
                         </span>
                       </div>
-                      <div className="text-[11px]" style={{ color: 'var(--text3)' }}>
+                      <div className="text-[11px]" style={{ color: '#b45309' }}>
                         To: {draft.recipient_name}{draft.recipient_email ? ` (${draft.recipient_email})` : ''}
                       </div>
                       {draft.created_at && (
-                        <div className="text-[11px] mt-0.5" style={{ color: 'var(--text3)' }}>
+                        <div className="text-[11px] mt-0.5" style={{ color: '#b45309', opacity: 0.7 }}>
                           Generated: {new Date(draft.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                         </div>
                       )}
@@ -1646,12 +1846,12 @@ Today's date is ${today}.
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         fontSize: 11, fontWeight: 600,
-                        color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)',
+                        color: '#92400e', background: '#fff', border: '1px solid #fde68a',
                         padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
                         transition: 'border-color 120ms ease',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#d97706' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#fde68a' }}
                     >
                       👁 Preview
                     </button>
@@ -1662,12 +1862,12 @@ Today's date is ${today}.
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         fontSize: 11, fontWeight: 600,
-                        color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)',
+                        color: '#92400e', background: '#fff', border: '1px solid #fde68a',
                         padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
                         transition: 'border-color 120ms ease',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#d97706' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#fde68a' }}
                     >
                       ✏️ Edit
                     </button>
@@ -1679,15 +1879,102 @@ Today's date is ${today}.
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         fontSize: 11, fontWeight: 600,
-                        color: '#fff', background: 'var(--red, #c8311a)', border: 'none',
-                        padding: '4px 10px', borderRadius: 6,
+                        color: '#fff', background: 'var(--charcoal, #1a1917)', border: 'none',
+                        padding: '4px 12px', borderRadius: 6,
                         cursor: sendingId === draft.id ? 'not-allowed' : 'pointer',
-                        opacity: sendingId === draft.id ? 0.6 : 1,
+                        opacity: sendingId === draft.id ? 0.5 : 1,
                         fontFamily: 'inherit',
                         transition: 'opacity 120ms ease',
                       }}
                     >
                       {sendingId === draft.id ? '…Sending' : '📤 Send'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Sent Emails ──────────────────────────────────────────────── */}
+        {sentEmails.length > 0 && (
+          <div
+            className="rounded-lg p-5 mb-3"
+            style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
+          >
+            <SectionLabel icon="📨">Sent Emails</SectionLabel>
+
+            <div className="flex flex-col gap-3">
+              {sentEmails.map(sent => (
+                <div
+                  key={sent.id}
+                  className="rounded-[8px] p-4"
+                  style={{
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    borderLeft: '3px solid #16a34a',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      {/* Code + title row */}
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className="text-[10px] font-bold shrink-0"
+                          style={{
+                            background: '#dcfce7',
+                            color: '#166534',
+                            border: '1px solid #bbf7d0',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          ✅ {sent.email_code}
+                        </span>
+                        <span
+                          className="text-[12px] font-semibold truncate"
+                          style={{ color: '#166534' }}
+                        >
+                          {sent.subject}
+                        </span>
+                      </div>
+
+                      {/* Recipient */}
+                      <div className="text-[11px]" style={{ color: '#166534', opacity: 0.75 }}>
+                        Sent to: {sent.recipient_name}{sent.recipient_email ? ` (${sent.recipient_email})` : ''}
+                      </div>
+
+                      {/* Sent timestamp */}
+                      {sent.sent_at && (
+                        <div className="text-[11px] mt-0.5" style={{ color: '#166534', opacity: 0.65 }}>
+                          Sent on: {new Date(sent.sent_at).toLocaleString('en-US', {
+                            timeZone: 'America/New_York',
+                            month: 'long', day: 'numeric', year: 'numeric',
+                            hour: 'numeric', minute: '2-digit', hour12: true,
+                          })} ET
+                        </div>
+                      )}
+                    </div>
+
+                    {/* View button */}
+                    <button
+                      type="button"
+                      onClick={() => setViewSentEmail(sent)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        fontSize: 11, fontWeight: 600,
+                        color: '#166534', background: '#dcfce7',
+                        border: '1px solid #bbf7d0',
+                        padding: '5px 12px', borderRadius: 6,
+                        cursor: 'pointer', fontFamily: 'inherit', shrink: 0,
+                        transition: 'opacity 120ms ease',
+                        whiteSpace: 'nowrap',
+                      } as React.CSSProperties}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                    >
+                      View →
                     </button>
                   </div>
                 </div>
@@ -1739,6 +2026,8 @@ Today's date is ${today}.
                 onMarkComplete={markComplete}
                 onOpenRecap={(code) => router.push(`/customers/${params.id}/meetings/${code}`)}
                 onViewAgenda={setActiveAgenda}
+                sentEmailsByCode={sentEmailsByCode}
+                onViewSentEmail={setViewSentEmail}
               />
             ))}
           </div>
