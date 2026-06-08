@@ -2,12 +2,18 @@
 // src/app/(app)/customers/[id]/page.tsx
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
+import 'react-quill/dist/quill.snow.css'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 import { AGENDAS, NPS_QUESTIONS, type AgendaContent, type AgendaItem, type AgendaSection } from '../_agendaData'
+
+// ReactQuill must load client-side only — Quill references `document` at import time,
+// which would crash Next.js server rendering of this client component.
+const ReactQuill = dynamic(() => import('react-quill'), { ssr: false })
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1472,13 +1478,18 @@ Today's date is ${today}.
                 onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
               >×</button>
             </div>
-            <div style={{ flex: 1, padding: '16px 24px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <textarea
+            <div style={{ flex: 1, padding: '16px 24px', display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
+              <ReactQuill
                 value={editBody}
-                onChange={e => setEditBody(e.target.value)}
-                style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', fontSize: 13, lineHeight: 1.65, color: 'var(--text)', background: 'var(--surface2)', fontFamily: 'inherit', outline: 'none', minHeight: 340 }}
-                onFocus={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
-                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+                onChange={setEditBody}
+                theme="snow"
+                modules={{
+                  toolbar: [
+                    ['bold', 'italic', 'underline'],
+                    [{ list: 'ordered' }, { list: 'bullet' }],
+                    ['clean'],
+                  ],
+                }}
               />
             </div>
             <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

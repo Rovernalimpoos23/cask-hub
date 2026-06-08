@@ -582,7 +582,12 @@ Return ONLY the HTML email body. No subject line. No preamble or explanation.`
               max_tokens: 1200,
             })
 
-            const emailBody = emailRes.content[0].type === 'text' ? emailRes.content[0].text.trim() : ''
+            let emailBody = emailRes.content[0].type === 'text' ? emailRes.content[0].text.trim() : ''
+            emailBody = emailBody
+              .replace(/^```html\n?/, '')
+              .replace(/^```\n?/, '')
+              .replace(/\n?```$/, '')
+              .trim()
 
             if (emailBody) {
               const { error: draftErr } = await supabase
