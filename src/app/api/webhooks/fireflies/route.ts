@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
     if (candidateClientName && meetingCode) {
       const { data: matchedClient, error: matchError } = await supabase
         .from('clients')
-        .select('id, name, personality_tags, communication_style, key_interests, happiness, ai_tip')
+        .select('id, name, project_type, personality_tags, communication_style, key_interests, happiness, ai_tip')
         .ilike('name', `%${candidateClientName}%`)
         .maybeSingle()
 
@@ -330,45 +330,56 @@ export async function POST(req: NextRequest) {
 
         // ── Profile update via second Claude call ─────────────────────────
         try {
-          const profilePrompt = `You are analyzing a meeting transcript for a CASK Construction client.
-Based on this transcript, extract and update the client profile.
+          const currentHappinessLabel =
+            matchedClient.happiness === 'green' ? 'Happy' :
+            matchedClient.happiness === 'yellow' ? 'At Risk' :
+            matchedClient.happiness === 'red' ? 'Needs Attention' : 'Not set'
+
+          const profilePrompt = `You are analyzing a meeting transcript to update a client profile for CASK Construction.
 
 CURRENT CLIENT PROFILE:
 - Name: ${matchedClient.name}
-- Personality Tags: ${Array.isArray(matchedClient.personality_tags) ? (matchedClient.personality_tags as string[]).join(', ') : 'None'}
-- Communication Style: ${matchedClient.communication_style ?? 'Not set'}
-- Key Interests: ${matchedClient.key_interests ?? 'Not set'}
-- Happiness Status: ${matchedClient.happiness === 'green' ? 'Happy' : matchedClient.happiness === 'yellow' ? 'At Risk' : matchedClient.happiness === 'red' ? 'Needs Attention' : 'Not set'}
+- Project Type: ${(matchedClient.project_type as string) ?? 'Not set'}
+- Current Personality Tags: ${Array.isArray(matchedClient.personality_tags) ? (matchedClient.personality_tags as string[]).join(', ') : 'None'}
+- Current Communication Style: ${matchedClient.communication_style ?? 'Not set'}
+- Current Key Interests: ${matchedClient.key_interests ?? 'Not set'}
+- Current Happiness: ${currentHappinessLabel}
 
-MEETING TRANSCRIPT:
-${fullTranscript || '(no transcript)'}
+MEETING TRANSCRIPT SUMMARY:
+${recapText || fullTranscript || '(no transcript)'}
 
-MEETING SUMMARY:
-${recapText}
+Based on the transcript update the client profile.
+Keep existing values if transcript doesn't contradict them.
+Always generate real values — never return empty or "Not set".
 
-Based on the transcript, respond ONLY with a JSON object:
+Return ONLY this exact JSON with no markdown, no code blocks, no extra text:
 {
   "personality_tags": ["tag1", "tag2"],
-  "communication_style": "how this client communicates",
+  "communication_style": "1-2 sentences about communication style",
   "key_interests": "what this client cares about",
-  "happiness": "green" or "yellow" or "red",
-  "how_to_communicate": "specific tips for communicating with this client"
+  "how_to_communicate": "specific tips for the team",
+  "happiness": "Happy" or "At Risk" or "Needs Attention",
+  "ai_tip": "one sentence tip for next interaction"
 }
 
 RULES:
-- Only include tags from this list: Verbal communicator, Direct, Detail-oriented, Analytical, Visual learner, Budget-focused, Fast decision maker, Slow processor, Needs reassurance, Email communicator, Relationship-driven, Skeptical
+- personality_tags: only use tags from this list: Verbal communicator, Direct, Detail-oriented, Analytical, Visual learner, Budget-focused, Fast decision maker, Slow processor, Needs reassurance, Email communicator, Relationship-driven, Skeptical
 - Keep existing personality tags unless the transcript clearly contradicts them
-- Only update happiness if the transcript shows clear positive (green) or negative (yellow/red) sentiment; otherwise keep existing value
-- If the transcript doesn't reveal something new — keep the existing value
+- communication_style: always write a real 1-2 sentence description, never "Not set"
+- key_interests: always write what this client cares about, never empty
+- happiness: must be exactly "Happy", "At Risk", or "Needs Attention" — no other values
 - Return ONLY the JSON, no other text`
 
           const profileRes = await anthropic.messages.create({
-            model: 'claude-sonnet-4-6',
+            model: 'claude-opus-4-8',
             messages: [{ role: 'user', content: profilePrompt }],
-            max_tokens: 600,
+            max_tokens: 700,
           })
 
-          const profileRaw = profileRes.content[0].type === 'text' ? profileRes.content[0].text : ''
+          const profileRaw = profileRes.content[0].type === 'text'
+            ? profileRes.content[0].text
+              .replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/\n?```$/, '').trim()
+            : ''
           console.log('[fireflies] profile Claude raw:', profileRaw.slice(0, 300))
 
           const profileData = extractJSON(profileRaw) as {
@@ -377,6 +388,14 @@ RULES:
             key_interests?: string
             happiness?: string
             how_to_communicate?: string
+            ai_tip?: string
+          }
+
+          // Map happiness label back to DB value
+          const happinessMap: Record<string, string> = {
+            'Happy': 'green',
+            'At Risk': 'yellow',
+            'Needs Attention': 'red',
           }
 
           const profileUpdate: Record<string, unknown> = {}
@@ -391,11 +410,14 @@ RULES:
           }
           if (profileData.how_to_communicate?.trim()) {
             profileUpdate.how_to_communicate = profileData.how_to_communicate.trim()
-            profileUpdate.ai_tip = profileData.how_to_communicate.trim()
           }
-          const validHappiness = ['green', 'yellow', 'red']
-          if (profileData.happiness && validHappiness.includes(profileData.happiness)) {
-            profileUpdate.happiness = profileData.happiness
+          // ai_tip: prefer dedicated field, fall back to how_to_communicate
+          const aiTipValue = profileData.ai_tip?.trim() || profileData.how_to_communicate?.trim()
+          if (aiTipValue) {
+            profileUpdate.ai_tip = aiTipValue
+          }
+          if (profileData.happiness && happinessMap[profileData.happiness]) {
+            profileUpdate.happiness = happinessMap[profileData.happiness]
           }
 
           if (Object.keys(profileUpdate).length > 0) {

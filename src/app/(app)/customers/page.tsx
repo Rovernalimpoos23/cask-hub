@@ -17,6 +17,8 @@ interface Client {
   meetings_completed: number
   total_meetings: number
   owner: string
+  meetingsCompleted: number
+  emailsSent: number
 }
 
 
@@ -51,7 +53,7 @@ function formatCurrency(value: number): string {
 function ClientCard({ client }: { client: Client }) {
   const [hovered, setHovered] = useState(false)
   const config = HAPPINESS_CONFIG[client.happiness]
-  const pct = Math.round((client.meetings_completed / client.total_meetings) * 100)
+  const pct = Math.round((client.meetingsCompleted / 18) * 100)
 
   return (
     <Link
@@ -137,9 +139,10 @@ function ClientCard({ client }: { client: Client }) {
       </div>
 
       {/* Progress */}
-      <div style={{ width: 120, flexShrink: 0 }}>
+      <div style={{ width: 160, flexShrink: 0 }}>
         <div style={{ fontSize: 11, color: 'var(--muted, #6b7280)', marginBottom: 5 }}>
-          {client.meetings_completed} of {client.total_meetings} meetings
+          {client.meetingsCompleted} of 18 meetings
+          {client.emailsSent > 0 && <span style={{ color: 'var(--muted, #6b7280)' }}> · {client.emailsSent} emails sent</span>}
         </div>
         <div
           style={{
@@ -201,12 +204,29 @@ export default function ActiveClientsPage() {
     async function load() {
       try {
         const supabase = createClient()
-        const { data } = await supabase
-          .from('clients')
-          .select('*')
-          .order('name')
 
-        setClients((data as Client[]) ?? [])
+        const [{ data: clientRows }, { data: meetingRows }, { data: emailRows }] = await Promise.all([
+          supabase.from('clients').select('*').order('name'),
+          supabase.from('client_meetings').select('client_id').eq('completed', true).like('meeting_id', '%m'),
+          supabase.from('client_email_drafts').select('client_id').eq('status', 'sent'),
+        ])
+
+        const meetingMap: Record<string, number> = {}
+        for (const row of meetingRows ?? []) {
+          meetingMap[row.client_id] = (meetingMap[row.client_id] ?? 0) + 1
+        }
+        const emailMap: Record<string, number> = {}
+        for (const row of emailRows ?? []) {
+          emailMap[row.client_id] = (emailMap[row.client_id] ?? 0) + 1
+        }
+
+        const enriched = (clientRows ?? []).map(c => ({
+          ...c,
+          meetingsCompleted: meetingMap[c.id] ?? 0,
+          emailsSent: emailMap[c.id] ?? 0,
+        }))
+
+        setClients(enriched as Client[])
       } catch {
         setClients([])
       } finally {

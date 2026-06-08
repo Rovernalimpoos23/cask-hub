@@ -151,9 +151,11 @@ export default function NewClientSetupPage() {
 
   // Client details
   const [name, setName]               = useState('')
+  const [email, setEmail]             = useState('')
   const [projectType, setProjectType] = useState('Custom Home')
   const [projectValue, setProjectValue] = useState('')
   const [location, setLocation]       = useState('')
+  const [projectAddress, setProjectAddress] = useState('')
   const [startDate, setStartDate]     = useState('')
   const [owner, setOwner]             = useState('Jeff')
 
@@ -210,9 +212,11 @@ export default function NewClientSetupPage() {
       const { error: clientError } = await supabase.from('clients').insert({
         id: clientId,
         name: name.trim(),
+        email: email.trim() || null,
         project_type: projectType,
         project_value: projectValue ? Number(projectValue) : null,
         location: location.trim() || null,
+        project_address: projectAddress.trim() || null,
         start_date: startDate || null,
         owner,
         happiness,
@@ -262,7 +266,7 @@ export default function NewClientSetupPage() {
       setToast({ message: msg, type: 'error' })
       setSaving(false)
     }
-  }, [name, projectType, projectValue, location, startDate, owner, happiness, selectedTags, commStyle, keyInterests, teamsLink, priorities, router])
+  }, [name, email, projectType, projectValue, location, projectAddress, startDate, owner, happiness, selectedTags, commStyle, keyInterests, teamsLink, priorities, router])
 
   return (
     <>
@@ -310,6 +314,23 @@ export default function NewClientSetupPage() {
                     placeholder="e.g. John Smith"
                     required
                     style={{ ...inputStyle, fontSize: 15, padding: '11px 14px', fontWeight: 500 }}
+                    onFocus={focusInput}
+                    onBlur={blurInput}
+                  />
+                </div>
+
+                {/* Client Email */}
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>
+                    Client Email <span style={{ color: 'var(--red)' }}>*</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="e.g. johnsmith@gmail.com"
+                    required
+                    style={inputStyle}
                     onFocus={focusInput}
                     onBlur={blurInput}
                   />
@@ -378,6 +399,20 @@ export default function NewClientSetupPage() {
                       onBlur={blurInput}
                     />
                   </div>
+                </div>
+
+                {/* Project Address */}
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Project Address</label>
+                  <input
+                    type="text"
+                    value={projectAddress}
+                    onChange={e => setProjectAddress(e.target.value)}
+                    placeholder="e.g. 123 Main St, St. Petersburg, FL 33701"
+                    style={inputStyle}
+                    onFocus={focusInput}
+                    onBlur={blurInput}
+                  />
                 </div>
 
                 {/* Owner */}
