@@ -114,7 +114,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
             className="text-[10px] font-semibold tracking-[2px] uppercase mb-2.5"
             style={{ color: 'rgba(255,255,255,0.35)' }}
           >
-            ActionCOACH · CASK Construction
+            General Meetings · CASK Construction
           </div>
           <h1 className="font-serif text-[24px] text-white mb-3 leading-[1.2] tracking-[-0.3px]">
             {meeting.title}

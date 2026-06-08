@@ -13,6 +13,7 @@ interface CalendarEvent {
   attendees: unknown
   location: string | null
   meeting_link: string | null
+  teams_link: string | null
   web_link: string | null
   is_all_day: boolean | null
 }
@@ -50,8 +51,19 @@ function getDuration(start: string, end: string | null): string | null {
 
 function getEventBorderColor(event: CalendarEvent): string {
   if (event.is_all_day) return '#059669'
-  if (event.meeting_link) return '#7c3aed'
+  if (event.meeting_link || event.teams_link) return '#7c3aed'
   return '#2563eb'
+}
+
+// Step a YYYY-MM-DD date string forward by the given recurrence frequency.
+// Anchored at UTC noon to avoid DST off-by-one when reformatting.
+function stepDate(dateStr: string, frequency: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
+  if (frequency === 'Daily') dt.setUTCDate(dt.getUTCDate() + 1)
+  else if (frequency === 'Monthly') dt.setUTCMonth(dt.getUTCMonth() + 1)
+  else dt.setUTCDate(dt.getUTCDate() + 7) // Weekly (default)
+  return dt.toISOString().split('T')[0]
 }
 
 function getCountdown(iso: string): string {
@@ -183,11 +195,40 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
   )
 }
 
-function EventCard({ event }: { event: CalendarEvent }) {
+function EventCard({ event, onGenerateAgenda }: { event: CalendarEvent; onGenerateAgenda: (event: CalendarEvent) => void }) {
   const [hovered, setHovered] = useState(false)
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [linkInput, setLinkInput] = useState('')
+  const [savingLink, setSavingLink] = useState(false)
   const borderColor = getEventBorderColor(event)
   const duration = getDuration(event.start_time, event.end_time)
   const { shown, extra } = getAttendeesDisplay(event.attendees)
+
+  const teamsLink = event.teams_link ?? null
+
+  async function saveTeamsLink() {
+    if (!linkInput.trim()) return
+    setSavingLink(true)
+    const supabase = createClient()
+    await supabase
+      .from('calendar_events')
+      .update({ teams_link: linkInput.trim() })
+      .eq('id', event.id)
+    setSavingLink(false)
+    setPasteOpen(false)
+    setLinkInput('')
+    // Realtime subscription will reload events and refresh this card
+  }
+
+  const teamsIcon = (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  )
 
   return (
     <div
@@ -200,101 +241,175 @@ function EventCard({ event }: { event: CalendarEvent }) {
         borderRadius: 10,
         padding: '14px 16px',
         display: 'flex',
-        alignItems: 'flex-start',
-        gap: 14,
+        flexDirection: 'column',
+        gap: 10,
         transition: 'border-color 150ms ease, box-shadow 150ms ease',
         boxShadow: hovered ? '0 2px 10px rgba(0,0,0,0.055)' : 'none',
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Time row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
-          <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500 }}>
-            {event.is_all_day ? 'All Day' : formatTimeRange(event.start_time, event.end_time)}
-          </span>
-          {duration && (
-            <span style={{
-              fontSize: 11, fontWeight: 600, color: 'var(--text3)',
-              background: 'var(--surface2)', border: '1px solid var(--border)',
-              borderRadius: 4, padding: '1px 6px',
-            }}>
-              {duration}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Time row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+            <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500 }}>
+              {event.is_all_day ? 'All Day' : formatTimeRange(event.start_time, event.end_time)}
             </span>
+            {duration && (
+              <span style={{
+                fontSize: 11, fontWeight: 600, color: 'var(--text3)',
+                background: 'var(--surface2)', border: '1px solid var(--border)',
+                borderRadius: 4, padding: '1px 6px',
+              }}>
+                {duration}
+              </span>
+            )}
+          </div>
+
+          {/* Title */}
+          <div style={{
+            fontSize: 14, fontWeight: 650, color: 'var(--text)',
+            marginBottom: 5, lineHeight: 1.35,
+          }}>
+            {event.title}
+          </div>
+
+          {/* Organizer + Attendees */}
+          {(event.organizer || shown.length > 0) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: event.location ? 4 : 0 }}>
+              {event.organizer && (
+                <span style={{ fontSize: 12, color: 'var(--text2)', fontWeight: 500 }}>
+                  {event.organizer}
+                </span>
+              )}
+              {event.organizer && shown.length > 0 && (
+                <span style={{ color: 'var(--border2)', fontSize: 12 }}>·</span>
+              )}
+              {shown.length > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--text3)' }}>
+                  {shown.join(', ')}
+                  {extra > 0 && (
+                    <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 600 }}>
+                      +{extra} more
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Location */}
+          {event.location && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text3)', flexShrink: 0 }}>
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                <circle cx="12" cy="10" r="3"/>
+              </svg>
+              <span style={{ fontSize: 12, color: 'var(--text3)' }}>{event.location}</span>
+            </div>
           )}
         </div>
 
-        {/* Title */}
-        <div style={{
-          fontSize: 14, fontWeight: 650, color: 'var(--text)',
-          marginBottom: 5, lineHeight: 1.35,
-        }}>
-          {event.title}
+        {/* Action buttons */}
+        <div style={{ flexShrink: 0, alignSelf: 'center', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {teamsLink ? (
+            <a
+              href={teamsLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                fontSize: 12, fontWeight: 600, color: 'white',
+                background: '#7c3aed',
+                padding: '7px 13px', borderRadius: 7,
+                textDecoration: 'none', whiteSpace: 'nowrap',
+                transition: 'opacity 150ms ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+            >
+              {teamsIcon}
+              Join Teams
+            </a>
+          ) : (
+            <button
+              onClick={() => setPasteOpen(o => !o)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                fontSize: 12, fontWeight: 600, color: 'var(--text2)',
+                background: 'var(--surface2)', border: '1px solid var(--border2)',
+                padding: '7px 13px', borderRadius: 7,
+                cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit',
+                transition: 'border-color 150ms ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+            >
+              {teamsIcon}
+              Join Teams
+            </button>
+          )}
+
+          <button
+            onClick={() => onGenerateAgenda(event)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+              fontSize: 12, fontWeight: 600, color: 'var(--text2)',
+              background: 'transparent', border: '1px solid var(--border2)',
+              padding: '7px 13px', borderRadius: 7,
+              cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit',
+              transition: 'border-color 150ms ease, color 150ms ease',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--text3)'; e.currentTarget.style.color = 'var(--text)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text2)' }}
+          >
+            ✦ Generate Agenda
+          </button>
         </div>
-
-        {/* Organizer + Attendees */}
-        {(event.organizer || shown.length > 0) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: event.location ? 4 : 0 }}>
-            {event.organizer && (
-              <span style={{ fontSize: 12, color: 'var(--text2)', fontWeight: 500 }}>
-                {event.organizer}
-              </span>
-            )}
-            {event.organizer && shown.length > 0 && (
-              <span style={{ color: 'var(--border2)', fontSize: 12 }}>·</span>
-            )}
-            {shown.length > 0 && (
-              <span style={{ fontSize: 12, color: 'var(--text3)' }}>
-                {shown.join(', ')}
-                {extra > 0 && (
-                  <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 600 }}>
-                    +{extra} more
-                  </span>
-                )}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Location */}
-        {event.location && !event.meeting_link && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text3)', flexShrink: 0 }}>
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-              <circle cx="12" cy="10" r="3"/>
-            </svg>
-            <span style={{ fontSize: 12, color: 'var(--text3)' }}>{event.location}</span>
-          </div>
-        )}
       </div>
 
-      {/* View Event button */}
-      {event.meeting_link && (
-        <div style={{ flexShrink: 0, alignSelf: 'center' }}>
-          <a
-            href={event.meeting_link}
-            target="_blank"
-            rel="noopener noreferrer"
+      {/* Inline paste Teams link */}
+      {pasteOpen && !teamsLink && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 4 }}>
+          <input
+            type="url"
+            autoFocus
+            value={linkInput}
+            onChange={e => setLinkInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveTeamsLink() }}
+            placeholder="Paste Teams meeting link"
             style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              fontSize: 12, fontWeight: 600, color: 'white',
-              background: '#7c3aed',
-              padding: '7px 13px', borderRadius: 7,
-              textDecoration: 'none',
-              transition: 'opacity 150ms ease',
+              flex: 1, minWidth: 0, padding: '7px 11px', borderRadius: 7,
+              border: '1px solid var(--border2)', background: 'var(--surface2)',
+              color: 'var(--text)', fontSize: 12, fontFamily: 'inherit',
+              outline: 'none', boxSizing: 'border-box',
             }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+          />
+          <button
+            onClick={saveTeamsLink}
+            disabled={savingLink || !linkInput.trim()}
+            style={{
+              fontSize: 12, fontWeight: 600, color: 'white',
+              background: '#7c3aed', border: 'none',
+              padding: '7px 14px', borderRadius: 7,
+              cursor: (savingLink || !linkInput.trim()) ? 'not-allowed' : 'pointer',
+              opacity: (savingLink || !linkInput.trim()) ? 0.5 : 1,
+              fontFamily: 'inherit', flexShrink: 0,
+            }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-            View Event
-          </a>
+            {savingLink ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            onClick={() => { setPasteOpen(false); setLinkInput('') }}
+            style={{
+              fontSize: 12, fontWeight: 500, color: 'var(--text3)',
+              background: 'none', border: '1px solid var(--border2)',
+              padding: '7px 12px', borderRadius: 7, cursor: 'pointer',
+              fontFamily: 'inherit', flexShrink: 0,
+            }}
+          >
+            Cancel
+          </button>
         </div>
       )}
     </div>
@@ -376,7 +491,9 @@ export default function CalendarPage() {
   const [form, setForm] = useState({
     title: '', date: '', startTime: '', endTime: '',
     organizer: '', location: '', teamsLink: '', isAllDay: false,
+    isRecurring: false, frequency: 'Weekly', repeatUntil: '',
   })
+  const [agenda, setAgenda] = useState<{ title: string; content: string; loading: boolean } | null>(null)
 
   // Tick every minute to refresh countdowns
   useEffect(() => {
@@ -473,29 +590,42 @@ export default function CalendarPage() {
     console.log('[add-event] handleSave triggered', form)
 
     const supabase = createClient()
-    const startISO = form.isAllDay
-      ? new Date(`${form.date}T00:00:00`).toISOString()
-      : etToISO(form.date, form.startTime)
-    const endISO = form.endTime
-      ? etToISO(form.date, form.endTime)
-      : null
-    const eventId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
-    const payload = {
-      event_id: eventId,
-      title: form.title,
-      start_time: startISO,
-      end_time: endISO,
-      organizer: form.organizer || null,
-      location: form.location || null,
-      meeting_link: form.teamsLink || null,
-      is_all_day: form.isAllDay,
-      user_email: 'c.noonan@caskconstruction.com',
-      attendees: [],
+    // Build the list of occurrence dates (single, or recurring up to repeatUntil)
+    const dates: string[] = [form.date]
+    if (form.isRecurring && form.repeatUntil && form.repeatUntil >= form.date) {
+      let cur = form.date
+      let guard = 0
+      while (guard < 365) {
+        cur = stepDate(cur, form.frequency)
+        if (cur > form.repeatUntil) break
+        dates.push(cur)
+        guard++
+      }
     }
-    console.log('[add-event] inserting into calendar_events:', payload)
 
-    const { data, error } = await supabase.from('calendar_events').insert(payload).select()
+    const payloads = dates.map(d => {
+      const startISO = form.isAllDay
+        ? new Date(`${d}T00:00:00`).toISOString()
+        : etToISO(d, form.startTime)
+      const endISO = form.endTime ? etToISO(d, form.endTime) : null
+      return {
+        event_id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        title: form.title,
+        start_time: startISO,
+        end_time: endISO,
+        organizer: form.organizer || null,
+        location: form.location || null,
+        meeting_link: form.teamsLink || null,
+        teams_link: form.teamsLink || null,
+        is_all_day: form.isAllDay,
+        user_email: 'c.noonan@caskconstruction.com',
+        attendees: [],
+      }
+    })
+    console.log('[add-event] inserting into calendar_events:', payloads)
+
+    const { data, error } = await supabase.from('calendar_events').insert(payloads).select()
     console.log('[add-event] insert result — data:', data, ' error:', error)
 
     setSaving(false)
@@ -508,9 +638,58 @@ export default function CalendarPage() {
     }
 
     setShowAddModal(false)
-    setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false })
-    setSaveToast({ message: 'Event added to calendar', type: 'success' })
+    setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntil: '' })
+    setSaveToast({
+      message: payloads.length > 1 ? `Added ${payloads.length} events to calendar` : 'Event added to calendar',
+      type: 'success',
+    })
     setTimeout(() => setSaveToast(null), 3500)
+  }
+
+  async function handleGenerateAgenda(event: CalendarEvent) {
+    const dateLabel = new Date(event.start_time).toLocaleDateString('en-US', {
+      timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
+    })
+    const timeLabel = event.is_all_day ? 'All Day' : formatTimeRange(event.start_time, event.end_time)
+    setAgenda({ title: event.title, content: '', loading: true })
+    try {
+      const res = await fetch('/api/generate-event-agenda', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: event.title, date: dateLabel, time: timeLabel }),
+      })
+      const json = await res.json()
+      if (res.ok && json.agenda) {
+        setAgenda({ title: event.title, content: json.agenda, loading: false })
+      } else {
+        setAgenda({ title: event.title, content: 'Failed to generate agenda. Please try again.', loading: false })
+      }
+    } catch {
+      setAgenda({ title: event.title, content: 'Failed to generate agenda. Please try again.', loading: false })
+    }
+  }
+
+  function copyAgenda() {
+    if (!agenda) return
+    navigator.clipboard.writeText(agenda.content).then(() => {
+      setSaveToast({ message: 'Agenda copied to clipboard', type: 'success' })
+      setTimeout(() => setSaveToast(null), 2500)
+    })
+  }
+
+  function printAgenda() {
+    if (!agenda) return
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const w = window.open('', '_blank', 'width=720,height=900')
+    if (!w) return
+    w.document.write(
+      `<html><head><title>${esc(agenda.title)} — Agenda</title>` +
+      `<style>body{font-family:Arial,sans-serif;padding:40px;white-space:pre-wrap;line-height:1.6;font-size:14px;color:#111}h1{font-size:20px;margin:0 0 16px}</style>` +
+      `</head><body><h1>${esc(agenda.title)}</h1>${esc(agenda.content)}</body></html>`
+    )
+    w.document.close()
+    w.focus()
+    w.print()
   }
 
   const todayLabel = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric' })
@@ -564,7 +743,7 @@ export default function CalendarPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {todayEvents.length === 0
                   ? <EmptyState />
-                  : todayEvents.map(e => <EventCard key={e.id} event={e} />)
+                  : todayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} />)
                 }
               </div>
             </div>
@@ -575,7 +754,7 @@ export default function CalendarPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {tomorrowEvents.length === 0
                   ? <EmptyState />
-                  : tomorrowEvents.map(e => <EventCard key={e.id} event={e} />)
+                  : tomorrowEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} />)
                 }
               </div>
             </div>
@@ -600,7 +779,7 @@ export default function CalendarPage() {
                         })}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {dayEvents.map(e => <EventCard key={e.id} event={e} />)}
+                        {dayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} />)}
                       </div>
                     </div>
                   ))}
@@ -664,6 +843,9 @@ export default function CalendarPage() {
         @keyframes toastIn {
           from { opacity: 0; transform: translateY(-8px); }
           to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
 
@@ -899,6 +1081,66 @@ export default function CalendarPage() {
                   }}
                 />
               </div>
+
+              {/* Recurring toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>Recurring Event</label>
+                <button
+                  onClick={() => setForm(f => ({ ...f, isRecurring: !f.isRecurring }))}
+                  style={{
+                    width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                    background: form.isRecurring ? 'var(--red)' : 'var(--border2)',
+                    position: 'relative', transition: 'background 150ms ease',
+                  }}
+                >
+                  <div style={{
+                    position: 'absolute', top: 3, left: form.isRecurring ? 21 : 3,
+                    width: 16, height: 16, borderRadius: '50%', background: 'white',
+                    transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }} />
+                </button>
+              </div>
+
+              {/* Recurring options */}
+              {form.isRecurring && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Frequency
+                    </label>
+                    <select
+                      value={form.frequency}
+                      onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box', cursor: 'pointer',
+                      }}
+                    >
+                      <option value="Daily">Daily</option>
+                      <option value="Weekly">Weekly</option>
+                      <option value="Monthly">Monthly</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Repeat Until
+                    </label>
+                    <input
+                      type="date"
+                      value={form.repeatUntil}
+                      onChange={e => setForm(f => ({ ...f, repeatUntil: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer */}
@@ -931,6 +1173,122 @@ export default function CalendarPage() {
                 }}
               >
                 {saving ? 'Saving…' : 'Add Event'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generated Agenda Modal */}
+      {agenda && (
+        <div
+          onClick={() => setAgenda(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              width: 560,
+              maxWidth: 'calc(100vw - 32px)',
+              maxHeight: 'calc(100vh - 64px)',
+              display: 'flex', flexDirection: 'column',
+              overflow: 'hidden',
+              animation: 'modalFadeIn 180ms ease',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+              padding: '16px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Meeting Agenda</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agenda.title}</div>
+              </div>
+              <button
+                onClick={() => setAgenda(null)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--text3)', padding: 4, borderRadius: 6,
+                  display: 'flex', alignItems: 'center', flexShrink: 0,
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+              {agenda.loading ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '40px 0', color: 'var(--text3)', fontSize: 13 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ animation: 'spin 0.8s linear infinite' }}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                  </svg>
+                  Generating agenda…
+                </div>
+              ) : (
+                <pre style={{
+                  margin: 0, fontFamily: 'inherit', fontSize: 13, lineHeight: 1.65,
+                  color: 'var(--text)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                }}>
+                  {agenda.content}
+                </pre>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+              padding: '14px 20px', borderTop: '1px solid var(--border)', flexShrink: 0,
+            }}>
+              <button
+                onClick={copyAgenda}
+                disabled={agenda.loading || !agenda.content}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '8px 16px', borderRadius: 8,
+                  background: 'none', border: '1px solid var(--border2)',
+                  color: 'var(--text2)', fontSize: 13, fontWeight: 500,
+                  fontFamily: 'inherit',
+                  cursor: (agenda.loading || !agenda.content) ? 'not-allowed' : 'pointer',
+                  opacity: (agenda.loading || !agenda.content) ? 0.5 : 1,
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                Copy
+              </button>
+              <button
+                onClick={printAgenda}
+                disabled={agenda.loading || !agenda.content}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '8px 18px', borderRadius: 8,
+                  background: 'var(--red)', color: 'white',
+                  border: 'none', fontSize: 13, fontWeight: 600,
+                  fontFamily: 'inherit',
+                  cursor: (agenda.loading || !agenda.content) ? 'not-allowed' : 'pointer',
+                  opacity: (agenda.loading || !agenda.content) ? 0.5 : 1,
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 6 2 18 2 18 9"/>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                  <rect x="6" y="14" width="12" height="8"/>
+                </svg>
+                Print
               </button>
             </div>
           </div>
