@@ -30,6 +30,15 @@ const CHANNELS: Channel[] = [
     buttons: ['Last meeting summary', 'Open action items', "Today's calendar", 'Design Center update'],
   },
   {
+    key: '/command-center',
+    icon: '🏛️',
+    name: 'Command Center AI',
+    subtitle: 'Departments & reports',
+    placeholder: 'Ask about departments, reports, connections...',
+    greeting: (name) => `Hi ${name}! I'm the CASK Operating System assistant. I have context on all 5 departments, their connection status, and the CASK Hub roadmap. What would you like to know?`,
+    buttons: ['What needs connecting?', 'Department owners', 'Explain a report', "What's live now?"],
+  },
+  {
     key: '/president/calendar',
     icon: '📅',
     name: 'Calendar AI',

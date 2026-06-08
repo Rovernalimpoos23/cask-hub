@@ -11,6 +11,12 @@ import type { User } from '@supabase/supabase-js'
 
 const NAV_SECTIONS = [
   {
+    label: 'CASK Operating System',
+    items: [
+      { href: '/command-center', icon: '🏛', label: 'Command Center', locked: false },
+    ],
+  },
+  {
     label: 'General Meetings',
     items: [
       { href: '/sessions', icon: '◈', label: 'All Sessions', locked: false },
