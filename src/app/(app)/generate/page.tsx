@@ -83,7 +83,7 @@ export default function GeneratePage() {
 
   return (
     <>
-      <TopBar title="Generate Agenda" subtitle="ActionCOACH">
+      <TopBar title="Generate Agenda" subtitle="General Meetings">
         <PillGreen>Claude AI Active</PillGreen>
       </TopBar>
 

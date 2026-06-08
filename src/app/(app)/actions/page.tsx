@@ -60,7 +60,7 @@ export default function ActionsPage() {
 
   return (
     <>
-      <TopBar title="Action Items" subtitle="ActionCOACH">
+      <TopBar title="Action Items" subtitle="General Meetings">
         <span
           className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
           style={{ background: 'var(--red-soft)', color: 'var(--red)', border: '1px solid var(--red-border)' }}
