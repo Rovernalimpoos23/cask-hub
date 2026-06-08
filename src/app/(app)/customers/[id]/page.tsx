@@ -990,6 +990,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [editDraft, setEditDraft] = useState<EmailDraft | null>(null)
   const [editBody, setEditBody] = useState('')
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [confirmSendDraft, setConfirmSendDraft] = useState<EmailDraft | null>(null)
   const [viewSentEmail, setViewSentEmail] = useState<EmailDraft | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -1397,6 +1398,54 @@ Today's date is ${today}.
     <>
       {activeAgenda && <AgendaModal code={activeAgenda} onClose={() => setActiveAgenda(null)} />}
 
+      {/* Send Confirmation Modal */}
+      {confirmSendDraft && (
+        <div
+          onClick={() => setConfirmSendDraft(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 10100, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 420, background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', overflow: 'hidden' }}
+          >
+            <div style={{ padding: '24px 24px 20px' }}>
+              <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 20, fontWeight: 400, color: 'var(--text)', margin: '0 0 16px', lineHeight: 1.3 }}>
+                Send Email to {client.name}?
+              </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '14px 16px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text2)' }}>To: </span>
+                  {confirmSendDraft.recipient_name}{confirmSendDraft.recipient_email ? ` (${confirmSendDraft.recipient_email})` : ''}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text2)' }}>Subject: </span>
+                  {confirmSendDraft.subject}
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '0 24px 20px', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmSendDraft(null)}
+                style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)', background: 'transparent', border: '1px solid var(--border)', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.background = 'var(--surface2)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'transparent' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { const d = confirmSendDraft; setConfirmSendDraft(null); handleSend(d) }}
+                disabled={sendingId === confirmSendDraft.id}
+                style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: 'var(--charcoal)', border: 'none', padding: '8px 18px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', opacity: sendingId === confirmSendDraft.id ? 0.6 : 1 }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = sendingId === confirmSendDraft.id ? '0.6' : '1' }}
+              >
+                📤 Yes, Send Email
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Email Preview Modal */}
       {previewDraft && (
         <div
@@ -1442,7 +1491,7 @@ Today's date is ${today}.
                 ✏️ Edit
               </button>
               <button
-                onClick={() => handleSend(previewDraft)}
+                onClick={() => setConfirmSendDraft(previewDraft)}
                 disabled={sendingId === previewDraft.id}
                 style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--red, #c8311a)', border: 'none', padding: '7px 14px', borderRadius: 7, cursor: sendingId === previewDraft.id ? 'not-allowed' : 'pointer', opacity: sendingId === previewDraft.id ? 0.6 : 1, fontFamily: 'inherit' }}
               >
@@ -1509,7 +1558,7 @@ Today's date is ${today}.
                 Save Changes
               </button>
               <button
-                onClick={() => { handleSaveEdit(editDraft, editBody).then(() => handleSend({ ...editDraft, body: editBody })) }}
+                onClick={() => { handleSaveEdit(editDraft, editBody).then(() => setConfirmSendDraft({ ...editDraft, body: editBody })) }}
                 disabled={sendingId === editDraft.id}
                 style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--red, #c8311a)', border: 'none', padding: '7px 14px', borderRadius: 7, cursor: sendingId === editDraft.id ? 'not-allowed' : 'pointer', opacity: sendingId === editDraft.id ? 0.6 : 1, fontFamily: 'inherit' }}
               >
@@ -1961,7 +2010,7 @@ Today's date is ${today}.
 
                     <button
                       type="button"
-                      onClick={() => handleSend(draft)}
+                      onClick={() => setConfirmSendDraft(draft)}
                       disabled={sendingId === draft.id}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
