@@ -11,22 +11,19 @@ import type { User } from '@supabase/supabase-js'
 
 const NAV_SECTIONS = [
   {
-    label: 'ActionCOACH',
+    label: 'General Meetings',
     items: [
-      { href: '/sessions', icon: '◈', label: 'Sessions', locked: false },
+      { href: '/sessions', icon: '◈', label: 'All Sessions', locked: false },
       { href: '/generate', icon: '✦', label: 'Generate Agenda', locked: false },
       { href: '/actions', icon: '◎', label: 'Action Items', locked: false },
     ],
   },
   {
-    label: 'President Workflow',
+    label: "President's Workflow",
     items: [
-      { href: '/president/overview', icon: '▤', label: "President's Meetings", locked: false },
-      { href: '/president/daily', icon: '📅', label: 'Daily Meetings', locked: false },
-      { href: '/president/coaching', icon: '🎯', label: 'Coaching Sessions', locked: false },
-      { href: '/president/alignment', icon: '🏢', label: 'Department Alignment', locked: false },
-      { href: '/president/pit-goals', icon: '⚡', label: 'PIT Goals', locked: false },
+      { href: '/president/overview', icon: '▤', label: "President's Meeting Agendas", locked: false },
       { href: '/president/calendar', icon: '📅', label: "President's Calendar", locked: false },
+      { href: '/daily-meetings', icon: '🗓', label: 'Daily Meetings', locked: false },
     ],
   },
   {

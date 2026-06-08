@@ -566,7 +566,8 @@ Return ONLY the email body.`
     }
 
     // No client match — save to meetings table as normal (ActionCoach session)
-    const sessionTitle = (extracted.title as string) ?? transcript.title ?? 'Untitled Meeting'
+    // Use the original Fireflies calendar/meeting title, not Claude's generated one
+    const sessionTitle = transcript.title ?? (extracted.title as string) ?? 'Untitled Meeting'
 
     const { data: existing } = await supabase
       .from('meetings')

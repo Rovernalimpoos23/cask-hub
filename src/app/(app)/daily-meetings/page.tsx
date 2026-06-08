@@ -1,5 +1,5 @@
 'use client'
-// src/app/(app)/sessions/page.tsx
+// src/app/(app)/daily-meetings/page.tsx
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
@@ -8,20 +8,24 @@ import {
   PillGreen,
   PillRed,
   MeetingCard,
-  FilterBar,
 } from '@/components/ui'
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import type { Meeting } from '@/types'
 
-const FILTER_TABS = [
-  { value: 'all', label: 'All' },
-  { value: 'leadership', label: 'Leadership' },
-  { value: 'planning', label: 'Planning' },
-  { value: 'coaching', label: 'Coaching' },
-  { value: 'education', label: 'Education' },
+// Filter tabs — matched case-insensitively against the meeting title.
+const FILTERS: { value: string; label: string; match: (title: string) => boolean }[] = [
+  { value: 'all',         label: 'All',         match: () => true },
+  { value: 'kai',         label: 'Kai',         match: t => t.includes('kai') },
+  { value: 'joseph',      label: 'Joseph',      match: t => t.includes('joseph') },
+  { value: 'leadership',  label: 'Leadership',  match: t => t.includes('leadership') },
+  { value: 'department',  label: 'Department',  match: t => t.includes('department') || t.includes('alignment') },
+  { value: 'pit',         label: 'PIT',         match: t => t.includes('pit') },
+  { value: 'actioncoach', label: 'ActionCoach', match: t => t.includes('actioncoach') || t.includes('coach') },
+  { value: 'operations',  label: 'Operations',  match: t => t.includes('pre-con') || t.includes('construction') || t.includes('operations') || t.includes('preconstruction') },
+  { value: 'sales',       label: 'Sales',       match: t => t.includes('sales') || t.includes('huddle') },
 ]
 
-export default function SessionsPage() {
+export default function DailyMeetingsPage() {
   const router = useRouter()
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
@@ -42,15 +46,14 @@ export default function SessionsPage() {
     return () => window.removeEventListener('cask-meeting-saved', handler)
   }, [loadMeetings, router])
 
-  const filtered = filter === 'all'
-    ? meetings
-    : meetings.filter(m => m.meeting_type === filter)
+  const activeFilter = FILTERS.find(f => f.value === filter) ?? FILTERS[0]
+  const filtered = meetings.filter(m => activeFilter.match(m.title.toLowerCase()))
 
   return (
     <>
-      <TopBar title="Sessions" subtitle="General Meetings">
+      <TopBar title="Daily Meetings" subtitle="President's Workflow">
         <PillGreen>Claude AI Active</PillGreen>
-        <PillRed>{meetings.length} Sessions</PillRed>
+        <PillRed>{meetings.length} meetings recorded</PillRed>
         <button
           onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
           style={{
@@ -82,19 +85,44 @@ export default function SessionsPage() {
             className="font-serif text-[26px] font-normal tracking-[-0.5px] leading-[1.1]"
             style={{ color: 'var(--text)' }}
           >
-            All Sessions
+            Daily Meetings
           </h1>
           <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
-            {loading ? 'Loading…' : `${meetings.length} meetings recorded`}
+            {loading
+              ? 'Loading…'
+              : `All CASK Construction recorded meetings · ${meetings.length} meetings recorded`}
           </p>
         </div>
 
-        <FilterBar
-          tabs={FILTER_TABS}
-          active={filter}
-          onSelect={setFilter}
-          count={filtered.length}
-        />
+        {/* Filter tabs — replicates the app FilterBar style (charcoal-filled active),
+            with per-tab count badges, an outline on inactive tabs, and wrapping. */}
+        <div
+          className="flex flex-wrap gap-1.5 mb-4 pb-3 items-center"
+          style={{ borderBottom: '1px solid var(--border)' }}
+        >
+          {FILTERS.map((f) => {
+            const isActive = filter === f.value
+            const n = f.value === 'all'
+              ? meetings.length
+              : meetings.filter(m => f.match(m.title.toLowerCase())).length
+            return (
+              <button
+                key={f.value}
+                onClick={() => setFilter(f.value)}
+                className="text-[12px] font-medium px-3 py-[5px] rounded-[5px] transition-all duration-150"
+                style={{
+                  background: isActive ? 'var(--charcoal)' : 'transparent',
+                  color: isActive ? 'white' : 'var(--text3)',
+                  border: isActive ? '1px solid var(--charcoal)' : '1px solid var(--border)',
+                  fontFamily: 'var(--font-geist), sans-serif',
+                  cursor: 'pointer',
+                }}
+              >
+                {f.label} ({n})
+              </button>
+            )
+          })}
+        </div>
 
         {loading ? (
           <div className="flex flex-col gap-2">
@@ -116,7 +144,7 @@ export default function SessionsPage() {
                 className="text-center py-12 text-[13px]"
                 style={{ color: 'var(--text3)' }}
               >
-                No sessions found for this filter.
+                No meetings found for this filter.
               </div>
             )}
           </div>
