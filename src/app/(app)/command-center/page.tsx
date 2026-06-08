@@ -4,6 +4,7 @@
 // Framework only. All data hardcoded — no Supabase, no real connections yet.
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { TopBar, PillRed } from '@/components/ui'
 
 // ── Status model ─────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ interface Department {
   dataSource: string
   status: Status
   reports: Report[]
+  href?: string
 }
 
 // ── Data (hardcoded) ─────────────────────────────────────────────────
@@ -47,6 +49,7 @@ const DEPARTMENTS: Department[] = [
     icon: 'target',
     badge: '#3B82F6',
     border: '#3B82F6',
+    href: '/command-center/sales',
     owner: 'Sales Manager',
     frequency: 'Weekly / Monthly',
     dataSource: 'CRM / Sales Pipeline',
@@ -68,6 +71,7 @@ const DEPARTMENTS: Department[] = [
     icon: 'wrench',
     badge: '#F59E0B',
     border: '#F59E0B',
+    href: '/command-center/operations',
     owner: 'Operations Manager',
     frequency: 'Weekly',
     dataSource: 'BuilderTrend',
@@ -90,6 +94,7 @@ const DEPARTMENTS: Department[] = [
     icon: 'dollar',
     badge: '#10B981',
     border: '#10B981',
+    href: '/command-center/finance',
     owner: 'Finance Team',
     frequency: 'Weekly / Monthly',
     dataSource: 'QuickBooks Online',
@@ -114,6 +119,7 @@ const HR_DEPT: Department = {
   icon: 'users',
   badge: '#8B5CF6',
   border: '#8B5CF6',
+  href: '/command-center/hr',
   owner: 'HR Manager',
   frequency: 'Monthly',
   dataSource: 'HR System',
@@ -136,6 +142,7 @@ const EXEC_DEPT: Department = {
   icon: 'building',
   badge: '#F59E0B',
   border: '#F59E0B',
+  href: '/command-center/executive',
   owner: 'Executive Team',
   frequency: 'Weekly',
   dataSource: 'All Departments',
@@ -360,7 +367,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
 
 function DeptCard({ dept }: { dept: Department }) {
   const [hovered, setHovered] = useState(false)
-  return (
+  const card = (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -372,8 +379,10 @@ function DeptCard({ dept }: { dept: Department }) {
         borderLeft: `4px solid ${dept.border}`,
         borderRadius: 12,
         padding: '18px 20px',
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
+        cursor: dept.href ? 'pointer' : 'default',
         transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
         boxShadow: hovered ? '0 6px 20px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
         transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
@@ -467,27 +476,55 @@ function DeptCard({ dept }: { dept: Department }) {
         ))}
       </div>
 
-      {/* Connect button (disabled) */}
-      <button
-        disabled
-        style={{
-          marginTop: 'auto',
-          width: '100%',
-          padding: '9px 14px',
-          borderRadius: 8,
-          background: 'var(--surface2)',
-          border: '1px solid var(--border)',
-          color: 'var(--text3)',
-          fontSize: 13,
-          fontWeight: 600,
-          fontFamily: 'inherit',
-          cursor: 'not-allowed',
-        }}
-      >
-        Connect →
-      </button>
+      {/* Footer action */}
+      {dept.href ? (
+        <div
+          style={{
+            marginTop: 'auto',
+            width: '100%',
+            padding: '9px 14px',
+            borderRadius: 8,
+            background: `${dept.border}14`,
+            border: `1px solid ${dept.border}40`,
+            color: dept.border,
+            fontSize: 13,
+            fontWeight: 600,
+            textAlign: 'center',
+          }}
+        >
+          View Reports →
+        </div>
+      ) : (
+        <button
+          disabled
+          style={{
+            marginTop: 'auto',
+            width: '100%',
+            padding: '9px 14px',
+            borderRadius: 8,
+            background: 'var(--surface2)',
+            border: '1px solid var(--border)',
+            color: 'var(--text3)',
+            fontSize: 13,
+            fontWeight: 600,
+            fontFamily: 'inherit',
+            cursor: 'not-allowed',
+          }}
+        >
+          Connect →
+        </button>
+      )}
     </div>
   )
+
+  if (dept.href) {
+    return (
+      <Link href={dept.href} style={{ textDecoration: 'none', color: 'inherit', display: 'block', height: '100%' }}>
+        {card}
+      </Link>
+    )
+  }
+  return card
 }
 
 function MiniReportCard({ card }: { card: MiniCard }) {
