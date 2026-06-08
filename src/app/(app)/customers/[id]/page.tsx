@@ -30,9 +30,11 @@ interface ClientData {
   id: string
   name: string
   initials: string
+  email: string
   project_type: string
   project_value: number
   location: string
+  project_address: string
   start_date: string
   happiness: Happiness
   owner: string
@@ -251,6 +253,72 @@ const PRIORITY_CONFIG: Record<PriorityStatus, { dot: string; color: string; stri
   done: { dot: '#16a34a', color: '#16a34a', strike: true },
   in_progress: { dot: '#d97706', color: '#d97706', strike: false },
   unresolved: { dot: '#dc2626', color: '#dc2626', strike: false },
+}
+
+// ── Edit Client modal config (mirrors New Client Setup) ───────────────────────
+
+const PROJECT_TYPES = ['Custom Home', 'ADU', 'Detached Garage', 'Addition', 'Other']
+const OWNERS = ['Calin', 'Jeff', 'Matteo', 'Chad']
+const ALL_TAGS = [
+  'Verbal communicator', 'Direct', 'Detail-oriented', 'Analytical',
+  'Visual learner', 'Budget-focused', 'Fast decision maker',
+  'Slow processor', 'Needs reassurance', 'Email communicator',
+  'Relationship-driven', 'Skeptical',
+]
+const HAPPINESS_OPTIONS: { value: Happiness; emoji: string; label: string; accent: string; bg: string }[] = [
+  { value: 'green',  emoji: '🟢', label: 'Happy',           accent: '#16a34a', bg: '#F0FDF4' },
+  { value: 'yellow', emoji: '🟡', label: 'At Risk',         accent: '#d97706', bg: '#FFFBEB' },
+  { value: 'red',    emoji: '🔴', label: 'Needs Attention', accent: '#dc2626', bg: '#FDF2F0' },
+]
+
+const COMM_PLACEHOLDER = 'No communication style added yet.'
+const INTEREST_PLACEHOLDER = 'No interests added yet.'
+
+const STATUS_OPTIONS: { value: PriorityStatus; label: string }[] = [
+  { value: 'unresolved',  label: 'Unresolved' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'done',        label: 'Done' },
+]
+
+interface EditPriorityRow { id: string; text: string; status: PriorityStatus }
+interface EditClientForm {
+  name: string
+  email: string
+  project_type: string
+  project_value: string
+  location: string
+  project_address: string
+  start_date: string
+  owner: string
+  happiness: Happiness
+  personality_tags: string[]
+  communication_style: string
+  key_interests: string
+  priorities: EditPriorityRow[]
+}
+
+const editFieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6 }
+const editLabelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 500, color: 'var(--text2)' }
+const editInputStyle: React.CSSProperties = {
+  width: '100%',
+  background: 'var(--bg)',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  padding: '9px 12px',
+  fontSize: 13,
+  color: 'var(--text)',
+  outline: 'none',
+  fontFamily: 'inherit',
+  transition: 'border-color 150ms ease, box-shadow 150ms ease',
+  boxSizing: 'border-box',
+}
+function editFocus(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+  e.currentTarget.style.borderColor = 'var(--border2)'
+  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(0,0,0,0.04)'
+}
+function editBlur(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+  e.currentTarget.style.borderColor = 'var(--border)'
+  e.currentTarget.style.boxShadow = 'none'
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -993,6 +1061,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [confirmSendDraft, setConfirmSendDraft] = useState<EmailDraft | null>(null)
   const [viewSentEmail, setViewSentEmail] = useState<EmailDraft | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<EditClientForm | null>(null)
+  const [savingClient, setSavingClient] = useState(false)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -1053,61 +1123,63 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     return () => clearTimeout(timer)
   }, [toast])
 
-  useEffect(() => {
-    async function fetchClient() {
-      const supabase = createClient()
+  const fetchClient = useCallback(async () => {
+    const supabase = createClient()
 
-      const { data: row, error } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('id', params.id)
-        .single()
+    const { data: row, error } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('id', params.id)
+      .single()
 
-      if (error || !row) {
-        setClient(null)
-        return
-      }
-
-      const [{ data: priorityRows }, { data: meetingRows }] = await Promise.all([
-        supabase.from('client_priorities').select('*').eq('client_id', params.id),
-        supabase.from('client_meetings').select('*').eq('client_id', params.id),
-      ])
-
-      const priorities: Priority[] = (priorityRows ?? []).map((p: Record<string, string>) => ({
-        text: p.text,
-        status: (p.status as PriorityStatus) ?? 'unresolved',
-      }))
-
-      // Build meeting rows map keyed by meeting_id
-      const rowsMap = new Map<string, ClientMeetingRow>()
-      for (const m of (meetingRows ?? []) as ClientMeetingRow[]) {
-        if (m.meeting_id) rowsMap.set(m.meeting_id, m)
-      }
-      setJourneyRows(rowsMap)
-
-      const happiness: Happiness =
-        row.happiness === 'yellow' || row.happiness === 'red' ? row.happiness : 'green'
-
-      setClient({
-        id: row.id,
-        name: row.name,
-        initials: getInitials(row.name),
-        project_type: row.project_type ?? '',
-        project_value: row.project_value ?? 0,
-        location: row.location ?? '',
-        start_date: row.start_date ?? '',
-        happiness,
-        owner: row.owner ?? '',
-        personality_tags: Array.isArray(row.personality_tags) ? row.personality_tags : [],
-        communication_style: row.communication_style ?? 'No communication style added yet.',
-        key_interests: row.key_interests ?? 'No interests added yet.',
-        ai_tip: row.ai_tip ?? 'Add personality details to get AI communication tips.',
-        priorities,
-      })
+    if (error || !row) {
+      setClient(null)
+      return
     }
 
-    fetchClient()
+    const [{ data: priorityRows }, { data: meetingRows }] = await Promise.all([
+      supabase.from('client_priorities').select('*').eq('client_id', params.id).order('sort_order', { ascending: true }),
+      supabase.from('client_meetings').select('*').eq('client_id', params.id),
+    ])
+
+    const priorities: Priority[] = (priorityRows ?? []).map((p: Record<string, string>) => ({
+      text: p.text,
+      status: (p.status as PriorityStatus) ?? 'unresolved',
+    }))
+
+    // Build meeting rows map keyed by meeting_id
+    const rowsMap = new Map<string, ClientMeetingRow>()
+    for (const m of (meetingRows ?? []) as ClientMeetingRow[]) {
+      if (m.meeting_id) rowsMap.set(m.meeting_id, m)
+    }
+    setJourneyRows(rowsMap)
+
+    const happiness: Happiness =
+      row.happiness === 'yellow' || row.happiness === 'red' ? row.happiness : 'green'
+
+    setClient({
+      id: row.id,
+      name: row.name,
+      initials: getInitials(row.name),
+      email: row.email ?? '',
+      project_type: row.project_type ?? '',
+      project_value: row.project_value ?? 0,
+      location: row.location ?? '',
+      project_address: row.project_address ?? '',
+      start_date: row.start_date ?? '',
+      happiness,
+      owner: row.owner ?? '',
+      personality_tags: Array.isArray(row.personality_tags) ? row.personality_tags : [],
+      communication_style: row.communication_style ?? COMM_PLACEHOLDER,
+      key_interests: row.key_interests ?? INTEREST_PLACEHOLDER,
+      ai_tip: row.ai_tip ?? 'Add personality details to get AI communication tips.',
+      priorities,
+    })
   }, [params.id])
+
+  useEffect(() => {
+    fetchClient()
+  }, [fetchClient])
 
   async function markComplete(meetingCode: string, phaseNumber: number, title: string) {
     setMarkingIds(prev => new Set(prev).add(meetingCode))
@@ -1207,6 +1279,94 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       setEmailDrafts(prev => prev.map(d => d.id === draft.id ? { ...d, body: newBody } : d))
     }
     setEditDraft(null)
+  }
+
+  function openEditModal() {
+    if (!client || client === 'loading') return
+    setEditForm({
+      name: client.name,
+      email: client.email ?? '',
+      project_type: client.project_type || 'Custom Home',
+      project_value: client.project_value ? String(client.project_value) : '',
+      location: client.location ?? '',
+      project_address: client.project_address ?? '',
+      start_date: client.start_date ?? '',
+      owner: client.owner || 'Calin',
+      happiness: client.happiness,
+      personality_tags: [...client.personality_tags],
+      communication_style: client.communication_style === COMM_PLACEHOLDER ? '' : client.communication_style,
+      key_interests: client.key_interests === INTEREST_PLACEHOLDER ? '' : client.key_interests,
+      priorities: client.priorities.map(p => ({ id: crypto.randomUUID(), text: p.text, status: p.status })),
+    })
+  }
+
+  async function handleSaveClient() {
+    if (!editForm || client === 'loading' || !client) return
+    if (!editForm.name.trim()) {
+      setToast('Client name is required')
+      return
+    }
+
+    setSavingClient(true)
+    try {
+      const supabase = createClient()
+
+      // Build update with only changed fields
+      const update: Record<string, unknown> = {}
+      if (editForm.name.trim() !== client.name) update.name = editForm.name.trim()
+      if (editForm.email.trim() !== (client.email ?? '')) update.email = editForm.email.trim() || null
+      if (editForm.project_type !== client.project_type) update.project_type = editForm.project_type
+      const newValue = editForm.project_value ? Number(editForm.project_value) : 0
+      if (newValue !== client.project_value) update.project_value = newValue
+      if (editForm.location.trim() !== client.location) update.location = editForm.location.trim() || null
+      if (editForm.project_address.trim() !== (client.project_address ?? '')) update.project_address = editForm.project_address.trim() || null
+      if (editForm.start_date !== client.start_date) update.start_date = editForm.start_date || null
+      if (editForm.owner !== client.owner) update.owner = editForm.owner
+      if (editForm.happiness !== client.happiness) update.happiness = editForm.happiness
+      if (JSON.stringify(editForm.personality_tags) !== JSON.stringify(client.personality_tags)) {
+        update.personality_tags = editForm.personality_tags
+      }
+      const origComm = client.communication_style === COMM_PLACEHOLDER ? '' : client.communication_style
+      if (editForm.communication_style.trim() !== origComm) {
+        update.communication_style = editForm.communication_style.trim() || null
+      }
+      const origInterests = client.key_interests === INTEREST_PLACEHOLDER ? '' : client.key_interests
+      if (editForm.key_interests.trim() !== origInterests) {
+        update.key_interests = editForm.key_interests.trim() || null
+      }
+
+      if (Object.keys(update).length > 0) {
+        const { error } = await supabase.from('clients').update(update).eq('id', client.id)
+        if (error) throw new Error(error.message)
+      }
+
+      // Priorities — delete + reinsert only if changed
+      const cleaned = editForm.priorities.filter(p => p.text.trim())
+      const newPriKey = JSON.stringify(cleaned.map(p => ({ text: p.text.trim(), status: p.status })))
+      const oldPriKey = JSON.stringify(client.priorities.map(p => ({ text: p.text, status: p.status })))
+      if (newPriKey !== oldPriKey) {
+        await supabase.from('client_priorities').delete().eq('client_id', client.id)
+        if (cleaned.length > 0) {
+          await supabase.from('client_priorities').insert(
+            cleaned.map((p, i) => ({
+              id: crypto.randomUUID(),
+              client_id: client.id,
+              text: p.text.trim(),
+              status: p.status,
+              sort_order: i,
+            }))
+          )
+        }
+      }
+
+      await fetchClient()
+      setToast('Client updated successfully')
+      setEditForm(null)
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Failed to update client')
+    } finally {
+      setSavingClient(false)
+    }
   }
 
   function saveMessage(role: string, content: string) {
@@ -1398,6 +1558,305 @@ Today's date is ${today}.
   return (
     <>
       {activeAgenda && <AgendaModal code={activeAgenda} onClose={() => setActiveAgenda(null)} />}
+
+      {/* Edit Client Modal */}
+      {editForm && (
+        <div
+          onClick={() => { if (!savingClient) setEditForm(null) }}
+          style={{ position: 'fixed', inset: 0, zIndex: 10050, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 640, maxHeight: '88vh', background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+          >
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
+              <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 20, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
+                Edit Client
+              </h2>
+              <button
+                onClick={() => { if (!savingClient) setEditForm(null) }}
+                style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >×</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+                {/* Name */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Client Name <span style={{ color: 'var(--red)' }}>*</span></label>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={e => setEditForm(f => f && { ...f, name: e.target.value })}
+                    placeholder="e.g. John Smith"
+                    style={{ ...editInputStyle, fontSize: 15, padding: '11px 14px', fontWeight: 500 }}
+                    onFocus={editFocus}
+                    onBlur={editBlur}
+                  />
+                </div>
+
+                {/* Email */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Client Email</label>
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={e => setEditForm(f => f && { ...f, email: e.target.value })}
+                    placeholder="e.g. johnsmith@gmail.com"
+                    style={editInputStyle}
+                    onFocus={editFocus}
+                    onBlur={editBlur}
+                  />
+                </div>
+
+                {/* Project type + Value */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={editFieldStyle}>
+                    <label style={editLabelStyle}>Project Type</label>
+                    <select
+                      value={editForm.project_type}
+                      onChange={e => setEditForm(f => f && { ...f, project_type: e.target.value })}
+                      style={{ ...editInputStyle, cursor: 'pointer' }}
+                      onFocus={editFocus}
+                      onBlur={editBlur}
+                    >
+                      {[...PROJECT_TYPES, editForm.project_type].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i).map(t => <option key={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div style={editFieldStyle}>
+                    <label style={editLabelStyle}>Project Value</label>
+                    <div style={{ position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: 'var(--text3)', pointerEvents: 'none' }}>$</span>
+                      <input
+                        type="number"
+                        value={editForm.project_value}
+                        onChange={e => setEditForm(f => f && { ...f, project_value: e.target.value })}
+                        placeholder="485000"
+                        style={{ ...editInputStyle, paddingLeft: 24 }}
+                        onFocus={editFocus}
+                        onBlur={editBlur}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Location + Project Address */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Location</label>
+                  <input
+                    type="text"
+                    value={editForm.location}
+                    onChange={e => setEditForm(f => f && { ...f, location: e.target.value })}
+                    placeholder="e.g. St. Petersburg, FL"
+                    style={editInputStyle}
+                    onFocus={editFocus}
+                    onBlur={editBlur}
+                  />
+                </div>
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Project Address</label>
+                  <input
+                    type="text"
+                    value={editForm.project_address}
+                    onChange={e => setEditForm(f => f && { ...f, project_address: e.target.value })}
+                    placeholder="e.g. 123 Main St, St. Petersburg, FL 33701"
+                    style={editInputStyle}
+                    onFocus={editFocus}
+                    onBlur={editBlur}
+                  />
+                </div>
+
+                {/* Start date + Owner */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={editFieldStyle}>
+                    <label style={editLabelStyle}>Start Date</label>
+                    <input
+                      type="date"
+                      value={editForm.start_date}
+                      onChange={e => setEditForm(f => f && { ...f, start_date: e.target.value })}
+                      style={editInputStyle}
+                      onFocus={editFocus}
+                      onBlur={editBlur}
+                    />
+                  </div>
+                  <div style={editFieldStyle}>
+                    <label style={editLabelStyle}>Owner</label>
+                    <select
+                      value={editForm.owner}
+                      onChange={e => setEditForm(f => f && { ...f, owner: e.target.value })}
+                      style={{ ...editInputStyle, cursor: 'pointer' }}
+                      onFocus={editFocus}
+                      onBlur={editBlur}
+                    >
+                      {[...OWNERS, editForm.owner].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i).map(o => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Happiness */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Client Happiness</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    {HAPPINESS_OPTIONS.map(opt => {
+                      const active = editForm.happiness === opt.value
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setEditForm(f => f && { ...f, happiness: opt.value })}
+                          style={{
+                            padding: '12px 10px', borderRadius: 10,
+                            border: `2px solid ${active ? opt.accent : 'var(--border)'}`,
+                            background: active ? opt.bg : 'var(--bg)',
+                            cursor: 'pointer', display: 'flex', flexDirection: 'column',
+                            alignItems: 'center', gap: 5, fontFamily: 'inherit',
+                            transition: 'border-color 150ms ease, background 150ms ease',
+                          }}
+                        >
+                          <span style={{ fontSize: 20 }}>{opt.emoji}</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: active ? opt.accent : 'var(--text2)' }}>{opt.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Personality tags */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Personality Tags</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                    {ALL_TAGS.map(tag => {
+                      const active = editForm.personality_tags.includes(tag)
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setEditForm(f => f && ({
+                            ...f,
+                            personality_tags: f.personality_tags.includes(tag)
+                              ? f.personality_tags.filter(t => t !== tag)
+                              : [...f.personality_tags, tag],
+                          }))}
+                          style={{
+                            padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 500,
+                            border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border)'}`,
+                            background: active ? 'var(--charcoal)' : 'transparent',
+                            color: active ? 'white' : 'var(--text2)',
+                            cursor: 'pointer', transition: 'all 120ms ease', fontFamily: 'inherit',
+                          }}
+                        >
+                          {tag}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Communication style */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Communication Style</label>
+                  <textarea
+                    value={editForm.communication_style}
+                    onChange={e => setEditForm(f => f && { ...f, communication_style: e.target.value })}
+                    placeholder="How does this client prefer to communicate? What's their style?"
+                    rows={3}
+                    style={{ ...editInputStyle, resize: 'vertical', lineHeight: 1.6 }}
+                    onFocus={editFocus}
+                    onBlur={editBlur}
+                  />
+                </div>
+
+                {/* Key interests */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Key Interests</label>
+                  <textarea
+                    value={editForm.key_interests}
+                    onChange={e => setEditForm(f => f && { ...f, key_interests: e.target.value })}
+                    placeholder="e.g. Tampa Bay Rays fan, loves modern design, rental income potential"
+                    rows={2}
+                    style={{ ...editInputStyle, resize: 'vertical', lineHeight: 1.6 }}
+                    onFocus={editFocus}
+                    onBlur={editBlur}
+                  />
+                </div>
+
+                {/* Key priorities */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Key Priorities</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {editForm.priorities.map((p, i) => (
+                      <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '1fr 140px 32px', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={p.text}
+                          onChange={e => setEditForm(f => f && ({ ...f, priorities: f.priorities.map(x => x.id === p.id ? { ...x, text: e.target.value } : x) }))}
+                          placeholder={`Priority ${i + 1}`}
+                          style={{ ...editInputStyle, fontSize: 13 }}
+                          onFocus={editFocus}
+                          onBlur={editBlur}
+                        />
+                        <select
+                          value={p.status}
+                          onChange={e => setEditForm(f => f && ({ ...f, priorities: f.priorities.map(x => x.id === p.id ? { ...x, status: e.target.value as PriorityStatus } : x) }))}
+                          style={{ ...editInputStyle, cursor: 'pointer', fontSize: 12 }}
+                          onFocus={editFocus}
+                          onBlur={editBlur}
+                        >
+                          {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setEditForm(f => f && ({ ...f, priorities: f.priorities.filter(x => x.id !== p.id) }))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 18, lineHeight: 1, padding: 0, fontFamily: 'inherit', textAlign: 'center' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)' }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)' }}
+                        >×</button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setEditForm(f => f && ({ ...f, priorities: [...f.priorities, { id: crypto.randomUUID(), text: '', status: 'unresolved' }] }))}
+                      style={{ marginTop: 2, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 12, fontWeight: 500, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)' }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)' }}
+                    >
+                      <span style={{ fontSize: 15 }}>+</span> Add priority
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { if (!savingClient) setEditForm(null) }}
+                disabled={savingClient}
+                style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)', background: 'transparent', border: '1px solid var(--border)', padding: '8px 16px', borderRadius: 8, cursor: savingClient ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                onMouseEnter={e => { if (!savingClient) { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.background = 'var(--surface2)' } }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'transparent' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveClient}
+                disabled={savingClient}
+                style={{ fontSize: 13, fontWeight: 600, color: '#fff', background: 'var(--charcoal)', border: 'none', padding: '8px 18px', borderRadius: 8, cursor: savingClient ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: savingClient ? 0.6 : 1 }}
+                onMouseEnter={e => { if (!savingClient) e.currentTarget.style.opacity = '0.85' }}
+                onMouseLeave={e => { if (!savingClient) e.currentTarget.style.opacity = '1' }}
+              >
+                {savingClient ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Send Confirmation Modal */}
       {confirmSendDraft && (
@@ -1729,12 +2188,32 @@ Today's date is ${today}.
               >
                 Customer Journey · CASK Construction
               </div>
-              <h1
-                className="font-serif text-[26px] text-white leading-[1.15] tracking-[-0.3px]"
-                style={{ margin: 0 }}
-              >
-                {client.name}
-              </h1>
+              <div className="flex items-center gap-2.5">
+                <h1
+                  className="font-serif text-[26px] text-white leading-[1.15] tracking-[-0.3px]"
+                  style={{ margin: 0 }}
+                >
+                  {client.name}
+                </h1>
+                <button
+                  onClick={openEditModal}
+                  title="Edit client"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 28, height: 28, borderRadius: 7,
+                    background: 'rgba(255,255,255,0.08)',
+                    border: '1px solid rgba(255,255,255,0.14)',
+                    color: 'rgba(255,255,255,0.7)',
+                    fontSize: 13, lineHeight: 1, cursor: 'pointer',
+                    fontFamily: 'inherit', flexShrink: 0,
+                    transition: 'background 150ms ease, border-color 150ms ease',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.28)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)' }}
+                >
+                  ✏️
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1779,6 +2258,29 @@ Today's date is ${today}.
             >
               Owner: {client.owner}
             </span>
+            {client.email && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(client.email).then(() => {
+                    setToast('Email copied to clipboard!')
+                    setTimeout(() => setToast(null), 2000)
+                  })
+                }}
+                className="text-[11px] font-medium px-3 py-1 rounded-full"
+                style={{
+                  color: 'rgba(255,255,255,0.7)',
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  transition: 'background 150ms ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+              >
+                📧 {client.email}
+              </button>
+            )}
             <span
               className="text-[11px] font-semibold px-3 py-1 rounded-full"
               style={{ background: happiness.bg, color: happiness.color }}
