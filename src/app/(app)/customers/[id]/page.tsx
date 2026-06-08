@@ -1654,9 +1654,11 @@ Today's date is ${today}.
 
               {/* Email body */}
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.1px', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 10 }}>Email Body</div>
-              <pre style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.65, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>
-                {viewSentEmail.body}
-              </pre>
+              <div
+                dangerouslySetInnerHTML={{ __html: viewSentEmail.body }}
+                style={{ fontFamily: 'Arial, sans-serif', lineHeight: '1.6', fontSize: '14px', color: '#333333' }}
+                className="prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_li]:my-1 [&_p]:my-2 [&_strong]:font-bold [&_a]:text-blue-600 [&_a]:underline"
+              />
             </div>
 
             {/* Footer */}
