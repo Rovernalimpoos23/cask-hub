@@ -1390,8 +1390,9 @@ Today's date is ${today}.
   }
 
   const happiness = HAPPINESS[client.happiness]
-  const completedCount = Array.from(journeyRows.values()).filter(r => r.completed).length
-  const journeyPct = TOTAL_MEETINGS > 0 ? Math.round((completedCount / TOTAL_MEETINGS) * 100) : 0
+  const completedCount = Array.from(journeyRows.entries()).filter(([code, r]) => r.completed && code.endsWith('m')).length
+  const sentEmailCount = sentEmails.length
+  const journeyPct = Math.round((completedCount / 18) * 100)
   const sentEmailsByCode = new Map(sentEmails.map(e => [e.email_code, e]))
 
   return (
@@ -2132,7 +2133,10 @@ Today's date is ${today}.
           <div className="mb-5">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[13px] font-medium" style={{ color: 'var(--text2)' }}>
-                {completedCount} of {TOTAL_MEETINGS} meetings completed
+                {completedCount} of 18 meetings completed
+                {sentEmailCount > 0 && (
+                  <span style={{ color: 'var(--text3)' }}> · {sentEmailCount} emails sent</span>
+                )}
               </span>
               <span className="text-[12px] font-semibold" style={{ color: happiness.accent }}>
                 {journeyPct}%
