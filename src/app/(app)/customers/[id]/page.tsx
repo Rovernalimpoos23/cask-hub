@@ -817,8 +817,8 @@ function PhaseCard({
                       </button>
                     )}
 
-                    {/* View Email — email type without sent record */}
-                    {meeting.type === 'email' && !sentEmail && AGENDAS[meeting.code] && (
+                    {/* View Email — always shown for email types, regardless of sent/complete status */}
+                    {meeting.type === 'email' && AGENDAS[meeting.code] && (
                       <button
                         type="button"
                         onClick={() => onViewAgenda(meeting.code)}
