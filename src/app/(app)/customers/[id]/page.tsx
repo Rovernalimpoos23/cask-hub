@@ -307,13 +307,15 @@ function IntelligencePanel({ client, journeyRows, messages, onSend, onClear }: {
 }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const messagesRef = useRef<HTMLDivElement>(null)
   const greeting = buildGreeting(client, journeyRows)
 
+  // Keep the latest message in view by scrolling the chat's OWN container only.
+  // Using scrollTop (not scrollIntoView) means this never bubbles up to scroll
+  // the page — so restoring persistent history on mount won't jump the page down.
   useEffect(() => {
-    if (messages.length > 0) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
+    const el = messagesRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [messages])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -369,7 +371,7 @@ function IntelligencePanel({ client, journeyRows, messages, onSend, onClear }: {
       </div>
 
       {/* Messages */}
-      <div className="px-5 py-4 flex flex-col gap-3" style={{ minHeight: 120 }}>
+      <div ref={messagesRef} className="px-5 py-4 flex flex-col gap-3" style={{ minHeight: 120, maxHeight: 420, overflowY: 'auto' }}>
         <div className="flex justify-start">
           <div
             className="text-[12px] leading-relaxed px-3.5 py-2.5 max-w-[88%]"
@@ -448,7 +450,6 @@ function IntelligencePanel({ client, journeyRows, messages, onSend, onClear }: {
           </div>
         )}
 
-        <div ref={bottomRef} />
       </div>
 
       {/* Input */}
