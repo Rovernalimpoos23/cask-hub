@@ -292,11 +292,12 @@ function buildGreeting(client: ClientData, journeyRows: Map<string, ClientMeetin
   return `Hey! I have full context on ${client.name}. All ${TOTAL_MEETINGS} meetings completed — journey finished! How can I help?`
 }
 
-function IntelligencePanel({ client, journeyRows, messages, onSend }: {
+function IntelligencePanel({ client, journeyRows, messages, onSend, onClear }: {
   client: ClientData
   journeyRows: Map<string, ClientMeetingRow>
   messages: { role: 'user' | 'assistant'; content: string }[]
   onSend: (msg: string) => void
+  onClear: () => void
 }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -329,17 +330,35 @@ function IntelligencePanel({ client, journeyRows, messages, onSend }: {
         className="px-6 py-4"
         style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
       >
-        <div className="flex items-center gap-2.5">
-          <div
-            className="w-[7px] h-[7px] rounded-full"
-            style={{ background: 'var(--red, #c8311a)', boxShadow: '0 0 6px rgba(200,49,26,0.6)' }}
-          />
-          <span
-            className="text-[12px] font-semibold tracking-[0.8px] uppercase"
-            style={{ color: 'rgba(255,255,255,0.5)' }}
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-[7px] h-[7px] rounded-full"
+              style={{ background: 'var(--red, #c8311a)', boxShadow: '0 0 6px rgba(200,49,26,0.6)' }}
+            />
+            <span
+              className="text-[12px] font-semibold tracking-[0.8px] uppercase"
+              style={{ color: 'rgba(255,255,255,0.5)' }}
+            >
+              CASK Intelligence — {client.name} context
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-[10px] font-medium px-2 py-1 rounded-[4px] transition-opacity"
+            style={{
+              color: 'rgba(255,255,255,0.3)',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
           >
-            CASK Intelligence — {client.name} context
-          </span>
+            Clear
+          </button>
         </div>
       </div>
 
@@ -955,6 +974,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [journeyRows, setJourneyRows] = useState<Map<string, ClientMeetingRow>>(new Map())
   const [markingIds, setMarkingIds] = useState<Set<string>>(new Set())
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+  const [userEmail, setUserEmail] = useState('')
+  const userEmailRef = useRef('')
   const [activeAgenda, setActiveAgenda] = useState<string | null>(null)
   const [emailDrafts, setEmailDrafts] = useState<EmailDraft[]>([])
   const [sentEmails, setSentEmails] = useState<EmailDraft[]>([])
@@ -974,6 +995,30 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const scrollContainers = document.querySelectorAll('.overflow-y-auto')
     scrollContainers.forEach(el => { (el as HTMLElement).scrollTop = 0 })
   }, [])
+
+  useEffect(() => {
+    async function fetchUserAndHistory() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user?.email) return
+      const email = user.email
+      setUserEmail(email)
+      userEmailRef.current = email
+
+      const pageContext = `customer-${params.id}`
+      const { data: history } = await supabase
+        .from('chat_history')
+        .select('role, content')
+        .eq('user_email', email)
+        .eq('page_context', pageContext)
+        .order('created_at', { ascending: true })
+        .limit(50)
+      if (history && history.length > 0) {
+        setChatMessages(history as { role: 'user' | 'assistant'; content: string }[])
+      }
+    }
+    fetchUserAndHistory()
+  }, [params.id])
 
   useEffect(() => {
     async function fetchEmailDrafts() {
@@ -1156,9 +1201,28 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     setEditDraft(null)
   }
 
+  function saveMessage(role: string, content: string) {
+    if (!userEmailRef.current) return
+    createClient()
+      .from('chat_history')
+      .insert({ user_email: userEmailRef.current, page_context: `customer-${params.id}`, role, content })
+      .then(({ error }) => { if (error) console.error('[chat history] save error:', error.message) })
+  }
+
+  async function clearHistory() {
+    if (!userEmailRef.current) return
+    await createClient()
+      .from('chat_history')
+      .delete()
+      .eq('user_email', userEmailRef.current)
+      .eq('page_context', `customer-${params.id}`)
+    setChatMessages([])
+  }
+
   async function handleChatSend(userMsg: string) {
     const newMessages = [...chatMessages, { role: 'user' as const, content: userMsg }]
     setChatMessages(newMessages)
+    saveMessage('user', userMsg)
 
     try {
       if (!client || client === 'loading') {
@@ -1191,6 +1255,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           const def = allMeetingDefs.find(m => m.code === code)
           return `RECAP — ${code} (${r.title || def?.title || code}):\n${r.recap}`
         })
+
+      // Sent emails
+      const sentEmailLines = sentEmails.map(e => {
+        const preview = e.body.replace(/<[^>]+>/g, '').trim().slice(0, 100)
+        const sentDate = e.sent_at ? new Date(e.sent_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown date'
+        return `- ${e.email_code} sent on ${sentDate}: ${e.subject}\n  Preview: ${preview}`
+      })
 
       // Current phase = first phase not fully complete
       let currentPhaseNum = 0
@@ -1238,6 +1309,8 @@ ${completedList.length ? `- Completed Meetings:\n${completedList.join('\n')}` : 
 
 ${recapLines.length ? `MEETING RECAPS (most recent first):\n${recapLines.join('\n\n')}` : 'MEETING RECAPS: No recaps recorded yet.'}
 
+${sentEmailLines.length ? `EMAILS SENT TO CLIENT:\n${sentEmailLines.join('\n')}` : 'EMAILS SENT TO CLIENT: No emails sent yet.'}
+
 Use this context to answer questions about this client.
 Help Calin and the team understand:
 - How to communicate with this client based on their personality
@@ -1275,6 +1348,7 @@ Today's date is ${today}.
           : data?.content ?? data?.message ?? data?.choices?.[0]?.message?.content ?? 'No response.'
 
       setChatMessages([...newMessages, { role: 'assistant', content: reply }])
+      saveMessage('assistant', reply)
     } catch {
       setChatMessages([...newMessages, { role: 'assistant', content: 'Unable to get a response right now. Please try again.' }])
     }
@@ -2040,6 +2114,7 @@ Today's date is ${today}.
           journeyRows={journeyRows}
           messages={chatMessages}
           onSend={handleChatSend}
+          onClear={clearHistory}
         />
       </div>
     </>
