@@ -193,19 +193,22 @@ function ReportCard({ icon, name, description }: { icon: string; name: string; d
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 11 }}>
         <div
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 9,
-            background: `${ACCENT}16`,
-            border: `1px solid ${ACCENT}33`,
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            background: ACCENT,
+            color: '#fff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 17,
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: '0.5px',
             flexShrink: 0,
+            boxShadow: `0 2px 8px ${ACCENT}55`,
           }}
         >
-          {icon}
+          {name.charAt(0).toUpperCase()}
         </div>
         <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2, letterSpacing: '-0.2px' }}>
           {name}
@@ -222,16 +225,18 @@ function ReportCard({ icon, name, description }: { icon: string; name: string; d
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
-            fontSize: 11,
-            fontWeight: 600,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '1px',
+            textTransform: 'uppercase',
             padding: '5px 11px',
             borderRadius: 20,
-            color: 'var(--text3)',
-            background: 'var(--surface2)',
-            border: '1px solid var(--border)',
+            color: 'rgba(255,255,255,0.92)',
+            background: '#1a1a2e',
+            border: '1px solid rgba(255,255,255,0.1)',
           }}
         >
-          <LockIcon size={11} /> Coming Soon
+          <LockIcon size={10} color="rgba(255,255,255,0.92)" /> Coming Soon
         </span>
       </div>
     </div>
