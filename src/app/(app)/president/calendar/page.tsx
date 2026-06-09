@@ -670,7 +670,9 @@ export default function CalendarPage() {
   const [form, setForm] = useState({
     title: '', date: '', startTime: '', endTime: '',
     organizer: '', location: '', teamsLink: '', isAllDay: false,
-    isRecurring: false, frequency: 'Weekly', repeatUntil: '', recurringDays: [] as string[],
+    isRecurring: false, frequency: 'Weekly' as 'Daily' | 'Weekly' | 'Monthly' | 'Custom',
+    repeatUntilMode: 'date' as 'date' | 'indefinitely',
+    repeatUntil: '', recurringDays: [] as string[],
   })
   const [agenda, setAgenda] = useState<{ title: string; content: string; loading: boolean } | null>(null)
 
@@ -686,6 +688,9 @@ export default function CalendarPage() {
   const [editForm, setEditForm] = useState({
     title: '', date: '', startTime: '', endTime: '',
     organizer: '', location: '', teamsLink: '', isAllDay: false,
+    frequency: 'Weekly' as 'Daily' | 'Weekly' | 'Monthly' | 'Custom',
+    repeatUntilMode: 'date' as 'date' | 'indefinitely',
+    repeatUntil: '', recurringDays: [] as string[],
   })
 
   // Tick every minute to refresh countdowns
@@ -785,8 +790,8 @@ export default function CalendarPage() {
     const supabase = createClient()
 
     // Build the list of occurrence dates (single, frequency-stepped, or day-of-week based)
-    const isIndefinite = form.isRecurring && form.frequency === 'Indefinitely'
-    const effectiveFrequency = isIndefinite ? 'Weekly' : form.frequency
+    const isIndefinite = form.isRecurring && form.repeatUntilMode === 'indefinitely'
+    const effectiveFrequency = (isIndefinite || form.frequency === 'Custom') ? 'Weekly' : form.frequency
     let effectiveRepeatUntil = form.repeatUntil
     if (isIndefinite && form.date) {
       const [iy, im, id2] = form.date.split('-').map(Number)
@@ -854,7 +859,7 @@ export default function CalendarPage() {
     }
 
     setShowAddModal(false)
-    setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntil: '', recurringDays: [] })
+    setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntilMode: 'date', repeatUntil: '', recurringDays: [] })
     setSaveToast({
       message: payloads.length > 1 ? `Added ${payloads.length} events to calendar` : 'Event added to calendar',
       type: 'success',
@@ -872,6 +877,10 @@ export default function CalendarPage() {
       location: event.location ?? '',
       teamsLink: event.teams_link ?? event.meeting_link ?? '',
       isAllDay: !!event.is_all_day,
+      frequency: (event.recurring_days?.length ? 'Custom' : 'Weekly') as 'Daily' | 'Weekly' | 'Monthly' | 'Custom',
+      repeatUntilMode: event.recurring_indefinite ? 'indefinitely' : 'date',
+      repeatUntil: '',
+      recurringDays: (event.recurring_days ?? []) as string[],
     })
     setEditEvent(event)
     if (event.is_recurring && event.recurring_id) {
@@ -912,14 +921,27 @@ export default function CalendarPage() {
       // Single bulk UPDATE — one call for all future occurrences. Each row keeps its own
       // start_time/end_time; only metadata fields are overwritten.
       const todayStartISO = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z'
+      const isEditIndefinite = editForm.repeatUntilMode === 'indefinitely'
+      const futureUpdate = { ...baseUpdate, recurring_indefinite: isEditIndefinite ? true : false }
       const { data: updated, error: e } = await supabase
         .from('calendar_events')
-        .update(baseUpdate)
+        .update(futureUpdate)
         .eq('recurring_id', editEvent.recurring_id)
         .gte('start_time', todayStartISO)
         .select('id')
-      error = e
-      if (updated?.length) updatedIds.push(...(updated as { id: string }[]).map(r => r.id))
+      if (e && /recurring_indefinite|column/i.test(e.message)) {
+        const { data: updated2, error: e2 } = await supabase
+          .from('calendar_events')
+          .update(baseUpdate)
+          .eq('recurring_id', editEvent.recurring_id)
+          .gte('start_time', todayStartISO)
+          .select('id')
+        error = e2
+        if (updated2?.length) updatedIds.push(...(updated2 as { id: string }[]).map(r => r.id))
+      } else {
+        error = e
+        if (updated?.length) updatedIds.push(...(updated as { id: string }[]).map(r => r.id))
+      }
     } else {
       // Just this one — mark as exception so Make.com knows it was manually overridden.
       const singleUpdate = { ...baseUpdate, ...timesFor(editForm.date), is_exception: true }
@@ -1490,72 +1512,103 @@ export default function CalendarPage() {
               {/* Recurring options */}
               {form.isRecurring && (
                 <>
-                  {/* Day-of-week selector */}
+                  {/* STEP 1 — FREQUENCY */}
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                      Repeat On
+                      Frequency
                     </label>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {WEEKDAYS.map(w => {
-                        const active = form.recurringDays.includes(w.label)
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {(['Daily', 'Weekly', 'Monthly', 'Custom'] as const).map(freq => {
+                        const active = form.frequency === freq
                         return (
                           <button
-                            key={w.label}
+                            key={freq}
                             type="button"
                             onClick={() => setForm(f => ({
                               ...f,
-                              recurringDays: active
-                                ? f.recurringDays.filter(d => d !== w.label)
-                                : [...f.recurringDays, w.label],
+                              frequency: freq,
+                              recurringDays: freq !== 'Custom' ? [] : f.recurringDays,
                             }))}
                             style={{
-                              padding: '6px 13px', borderRadius: 8,
+                              padding: '7px 14px', borderRadius: 8,
                               fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                              background: active ? 'var(--red)' : 'transparent',
+                              background: active ? 'var(--charcoal)' : 'transparent',
                               color: active ? 'white' : 'var(--text2)',
-                              border: `1px solid ${active ? 'var(--red)' : 'var(--border2)'}`,
+                              border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border2)'}`,
                               transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
                             }}
                           >
-                            {w.label}
+                            {freq === 'Custom' ? 'Custom Days' : freq}
                           </button>
                         )
                       })}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 7 }}>
-                      Pick the days to repeat on (e.g. Mon + Wed + Fri), or leave blank to use the frequency below.
-                    </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {/* Day picker — only when Custom Days selected */}
+                  {form.frequency === 'Custom' && (
                     <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        Frequency
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        Repeat On
                       </label>
-                      <select
-                        value={form.frequency}
-                        onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
-                        disabled={form.recurringDays.length > 0}
-                        style={{
-                          width: '100%', padding: '9px 12px', borderRadius: 8,
-                          border: '1px solid var(--border2)', background: 'var(--surface2)',
-                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                          outline: 'none', boxSizing: 'border-box',
-                          cursor: form.recurringDays.length > 0 ? 'not-allowed' : 'pointer',
-                          opacity: form.recurringDays.length > 0 ? 0.5 : 1,
-                        }}
-                      >
-                        <option value="Daily">Daily</option>
-                        <option value="Weekly">Weekly</option>
-                        <option value="Monthly">Monthly</option>
-                        <option value="Indefinitely">Indefinitely</option>
-                      </select>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {WEEKDAYS.map(w => {
+                          const active = form.recurringDays.includes(w.label)
+                          return (
+                            <button
+                              key={w.label}
+                              type="button"
+                              onClick={() => setForm(f => ({
+                                ...f,
+                                recurringDays: active
+                                  ? f.recurringDays.filter(d => d !== w.label)
+                                  : [...f.recurringDays, w.label],
+                              }))}
+                              style={{
+                                padding: '6px 13px', borderRadius: 8,
+                                fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                                background: active ? 'var(--red)' : 'transparent',
+                                color: active ? 'white' : 'var(--text2)',
+                                border: `1px solid ${active ? 'var(--red)' : 'var(--border2)'}`,
+                                transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                              }}
+                            >
+                              {w.label}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
-                    {form.frequency !== 'Indefinitely' ? (
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        Repeat Until <span style={{ color: 'var(--red)' }}>*</span>
-                      </label>
+                  )}
+
+                  {/* STEP 2 — REPEAT UNTIL */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Repeat Until
+                    </label>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                      {(['date', 'indefinitely'] as const).map(mode => {
+                        const active = form.repeatUntilMode === mode
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, repeatUntilMode: mode }))}
+                            style={{
+                              padding: '7px 14px', borderRadius: 8,
+                              fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                              background: active ? 'var(--charcoal)' : 'transparent',
+                              color: active ? 'white' : 'var(--text2)',
+                              border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border2)'}`,
+                              transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                            }}
+                          >
+                            {mode === 'date' ? 'Pick a Date' : 'Indefinitely ∞'}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {form.repeatUntilMode === 'date' ? (
                       <input
                         type="date"
                         value={form.repeatUntil}
@@ -1567,12 +1620,7 @@ export default function CalendarPage() {
                           outline: 'none', boxSizing: 'border-box',
                         }}
                       />
-                    </div>
                     ) : (
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        Repeat Until
-                      </label>
                       <div style={{
                         padding: '9px 12px', borderRadius: 8,
                         border: '1px solid var(--purple-border)', background: 'var(--surface2)',
@@ -1581,7 +1629,6 @@ export default function CalendarPage() {
                       }}>
                         ↻ Repeats forever (generates 12 months)
                       </div>
-                    </div>
                     )}
                   </div>
                 </>
@@ -1912,6 +1959,131 @@ export default function CalendarPage() {
                       }}
                     />
                   </div>
+
+                  {/* Recurring options — only shown when editing all future events */}
+                  {editScope === 'future' && editEvent.is_recurring && (
+                    <>
+                      {/* STEP 1 — FREQUENCY */}
+                      <div style={{ paddingTop: 4, borderTop: '1px solid var(--border)' }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                          Frequency
+                        </label>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {(['Daily', 'Weekly', 'Monthly', 'Custom'] as const).map(freq => {
+                            const active = editForm.frequency === freq
+                            return (
+                              <button
+                                key={freq}
+                                type="button"
+                                onClick={() => setEditForm(f => ({
+                                  ...f,
+                                  frequency: freq,
+                                  recurringDays: freq !== 'Custom' ? [] : f.recurringDays,
+                                }))}
+                                style={{
+                                  padding: '7px 14px', borderRadius: 8,
+                                  fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                                  background: active ? 'var(--charcoal)' : 'transparent',
+                                  color: active ? 'white' : 'var(--text2)',
+                                  border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border2)'}`,
+                                  transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                                }}
+                              >
+                                {freq === 'Custom' ? 'Custom Days' : freq}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Day picker — only when Custom Days selected */}
+                      {editForm.frequency === 'Custom' && (
+                        <div>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                            Repeat On
+                          </label>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {WEEKDAYS.map(w => {
+                              const active = editForm.recurringDays.includes(w.label)
+                              return (
+                                <button
+                                  key={w.label}
+                                  type="button"
+                                  onClick={() => setEditForm(f => ({
+                                    ...f,
+                                    recurringDays: active
+                                      ? f.recurringDays.filter(d => d !== w.label)
+                                      : [...f.recurringDays, w.label],
+                                  }))}
+                                  style={{
+                                    padding: '6px 13px', borderRadius: 8,
+                                    fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                                    background: active ? 'var(--red)' : 'transparent',
+                                    color: active ? 'white' : 'var(--text2)',
+                                    border: `1px solid ${active ? 'var(--red)' : 'var(--border2)'}`,
+                                    transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                                  }}
+                                >
+                                  {w.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* STEP 2 — REPEAT UNTIL */}
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                          Repeat Until
+                        </label>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                          {(['date', 'indefinitely'] as const).map(mode => {
+                            const active = editForm.repeatUntilMode === mode
+                            return (
+                              <button
+                                key={mode}
+                                type="button"
+                                onClick={() => setEditForm(f => ({ ...f, repeatUntilMode: mode }))}
+                                style={{
+                                  padding: '7px 14px', borderRadius: 8,
+                                  fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                                  background: active ? 'var(--charcoal)' : 'transparent',
+                                  color: active ? 'white' : 'var(--text2)',
+                                  border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border2)'}`,
+                                  transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                                }}
+                              >
+                                {mode === 'date' ? 'Pick a Date' : 'Indefinitely ∞'}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {editForm.repeatUntilMode === 'date' ? (
+                          <input
+                            type="date"
+                            value={editForm.repeatUntil}
+                            onChange={e => setEditForm(f => ({ ...f, repeatUntil: e.target.value }))}
+                            style={{
+                              width: '100%', padding: '9px 12px', borderRadius: 8,
+                              border: '1px solid var(--border2)', background: 'var(--surface2)',
+                              color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                              outline: 'none', boxSizing: 'border-box',
+                            }}
+                          />
+                        ) : (
+                          <div style={{
+                            padding: '9px 12px', borderRadius: 8,
+                            border: '1px solid var(--purple-border)', background: 'var(--surface2)',
+                            fontSize: 13, fontWeight: 600, color: '#7c3aed',
+                            display: 'flex', alignItems: 'center', gap: 6,
+                          }}>
+                            ↻ Repeats forever (generates 12 months)
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Footer */}
