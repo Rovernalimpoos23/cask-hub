@@ -2,10 +2,12 @@
 // src/app/(app)/command-center/page.tsx
 // CASK Operating System — Command Center
 // Framework only. All data hardcoded — no Supabase, no real connections yet.
+//
+// Design language: "Bloomberg Terminal meets luxury construction firm."
+// Premium, data-dense, intentional. Follows the app theme — works in both light and dark mode.
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { TopBar, PillRed } from '@/components/ui'
 
 // ── Status model ─────────────────────────────────────────────────────
 
@@ -40,6 +42,30 @@ interface Department {
   reports: Report[]
   href?: string
 }
+
+// ── Page palette — CSS variables so the page follows light/dark mode ─
+
+const PALETTE = {
+  page: 'var(--bg)',
+  header: 'var(--white)',
+  card: 'var(--surface)',
+  cardRaised: 'var(--surface2)',
+  inner: 'var(--surface2)',
+  border: 'var(--border)',
+  borderSoft: 'var(--border)',
+  text: 'var(--text)',
+  text2: 'var(--text2)',
+  text3: 'var(--text3)',
+  textDim: 'var(--text3)',
+}
+
+// 35×35 fractal-noise grain, used as a faint overlay for premium texture.
+const GRAIN =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E\")"
+
+// Faint engineering-grid overlay — neutral grey works on both light and dark cards.
+const GRID_BG =
+  'linear-gradient(rgba(128,128,128,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(128,128,128,0.06) 1px, transparent 1px)'
 
 // ── Data (hardcoded) ─────────────────────────────────────────────────
 
@@ -214,132 +240,184 @@ const DATA_SOURCES: { name: string; status: Status }[] = [
   { name: 'Banks & Credit', status: 'red' },
 ]
 
-// ── Sub-components ───────────────────────────────────────────────────
+const STATS: { value: number; label: string; icon: string; accent: string }[] = [
+  { value: 5, label: 'Departments', icon: 'building', accent: '#3B82F6' },
+  { value: 0, label: 'Connected', icon: 'link', accent: '#EF4444' },
+  { value: 49, label: 'Reports Tracked', icon: 'filetext', accent: '#F59E0B' },
+  { value: 4, label: 'Automated Alerts', icon: 'bell', accent: '#8B5CF6' },
+]
+
+// ── Icons (stroke = currentColor so they can be tinted) ──────────────
 
 const ICON_PATHS: Record<string, React.ReactNode> = {
   target: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
-    </svg>
+    <><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></>
   ),
   wrench: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-    </svg>
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
   ),
   dollar: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-    </svg>
+    <><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></>
   ),
   users: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-    </svg>
+    <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>
   ),
   building: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h6"/><path d="M3 15h6"/><path d="M15 7h2"/><path d="M15 11h2"/><path d="M15 15h2"/>
-    </svg>
+    <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /><path d="M3 9h6" /><path d="M3 15h6" /><path d="M15 7h2" /><path d="M15 11h2" /><path d="M15 15h2" /></>
   ),
   filetext: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-    </svg>
+    <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></>
   ),
   bell: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-    </svg>
+    <><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></>
   ),
   search: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>
+    <><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></>
+  ),
+  link: (
+    <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></>
+  ),
+  lock: (
+    <><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></>
+  ),
+  database: (
+    <><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /></>
   ),
 }
 
-function IconBadge({ icon, color }: { icon: string; color: string }) {
+function Icon({ name, size = 16, color = 'currentColor', strokeWidth = 2 }: { name: string; size?: number; color?: string; strokeWidth?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      {ICON_PATHS[name]}
+    </svg>
+  )
+}
+
+// ── Sub-components ───────────────────────────────────────────────────
+
+function IconBadge({ icon, color, size = 36 }: { icon: string; color: string; size?: number }) {
   return (
     <div
       style={{
-        width: 32,
-        height: 32,
-        borderRadius: '50%',
-        background: color,
+        width: size,
+        height: size,
+        borderRadius: 10,
+        background: `linear-gradient(150deg, ${color}, ${color}cc)`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        boxShadow: `0 2px 8px ${color}55`,
+        color: '#fff',
+        boxShadow: `0 4px 14px ${color}55, inset 0 1px 0 rgba(255,255,255,0.28)`,
       }}
     >
-      {ICON_PATHS[icon]}
+      <Icon name={icon} size={size * 0.46} color="#fff" />
     </div>
   )
 }
 
-function StatusDot({ status, size = 8 }: { status: Status; size?: number }) {
+function StatusDot({ status, size = 8, glow = false }: { status: Status; size?: number; glow?: boolean }) {
+  const c = STATUS_COLOR[status]
   return (
     <span
       style={{
         width: size,
         height: size,
         borderRadius: '50%',
-        background: STATUS_COLOR[status],
+        background: c,
         flexShrink: 0,
         display: 'inline-block',
-        boxShadow: `0 0 5px ${STATUS_COLOR[status]}55`,
+        boxShadow: glow ? `0 0 8px ${c}` : `0 0 4px ${c}66`,
+        animation: glow ? 'caskPulse 2.2s ease-in-out infinite' : undefined,
       }}
     />
   )
 }
 
-function StatusBadge({ status }: { status: Status }) {
+function StatusBadge({ status, prominent = false }: { status: Status; prominent?: boolean }) {
+  const c = STATUS_COLOR[status]
   return (
     <span
       style={{
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
-        fontSize: 11,
-        fontWeight: 600,
-        padding: '3px 9px',
+        fontSize: prominent ? 12 : 11,
+        fontWeight: 700,
+        padding: prominent ? '6px 12px' : '4px 9px',
         borderRadius: 20,
-        color: STATUS_COLOR[status],
-        background: `${STATUS_COLOR[status]}14`,
-        border: `1px solid ${STATUS_COLOR[status]}33`,
+        color: c,
+        background: `${c}1a`,
+        border: `1px solid ${c}40`,
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px',
+        whiteSpace: 'nowrap',
+        boxShadow: prominent ? `0 0 16px ${c}33` : 'none',
       }}
     >
-      <StatusDot status={status} size={6} />
+      {status === 'red'
+        ? <Icon name="lock" size={prominent ? 12 : 10} color={c} strokeWidth={2.4} />
+        : <StatusDot status={status} size={prominent ? 7 : 6} glow={status === 'green'} />}
       {STATUS_LABEL[status]}
     </span>
   )
 }
 
-function StatTile({ value, label }: { value: number; label: string }) {
+function StatSegment({ stat, index }: { stat: typeof STATS[number]; index: number }) {
   return (
     <div
       style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 10,
-        padding: '16px 18px',
+        position: 'relative',
+        padding: '24px 26px',
+        borderLeft: index > 0 ? `1px solid ${PALETTE.borderSoft}` : 'none',
+        overflow: 'hidden',
       }}
     >
-      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text)', lineHeight: 1, marginBottom: 6 }}>
-        {value}
+      {/* per-stat background tint */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: `radial-gradient(120% 120% at 85% 0%, ${stat.accent}12, transparent 60%)`,
+          pointerEvents: 'none',
+        }}
+      />
+      {/* icon */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 22,
+          right: 22,
+          color: stat.accent,
+          opacity: 0.55,
+        }}
+      >
+        <Icon name={stat.icon} size={18} />
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--font-geist), sans-serif',
+          fontSize: 46,
+          fontWeight: 700,
+          lineHeight: 1,
+          letterSpacing: '-2px',
+          color: PALETTE.text,
+          textShadow: `0 0 30px ${stat.accent}25`,
+        }}
+      >
+        {stat.value}
       </div>
       <div
         style={{
           fontSize: 11,
-          fontWeight: 500,
-          color: 'var(--text3)',
+          fontWeight: 700,
+          color: PALETTE.text3,
           textTransform: 'uppercase',
-          letterSpacing: '0.5px',
+          letterSpacing: '1.4px',
+          marginTop: 12,
         }}
       >
-        {label}
+        {stat.label}
       </div>
     </div>
   )
@@ -347,173 +425,218 @@ function StatTile({ value, label }: { value: number; label: string }) {
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
       <span
         style={{
           fontSize: 11,
           fontWeight: 700,
-          letterSpacing: '1.2px',
-          color: 'var(--text2)',
+          letterSpacing: '2px',
+          color: PALETTE.text2,
           textTransform: 'uppercase',
         }}
       >
         {title}
       </span>
-      {subtitle && <span style={{ fontSize: 12, color: 'var(--text3)' }}>{subtitle}</span>}
-      <div style={{ flex: 1, height: 1, background: 'var(--border)', marginLeft: 4 }} />
+      {subtitle && (
+        <span style={{ fontSize: 12, color: PALETTE.textDim, letterSpacing: '0.2px' }}>{subtitle}</span>
+      )}
+      <div
+        style={{
+          flex: 1,
+          height: 1,
+          background: `linear-gradient(90deg, ${PALETTE.border}, transparent)`,
+        }}
+      />
     </div>
   )
 }
 
-function DeptCard({ dept }: { dept: Department }) {
+function ReportRow({ report }: { report: Report }) {
+  const connected = report.status !== 'red'
+  const live = report.status === 'green'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 6px', borderRadius: 6 }}>
+      <StatusDot status={report.status} size={7} glow={live} />
+      <span
+        style={{
+          fontSize: 13,
+          fontWeight: connected ? 600 : 400,
+          color: live ? '#34d399' : connected ? PALETTE.text : PALETTE.text3,
+          textShadow: live ? '0 0 12px rgba(16,185,129,0.45)' : 'none',
+        }}
+      >
+        {report.name}
+      </span>
+      {live && (
+        <span
+          style={{
+            marginLeft: 'auto',
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: '1px',
+            color: '#34d399',
+            textTransform: 'uppercase',
+          }}
+        >
+          Live
+        </span>
+      )}
+    </div>
+  )
+}
+
+function DeptCard({ dept, important = false }: { dept: Department; important?: boolean }) {
   const [hovered, setHovered] = useState(false)
+  const color = dept.border
+  const connected = dept.status !== 'red'
+
   const card = (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
+        position: 'relative',
         background: 'var(--surface)',
-        borderTop: `1px solid ${hovered ? 'var(--border2)' : 'var(--border)'}`,
-        borderRight: `1px solid ${hovered ? 'var(--border2)' : 'var(--border)'}`,
-        borderBottom: `1px solid ${hovered ? 'var(--border2)' : 'var(--border)'}`,
-        borderLeft: `4px solid ${dept.border}`,
-        borderRadius: 12,
-        padding: '18px 20px',
+        backgroundImage: GRID_BG,
+        backgroundSize: '22px 22px',
+        borderTop: `1px solid ${hovered ? `${color}44` : PALETTE.border}`,
+        borderRight: `1px solid ${hovered ? `${color}44` : PALETTE.border}`,
+        borderBottom: `1px solid ${hovered ? `${color}44` : PALETTE.border}`,
+        borderLeft: `6px solid ${color}`,
+        borderRadius: 14,
+        padding: '20px 22px',
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
         cursor: dept.href ? 'pointer' : 'default',
-        transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
-        boxShadow: hovered ? '0 6px 20px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
-        transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
+        overflow: 'hidden',
+        transition: 'border-color 180ms ease, box-shadow 220ms ease, transform 220ms ease',
+        boxShadow: hovered
+          ? `0 16px 36px -10px ${color}55, 0 0 0 1px ${color}22`
+          : '0 1px 3px rgba(0,0,0,0.07)',
+        transform: hovered ? 'translateY(-4px)' : 'translateY(0)',
       }}
     >
-      {/* Header: icon + name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <IconBadge icon={dept.icon} color={dept.badge} />
-        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>
-          {dept.name}
-        </span>
-      </div>
-      {/* Owner row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-        <span style={{ fontSize: 9, fontWeight: 500, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '1px' }}>
-          Owner:
-        </span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)' }}>
-          {dept.owner}
-        </span>
-      </div>
+      <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {/* Header: icon + name + (exec) prominent badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <IconBadge icon={dept.icon} color={dept.badge} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontFamily: 'var(--font-geist), sans-serif',
+                fontSize: 18,
+                fontWeight: 700,
+                color: PALETTE.text,
+                lineHeight: 1.15,
+                letterSpacing: '-0.3px',
+              }}
+            >
+              {dept.name}
+            </div>
+            <div
+              style={{
+                fontSize: 9.5,
+                fontWeight: 700,
+                color: PALETTE.textDim,
+                textTransform: 'uppercase',
+                letterSpacing: '1.5px',
+                marginTop: 5,
+              }}
+            >
+              {dept.owner} · {dept.frequency}
+            </div>
+          </div>
+          {important && <StatusBadge status={dept.status} prominent />}
+        </div>
 
-      {/* Frequency badge */}
-      <div style={{ marginBottom: 12 }}>
-        <span
+        {/* Data source box — glow matches department color */}
+        <div
           style={{
-            display: 'inline-block',
-            fontSize: 11,
-            fontWeight: 600,
-            padding: '3px 10px',
-            borderRadius: 20,
-            color: 'var(--text2)',
-            background: 'var(--surface2)',
-            border: '1px solid var(--border)',
+            padding: '12px 14px',
+            borderRadius: 10,
+            background: connected ? `${color}12` : 'var(--surface2)',
+            border: `1px solid ${connected ? `${color}40` : `${color}1f`}`,
+            boxShadow: connected ? `0 0 22px ${color}22, inset 0 0 18px ${color}10` : 'none',
+            marginBottom: 16,
           }}
         >
-          {dept.frequency}
-        </span>
-      </div>
-
-      {/* Data source + connection status */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 8,
-          padding: '10px 12px',
-          borderRadius: 8,
-          background: 'var(--surface2)',
-          border: '1px solid var(--border)',
-          marginBottom: 14,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
-            Data Source
+          {/* Label + badge share the top row — keeps the value text full-width */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                color: connected ? color : PALETTE.textDim,
+                textTransform: 'uppercase',
+                letterSpacing: '1px',
+              }}
+            >
+              Data Source
+            </div>
+            {!important && <StatusBadge status={dept.status} />}
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: connected ? PALETTE.text : PALETTE.text3,
+            }}
+          >
             {dept.dataSource}
           </div>
         </div>
-        <StatusBadge status={dept.status} />
-      </div>
 
-      {/* Reports list */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginBottom: 16 }}>
-        {dept.reports.map((r) => (
+        {/* Reports list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginBottom: 18 }}>
+          {dept.reports.map((r) => (
+            <ReportRow key={r.name} report={r} />
+          ))}
+        </div>
+
+        {/* Footer action */}
+        {dept.href ? (
           <div
-            key={r.name}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 9,
-              padding: '6px 4px',
-              borderRadius: 6,
+              marginTop: 'auto',
+              width: '100%',
+              padding: '12px 14px',
+              borderRadius: 10,
+              background: color,
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 700,
+              letterSpacing: '0.3px',
+              textAlign: 'center',
+              boxShadow: hovered ? `0 8px 22px ${color}66` : `0 2px 10px ${color}33`,
+              transition: 'box-shadow 200ms ease',
             }}
           >
-            <StatusDot status={r.status} size={7} />
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: r.status === 'red' ? 400 : 500,
-                color: r.status === 'red' ? 'var(--text3)' : 'var(--text)',
-              }}
-            >
-              {r.name}
-            </span>
+            View Reports →
           </div>
-        ))}
+        ) : (
+          <div
+            style={{
+              marginTop: 'auto',
+              width: '100%',
+              padding: '12px 14px',
+              borderRadius: 10,
+              background: 'var(--surface2)',
+              border: `1px solid ${PALETTE.border}`,
+              color: PALETTE.text3,
+              fontSize: 13,
+              fontWeight: 600,
+              textAlign: 'center',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 7,
+            }}
+          >
+            <Icon name="lock" size={12} color={PALETTE.text3} /> Connect
+          </div>
+        )}
       </div>
-
-      {/* Footer action */}
-      {dept.href ? (
-        <div
-          style={{
-            marginTop: 'auto',
-            width: '100%',
-            padding: '9px 14px',
-            borderRadius: 8,
-            background: `${dept.border}14`,
-            border: `1px solid ${dept.border}40`,
-            color: dept.border,
-            fontSize: 13,
-            fontWeight: 600,
-            textAlign: 'center',
-          }}
-        >
-          View Reports →
-        </div>
-      ) : (
-        <button
-          disabled
-          style={{
-            marginTop: 'auto',
-            width: '100%',
-            padding: '9px 14px',
-            borderRadius: 8,
-            background: 'var(--surface2)',
-            border: '1px solid var(--border)',
-            color: 'var(--text3)',
-            fontSize: 13,
-            fontWeight: 600,
-            fontFamily: 'inherit',
-            cursor: 'not-allowed',
-          }}
-        >
-          Connect →
-        </button>
-      )}
     </div>
   )
 
@@ -534,33 +657,35 @@ function MiniReportCard({ card }: { card: MiniCard }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: 'var(--surface)',
-        border: `1px solid ${hovered ? 'var(--border2)' : 'var(--border)'}`,
-        borderRadius: 12,
-        padding: '16px 18px',
-        transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
-        boxShadow: hovered ? '0 6px 20px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
-        transform: hovered ? 'translateY(-2px)' : 'translateY(0)',
+        position: 'relative',
+        background: PALETTE.card,
+        backgroundImage: `${GRID_BG}`,
+        backgroundSize: '22px 22px',
+        border: `1px solid ${hovered ? `${card.badge}44` : PALETTE.border}`,
+        borderRadius: 14,
+        padding: '18px 20px',
+        overflow: 'hidden',
+        transition: 'border-color 180ms ease, box-shadow 220ms ease, transform 220ms ease',
+        boxShadow: hovered ? `0 14px 30px -10px ${card.badge}44` : '0 1px 3px rgba(0,0,0,0.07)',
+        transform: hovered ? 'translateY(-3px)' : 'translateY(0)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <IconBadge icon={card.icon} color={card.badge} />
-        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{card.title}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <IconBadge icon={card.icon} color={card.badge} size={40} />
+        <span
+          style={{
+            fontSize: 15,
+            fontWeight: 700,
+            color: PALETTE.text,
+            letterSpacing: '-0.2px',
+          }}
+        >
+          {card.title}
+        </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         {card.items.map((item) => (
-          <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 4px' }}>
-            <StatusDot status={item.status} size={7} />
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: item.status === 'red' ? 400 : 500,
-                color: item.status === 'red' ? 'var(--text3)' : 'var(--text)',
-              }}
-            >
-              {item.name}
-            </span>
-          </div>
+          <ReportRow key={item.name} report={item} />
         ))}
       </div>
     </div>
@@ -568,21 +693,28 @@ function MiniReportCard({ card }: { card: MiniCard }) {
 }
 
 function DataSourcePill({ name, status }: { name: string; status: Status }) {
+  const connected = status !== 'red'
+  const c = STATUS_COLOR[status]
   return (
     <div
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 9,
-        padding: '9px 14px',
-        borderRadius: 9,
+        gap: 10,
+        padding: '10px 15px',
+        borderRadius: 999,
         background: 'var(--surface2)',
-        border: '1px solid var(--border)',
+        border: `1px solid ${PALETTE.border}`,
+        opacity: connected ? 1 : 0.85,
       }}
     >
-      <StatusDot status={status} size={8} />
-      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{name}</span>
-      <span style={{ fontSize: 12, color: 'var(--text3)' }}>{STATUS_LABEL[status]}</span>
+      <StatusDot status={status} size={7} glow={status === 'green'} />
+      <span style={{ fontSize: 13, fontWeight: 600, color: connected ? PALETTE.text : PALETTE.text2 }}>
+        {name}
+      </span>
+      <span style={{ fontSize: 11, fontWeight: 600, color: c, opacity: 0.85, letterSpacing: '0.2px' }}>
+        {STATUS_LABEL[status]}
+      </span>
     </div>
   )
 }
@@ -592,70 +724,250 @@ function DataSourcePill({ name, status }: { name: string; status: Status }) {
 export default function CommandCenterPage() {
   return (
     <>
-      <TopBar title="CASK Operating System" subtitle="One System. One Source of Truth. One Company.">
-        <PillRed>0 Connected</PillRed>
-      </TopBar>
+      <style>{`
+        @keyframes caskSheen { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        @keyframes caskPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.55); }
+          50% { box-shadow: 0 0 0 5px rgba(16,185,129,0); }
+        }
+        @keyframes caskDotBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      `}</style>
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-7 animate-page-in">
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <header
+        style={{
+          position: 'relative',
+          flexShrink: 0,
+          background: PALETTE.header,
+          borderBottom: `1px solid ${PALETTE.border}`,
+          overflow: 'hidden',
+        }}
+      >
+        {/* multi-department accent line */}
+        <div
+          style={{
+            height: 2,
+            background: 'linear-gradient(90deg, #3B82F6, #F59E0B, #10B981, #8B5CF6, #F59E0B)',
+          }}
+        />
+        {/* animated sheen */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage:
+              'linear-gradient(110deg, transparent 32%, rgba(200,49,26,0.12) 47%, rgba(245,158,11,0.07) 55%, transparent 70%)',
+            backgroundSize: '220% 100%',
+            animation: 'caskSheen 14s linear infinite',
+            pointerEvents: 'none',
+          }}
+        />
+        {/* radial glow */}
+        <div
+          style={{
+            position: 'absolute',
+            top: -140,
+            left: '26%',
+            width: 460,
+            height: 320,
+            background: 'radial-gradient(circle, rgba(200,49,26,0.18), transparent 70%)',
+            pointerEvents: 'none',
+          }}
+        />
+        {/* grain */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: GRAIN,
+            opacity: 0.5,
+            mixBlendMode: 'overlay',
+            pointerEvents: 'none',
+          }}
+        />
 
-        {/* Stats bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          <StatTile value={5} label="Departments" />
-          <StatTile value={0} label="Connected" />
-          <StatTile value={49} label="Reports" />
-          <StatTile value={4} label="Automated Alerts" />
-        </div>
-
-        {/* Row 1 — Sales & Marketing, Operations, Finance */}
-        <div style={{ marginBottom: 28 }}>
-          <SectionHeader title="DEPARTMENTS" subtitle="Reporting owners & data feeds" />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
-            {DEPARTMENTS.map((d) => (
-              <DeptCard key={d.name} dept={d} />
-            ))}
+        <div
+          style={{
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 24,
+            padding: '28px 40px 30px',
+          }}
+        >
+          <div>
+            <h1
+              style={{
+                fontFamily: 'var(--font-instrument), Georgia, serif',
+                fontSize: 40,
+                lineHeight: 1,
+                color: PALETTE.text,
+                letterSpacing: '-0.5px',
+                margin: 0,
+              }}
+            >
+              CASK Operating System
+            </h1>
+            <p
+              style={{
+                margin: '12px 0 0',
+                fontSize: 12,
+                fontWeight: 500,
+                letterSpacing: '2.5px',
+                textTransform: 'uppercase',
+                color: PALETTE.text2,
+              }}
+            >
+              One System&nbsp;·&nbsp;One Source of Truth&nbsp;·&nbsp;One Company
+            </p>
           </div>
-        </div>
 
-        {/* Row 2 — Human Resources + Executive Command Center (wider) */}
-        <div style={{ marginBottom: 28 }}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-            <DeptCard dept={HR_DEPT} />
-            <DeptCard dept={EXEC_DEPT} />
-          </div>
-        </div>
-
-        {/* Row 3 — Standard Reports, Automated Alerts, Ad-Hoc Analysis */}
-        <div style={{ marginBottom: 28 }}>
-          <SectionHeader title="OUTPUTS" subtitle="Reports, alerts & analysis" />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
-            {MINI_CARDS.map((c) => (
-              <MiniReportCard key={c.title} card={c} />
-            ))}
-          </div>
-        </div>
-
-        {/* Row 4 — Data Sources */}
-        <div style={{ marginBottom: 12 }}>
-          <SectionHeader title="DATA SOURCES" />
+          {/* 0 Connected badge — prominent */}
           <div
             style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              padding: '12px 20px',
               borderRadius: 12,
-              padding: '20px 22px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              background: 'rgba(239,68,68,0.07)',
+              border: '1px solid rgba(239,68,68,0.28)',
+              boxShadow: '0 0 30px rgba(239,68,68,0.12)',
+              flexShrink: 0,
             }}
           >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>
-              Data Sources
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 16 }}>
-              All systems feed CASK Operating System
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              {DATA_SOURCES.map((s) => (
-                <DataSourcePill key={s.name} name={s.name} status={s.status} />
+            <span
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                background: '#EF4444',
+                boxShadow: '0 0 10px #EF4444',
+                animation: 'caskDotBlink 1.8s ease-in-out infinite',
+              }}
+            />
+            <span
+              style={{
+                fontFamily: 'var(--font-geist), sans-serif',
+                fontSize: 28,
+                fontWeight: 700,
+                color: PALETTE.text,
+                lineHeight: 1,
+                letterSpacing: '-1px',
+              }}
+            >
+              0
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                color: '#EF4444',
+              }}
+            >
+              Connected
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Body ───────────────────────────────────────────────── */}
+      <div
+        className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in"
+        style={{ background: PALETTE.page, position: 'relative' }}
+      >
+        {/* faint page grain */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: GRAIN,
+            opacity: 0.22,
+            mixBlendMode: 'overlay',
+            pointerEvents: 'none',
+          }}
+        />
+
+        <div style={{ position: 'relative', padding: '32px 40px 56px' }}>
+          {/* Stats strip */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              background: PALETTE.card,
+              border: `1px solid ${PALETTE.border}`,
+              borderRadius: 16,
+              overflow: 'hidden',
+              marginBottom: 36,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
+            }}
+          >
+            {STATS.map((s, i) => (
+              <StatSegment key={s.label} stat={s} index={i} />
+            ))}
+          </div>
+
+          {/* Row 1 — Sales & Marketing, Operations, Finance */}
+          <div style={{ marginBottom: 34 }}>
+            <SectionHeader title="Departments" subtitle="Reporting owners & data feeds" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
+              {DEPARTMENTS.map((d) => (
+                <DeptCard key={d.name} dept={d} />
               ))}
+            </div>
+          </div>
+
+          {/* Row 2 — Human Resources + Executive Command Center */}
+          <div style={{ marginBottom: 34 }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-stretch">
+              <DeptCard dept={HR_DEPT} />
+              <DeptCard dept={EXEC_DEPT} important />
+            </div>
+          </div>
+
+          {/* Row 3 — Standard Reports, Automated Alerts, Ad-Hoc Analysis */}
+          <div style={{ marginBottom: 34 }}>
+            <SectionHeader title="Outputs" subtitle="Reports, alerts & analysis" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-start">
+              {MINI_CARDS.map((c) => (
+                <MiniReportCard key={c.title} card={c} />
+              ))}
+            </div>
+          </div>
+
+          {/* Row 4 — Data Sources */}
+          <div>
+            <SectionHeader title="Data Sources" />
+            <div
+              style={{
+                position: 'relative',
+                background: PALETTE.card,
+                backgroundImage: GRID_BG,
+                backgroundSize: '22px 22px',
+                border: `1px solid ${PALETTE.border}`,
+                borderRadius: 16,
+                padding: '24px 26px',
+                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+                <IconBadge icon="database" color="#64748B" size={34} />
+                <div style={{ fontSize: 16, fontWeight: 700, color: PALETTE.text, letterSpacing: '-0.2px' }}>
+                  Connected Systems
+                </div>
+              </div>
+              <div style={{ fontSize: 13, color: PALETTE.text3, marginBottom: 18, marginLeft: 46 }}>
+                All systems feed CASK Operating System
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {DATA_SOURCES.map((s) => (
+                  <DataSourcePill key={s.name} name={s.name} status={s.status} />
+                ))}
+              </div>
             </div>
           </div>
         </div>

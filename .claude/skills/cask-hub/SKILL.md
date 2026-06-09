@@ -4,14 +4,15 @@ description: "Use this skill whenever working on the CASK Hub project — a Next
 ---
 
 # CASK Hub — Project Skill for Claude Code
+## Updated: June 2026
 
 ## What This Project Is
 
-CASK Hub is an AI-powered leadership intelligence platform for CASK Construction (St. Petersburg, Florida). It tracks ActionCOACH coaching sessions, generates meeting agendas with Claude AI, and manages action items. Built by Rovern Alimpoos (AI Workflow Specialist).
-
-**Company goal:** $20M revenue in 2026.
-**Coach:** Juliet from ActionCOACH Tampa Bay.
-**Sessions:** 6 recorded sessions, Feb–Apr 2026.
+CASK Hub is an AI-powered business intelligence platform for CASK Construction (St. Petersburg, Florida).
+Built by Rovern Alimpoos (AI Workflow Specialist).
+Company goal: $20M revenue in 2026.
+Live URL: cask-hub.vercel.app
+GitHub: github.com/Rovernalimpoos23/cask-hub
 
 ---
 
@@ -19,44 +20,115 @@ CASK Hub is an AI-powered leadership intelligence platform for CASK Construction
 
 ```
 Frontend:   Next.js 14 (App Router) + TypeScript + Tailwind CSS
-Database:   Supabase (PostgreSQL + Realtime)
-AI:         Claude API — model: claude-sonnet-4-20250514
-Hosting:    Vercel
-Auth:       Supabase Auth (Phase 2)
-Automation: Make.com + Fireflies AI (Phase 3)
+Database:   Supabase (PostgreSQL)
+AI Models:  claude-sonnet-4-6 (meeting recaps, general AI)
+            claude-opus-4-8 (email drafts, profile updates)
+Hosting:    Vercel (auto-deploys from GitHub)
+Auth:       Supabase Auth
+Automation: Make.com + Fireflies AI
+SMS:        Twilio (infrastructure built, pending credentials)
+Email:      Microsoft 365 via Make.com webhook
 ```
 
 ---
 
-## Project Structure
+## People
+
+| Name | Role | Email |
+|------|------|-------|
+| Calin Noonan | President | c.noonan@caskconstruction.com |
+| Kai Mapoy | Executive Assistant | k.mapoy@caskconstruction.com |
+| Chad Holman | VP Operations | — |
+| Lamont Gilyot | VP Finance | — |
+| Jeff Azcona | VP Sales | — |
+| Kaitlyn Grunenberg | VP HR | — |
+| Matteo Carpani | Operations Manager | — |
+| Joseph Estelloso | Data Analyst | — |
+| Rovern Alimpoos | AI Workflow Specialist | r.alimpoos@caskconstruction.com |
+| Jeff Reinertsen | IT | help@AmericanTechSystems.com |
+
+---
+
+## Current Sidebar Structure
 
 ```
-src/
-├── app/
-│   ├── (app)/                  ← All pages inside the 3-column shell
-│   │   ├── layout.tsx          ← App shell: Sidebar + Main + AI Panel
-│   │   ├── dashboard/page.tsx  ← Dashboard with stats + recent sessions
-│   │   ├── sessions/page.tsx   ← Sessions list with filter tabs
-│   │   ├── sessions/[id]/page.tsx ← Session detail page
-│   │   ├── generate/page.tsx   ← Generate Agenda with Claude AI
-│   │   └── actions/page.tsx    ← Action Items CRUD
-│   ├── api/
-│   │   ├── chat/route.ts       ← Claude AI chat endpoint
-│   │   ├── generate-agenda/route.ts ← Agenda generation endpoint
-│   │   └── seed/route.ts       ← Seeds Supabase with real data
-│   ├── layout.tsx              ← Root layout with fonts
-│   ├── page.tsx                ← Redirects to /dashboard
-│   └── globals.css             ← CSS variables + global styles
-├── components/
-│   ├── sidebar/Sidebar.tsx     ← Left nav (dark charcoal)
-│   ├── ai-panel/AIPanel.tsx    ← Right Claude chat panel
-│   └── ui/index.tsx            ← All shared components
-├── lib/
-│   ├── supabase.ts             ← Supabase client
-│   ├── meetings.ts             ← Data access layer
-│   └── seed-data.ts            ← All 6 real meetings + action items
-└── types/index.ts              ← TypeScript types
+CASK OPERATING SYSTEM
+  Command Center             → /command-center
+
+GENERAL MEETINGS
+  All Sessions               → /sessions
+  Generate Agenda            → /generate
+  Action Items               → /actions
+
+PRESIDENT'S WORKFLOW
+  President's Meeting Agendas → /president/overview
+  President's Calendar       → /president/calendar
+  Daily Meetings             → /daily-meetings
+
+CUSTOMER JOURNEY
+  Active Clients             → /customers
+  Client Templates           → /customers/templates
+  New Client Setup           → /customers/new
+
+DESIGN CENTER
+  Design Center              → /design-center
+
+MEETING INTELLIGENCE (SOON)
+  AI Notetaker
+  Transcripts
 ```
+
+---
+
+## Supabase Tables
+
+```
+meetings            — all recorded sessions
+action_items        — separate table (migrated from JSON)
+calendar_events     — Calin's Microsoft calendar
+clients             — active construction clients
+client_meetings     — per-client meeting journey progress
+client_email_drafts — auto-generated emails pending send
+chat_history        — persistent AI chat per page per user
+user_analytics      — page view tracking (Rovern only)
+client_priorities   — client key priorities
+```
+
+---
+
+## AI Channels (Right Panel)
+
+| Context | Focus |
+|---------|-------|
+| Dashboard AI | General AI |
+| Command Center AI | Departments & reports |
+| Sales AI | Pipeline & revenue |
+| Operations AI | Projects & WIP |
+| Finance AI | Cash flow & P&L |
+| HR AI | Team & compliance |
+| Executive AI | Company overview |
+| Calendar AI | Schedule & meetings |
+| Daily Meetings AI | Team meeting summaries |
+| Design Center AI | DC files & clients |
+| Action Items AI | Tasks & owners |
+| Customer Journey AI | Templates & phases |
+| President AI | Meetings & agendas |
+
+---
+
+## Key Features Built
+
+- Fireflies webhook → Claude AI → meeting recap auto-save
+- Meeting title format: `"PR1m Meeting Title: Client Name"` — matches client + phase → saves to `client_meetings`
+- Living Client Profile — Claude auto-updates after every meeting
+- Email draft auto-generation using `claude-opus-4-8`
+- Email send via Make.com → Microsoft 365 Outlook
+- Per-client AI chat with full context
+- Persistent chat history per page per user
+- Morning Briefing dashboard with real-time ET clock
+- Microsoft 365 calendar sync via Make.com (every 15 mins)
+- CASK Operating System — 5 department framework pages
+- Command Center with Sales, Operations, Finance, HR, Executive
 
 ---
 
@@ -66,23 +138,23 @@ src/
 
 ### Colors (CSS variables in globals.css)
 ```css
---bg: #f9f8f7          /* page background */
---surface: #ffffff      /* card background */
---surface2: #f4f3f1    /* secondary surface */
---border: #e8e5e1      /* default border */
---border2: #d4d0ca     /* hover border */
---text: #1a1917        /* primary text */
---text2: #3a3834       /* secondary text */
---text3: #a8a29e       /* muted text */
---red: #c8311a         /* CASK red / primary action */
---red-soft: #fdf2f0    /* red background tint */
---red-border: #f5c9c2  /* red border */
---charcoal: #1a1917    /* dark elements, buttons */
---sidebar: #1c1c1e     /* sidebar background */
---green: #166534       /* success */
---green-bg: #f0fdf4    /* success background */
---amber: #92400e       /* warning / due dates */
---amber-bg: #fffbeb    /* warning background */
+--bg: #f9f8f7
+--surface: #ffffff
+--surface2: #f4f3f1
+--border: #e8e5e1
+--border2: #d4d0ca
+--text: #1a1917
+--text2: #3a3834
+--text3: #a8a29e
+--red: #c8311a
+--red-soft: #fdf2f0
+--red-border: #f5c9c2
+--charcoal: #1a1917
+--sidebar: #1c1c1e
+--green: #166534
+--green-bg: #f0fdf4
+--amber: #92400e
+--amber-bg: #fffbeb
 ```
 
 ### Fonts
@@ -98,158 +170,16 @@ Geist Mono        → code/transcripts (font-mono class)
 All inside: .app-shell { display: grid; grid-template-columns: 232px 1fr 300px; height: 100vh; }
 ```
 
-### Meeting Type Colors
-```
-leadership → red     (#c8311a)
-planning   → green   (#059669)
-coaching   → amber   (#d97706)
-education  → purple  (#7c3aed)
-```
-
 ---
 
-## Key Components — How to Use Them
+## Department Colors (Command Center)
 
-All shared components are in `src/components/ui/index.tsx`. Import like:
-```tsx
-import { TopBar, StatCard, MeetingCard, ActionItemRow, SectionLabel, FilterBar, PillGreen, PillRed } from '@/components/ui'
 ```
-
-### TopBar
-```tsx
-<TopBar title="Page Name" subtitle="Section Name">
-  <PillGreen>Claude AI Active</PillGreen>
-  <PillRed>6 Sessions</PillRed>
-</TopBar>
-```
-
-### StatCard
-```tsx
-<StatCard value={6} label="Total Sessions" hint="Feb – Apr 2026" variant="default" index={0} />
-// variants: "default" | "alert" (red) | "success" (green)
-// index 0-3 controls staggered animation delay
-```
-
-### MeetingCard
-```tsx
-<MeetingCard meeting={meeting} />
-// meeting must be type Meeting from @/types
-// renders date, title, attendees, type tag, hover arrow
-// links to /sessions/[id]
-```
-
-### ActionItemRow
-```tsx
-<ActionItemRow item={item} onToggle={(id, done) => handleToggle(id, done)} />
-// item must be type ActionItem from @/types
-// checkbox toggles done state
-// shows owner + due date
-```
-
----
-
-## TypeScript Types
-
-```typescript
-// src/types/index.ts
-
-type MeetingType = 'leadership' | 'planning' | 'coaching' | 'education'
-
-interface ActionItem {
-  id: string
-  meeting_id?: string
-  task: string
-  owner: string
-  due_date: string
-  done: boolean
-}
-
-interface Meeting {
-  id: string
-  title: string
-  date: string           // 'YYYY-MM-DD'
-  time_start: string
-  time_end: string
-  attendees: string[]
-  summary: string[]      // 3 bullet points
-  action_items: ActionItem[]
-  key_decisions: string[]
-  full_transcript: string
-  meeting_type: MeetingType
-  owner: string
-  module: string
-}
-```
-
----
-
-## Supabase Schema
-
-```sql
-meetings (
-  id uuid PK,
-  title text,
-  date date,
-  time_start text,
-  time_end text,
-  attendees text[],
-  summary text[],
-  action_items jsonb,
-  key_decisions text[],
-  full_transcript text,
-  meeting_type text,
-  owner text,
-  module text,
-  created_at timestamptz
-)
-
-action_items (
-  id uuid PK,
-  meeting_id uuid FK → meetings(id),
-  task text,
-  owner text,
-  due_date date,
-  done boolean,
-  created_at timestamptz
-)
-```
-
-### Data Access Pattern
-```typescript
-// Always try Supabase first, fall back to seed data
-import { supabase } from '@/lib/supabase'
-import { MEETINGS } from '@/lib/seed-data'
-
-const { data, error } = await supabase.from('meetings').select('*')
-if (error || !data?.length) return MEETINGS // fallback
-```
-
----
-
-## Claude API Pattern
-
-```typescript
-// All AI calls go through /api/chat or /api/generate-agenda
-// Never call the Anthropic API directly from client components
-// Always use server-side API routes
-
-const res = await fetch('/api/chat', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ messages }),
-})
-const data = await res.json()
-// data.content = Claude's response text
-```
-
-### Claude System Context (always include in prompts)
-```
-You are CASK Hub AI for CASK Construction's ActionCOACH program.
-Company goal: $20M revenue in 2026.
-Coach: Juliet (ActionCOACH Tampa Bay).
-6 sessions recorded: Feb–Apr 2026.
-Key people: Calin (President), Chad (VP Ops), Lamont (VP Finance),
-Jeff (VP Sales), Kait (VP HR), Matteo (Ops Manager), Kai (EA), Rovern (AI Specialist).
+Sales & Marketing:        #3B82F6  (blue)
+Operations:               #F59E0B  (orange)
+Finance:                  #10B981  (green)
+Human Resources:          #8B5CF6  (purple)
+Executive Command Center: #F59E0B  (gold)
 ```
 
 ---
@@ -257,69 +187,32 @@ Jeff (VP Sales), Kait (VP HR), Matteo (Ops Manager), Kai (EA), Rovern (AI Specia
 ## Environment Variables
 
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=        # from Supabase project settings
-NEXT_PUBLIC_SUPABASE_ANON_KEY=   # from Supabase API keys
-SUPABASE_SERVICE_ROLE_KEY=       # secret — server only
-ANTHROPIC_API_KEY=               # from console.anthropic.com
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+ANTHROPIC_API_KEY           # Calin's key
+FIREFLIES_API_KEY           # Calin's key
+MAKE_EMAIL_WEBHOOK_URL
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_PHONE_NUMBER=+19285887853
+CRON_SECRET
 ```
 
 ---
 
-## Key Business Data
-
-### People
-| Name | Role | Notes |
-|------|------|-------|
-| Calin Noonan | President + Co-Founder | Doesn't attend 4th Wed Ops session |
-| Chad Holman | VP Operations + Co-Founder | Co-leads all sessions |
-| Lamont Gilyot | VP Finance | |
-| Jeff Azcona | VP Sales & Marketing | |
-| Kaitlyn Grunenberg | VP Human Resources | |
-| Matteo Carpani | Operations Manager | |
-| Kai Mapoy | Executive Assistant | Manages Calin's workflow |
-| Rovern Alimpoos | AI Workflow Specialist | Builds CASK Hub |
-| Juliet | ActionCOACH Facilitator | Tampa Bay |
-
-### Coaching Schedule
-```
-2nd Wed 1:30–2:30pm  Owner/Working On Business (Calin, Chad, Juliet)
-2nd Wed 3–4pm        Owner/Big Vision (Calin, Chad, Scott)
-3rd Wed 3–4pm        Leadership Conference
-3rd Wed 2–3pm        Personal/Leadership Dev Coaching
-4th Wed 3–4pm        CASK Ops (Chad, Matteo, Scott — Calin NOT here)
-```
-
-### Upcoming Meeting
-```
-May 28, 2026 — CASK Leadership Meeting
-Time: 11:00 AM – 3:00 PM
-Attendees: Calin, Chad, Lamont, Jeff, Matteo, Kait, Juliet
-```
-
----
-
-## Phase Roadmap
-
-```
-Phase 1 ✅  Core — all pages, seed data, Supabase schema
-Phase 2     AI Features — Claude chat live, agenda generation, action items CRUD in Supabase
-Phase 3     Automation — Make.com + Fireflies → Claude → Supabase pipeline
-Phase 4     Advanced — Calendar sync, Estimates module, KPI Dashboard
-```
-
----
-
-## Code Style Rules
+## Claude Code Rules
 
 1. Always use TypeScript — no `any` types
 2. Use Tailwind for layout/spacing, CSS variables for colors
 3. Client components get `'use client'` at the top
-4. Server components fetch data directly (no useEffect)
-5. All Claude API calls go through `/api/` routes, never from client
-6. Seed data fallback pattern for all Supabase queries
-7. Keep components in `src/components/`, pages in `src/app/(app)/`
-8. Import shared components from `@/components/ui`
-9. Match the HTML prototype design exactly — don't redesign
+4. All Claude API calls go through `/api/` routes, never from client
+5. Match the existing design system exactly — do not redesign
+6. DO NOT touch unrelated files
+7. Always test on localhost before pushing
+8. Use `claude-sonnet-4-6` for simple tasks, `claude-opus-4-8` for complex
+9. Push to GitHub after confirming localhost works
+10. Windows/PowerShell environment
 
 ---
 
@@ -341,3 +234,25 @@ Phase 4     Advanced — Calendar sync, Estimates module, KPI Dashboard
 1. Add the function to `src/lib/meetings.ts`
 2. Try Supabase first, fall back to `MEETINGS` seed data
 3. Type the return value with types from `@/types`
+
+### Supabase data access pattern
+```typescript
+import { supabase } from '@/lib/supabase'
+import { MEETINGS } from '@/lib/seed-data'
+
+const { data, error } = await supabase.from('meetings').select('*')
+if (error || !data?.length) return MEETINGS // fallback
+```
+
+### Claude API pattern
+```typescript
+// All AI calls go through /api/chat or /api/generate-agenda
+// Never call the Anthropic API directly from client components
+const res = await fetch('/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ messages }),
+})
+const data = await res.json()
+// data.content = Claude's response text
+```
