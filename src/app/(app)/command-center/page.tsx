@@ -6,7 +6,7 @@
 // Design language: "Bloomberg Terminal meets luxury construction firm."
 // Premium, data-dense, intentional. Follows the app theme — works in both light and dark mode.
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 
 // ── Status model ─────────────────────────────────────────────────────
@@ -719,6 +719,468 @@ function DataSourcePill({ name, status }: { name: string; status: Status }) {
   )
 }
 
+// ── System Insights panel (overlays the shared AI panel column) ──────
+//
+// Self-contained panel rendered position:fixed over the 440px right column.
+// It only exists while this page is mounted — navigating away unmounts it
+// and the shared AIPanel shows through again. No other file touched.
+
+// Panel palette — uses CSS variables so it adapts to light/dark mode with the rest of the app.
+const D = {
+  bg: 'var(--surface)',
+  surface: 'var(--surface2)',
+  surface2: 'var(--surface2)',
+  border: 'var(--border)',
+  borderSoft: 'var(--border)',
+  text: 'var(--text)',
+  text2: 'var(--text2)',
+  text3: 'var(--text3)',
+  green: '#34D399',
+  red: '#F87171',
+  accent: '#F59E0B',
+}
+
+type InsightRow =
+  | { kind: 'metric'; emoji: string; label: string; value: string }
+  | { kind: 'status'; dot: string; label: string; value: string }
+
+const INSIGHTS: InsightRow[] = [
+  { kind: 'metric', emoji: '⚡', label: 'Departments Connected', value: '0 of 5' },
+  { kind: 'metric', emoji: '📊', label: 'Reports Live', value: '1 of 49' },
+  { kind: 'status', dot: '#10B981', label: 'Customer Journey', value: 'Active' },
+  { kind: 'status', dot: '#EF4444', label: 'Sales & Marketing', value: 'Not Connected' },
+  { kind: 'status', dot: '#EF4444', label: 'Operations', value: 'Not Connected' },
+  { kind: 'status', dot: '#EF4444', label: 'Finance', value: 'Not Connected' },
+  { kind: 'status', dot: '#EF4444', label: 'HR', value: 'Not Connected' },
+]
+
+const RECOMMENDED: { text: string; accent: string }[] = [
+  { text: 'Connect QuickBooks → unlock Finance', accent: '#10B981' },
+  { text: 'Get CRM access from Jeff → unlock Sales', accent: '#3B82F6' },
+  { text: 'Check BuilderTrend API → unlock Operations', accent: '#F59E0B' },
+]
+
+const AI_GREETING =
+  "CCFOS AI online. I have context on all 5 departments, their connection status, and the roadmap. Ask what to connect next, who owns a report, or what's live."
+
+const QUICK_PROMPTS = ['What needs connecting?', "What's live now?", 'Department owners']
+
+interface PanelMsg {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+function InsightRowItem({ row }: { row: InsightRow }) {
+  const isGreen = row.kind === 'status' && row.value === 'Active'
+  const valueColor = row.kind === 'metric' ? D.text : isGreen ? D.green : D.red
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 11,
+        padding: '9px 0',
+        borderBottom: `1px solid ${D.borderSoft}`,
+      }}
+    >
+      {row.kind === 'metric' ? (
+        <span style={{ fontSize: 14, lineHeight: 1, width: 16, textAlign: 'center', flexShrink: 0 }}>
+          {row.emoji}
+        </span>
+      ) : (
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: row.dot,
+            boxShadow: isGreen ? `0 0 8px ${row.dot}` : `0 0 4px ${row.dot}66`,
+            flexShrink: 0,
+            marginLeft: 4,
+            marginRight: 4,
+          }}
+        />
+      )}
+      <span style={{ fontSize: 12.5, color: D.text2, flex: 1, minWidth: 0 }}>{row.label}</span>
+      <span style={{ fontSize: 12, fontWeight: 700, color: valueColor, whiteSpace: 'nowrap' }}>
+        {row.value}
+      </span>
+    </div>
+  )
+}
+
+function RecommendedItem({ text, accent }: { text: string; accent: string }) {
+  const arrowIdx = text.indexOf('→')
+  const pre = arrowIdx >= 0 ? text.slice(0, arrowIdx).trim() : text
+  const post = arrowIdx >= 0 ? text.slice(arrowIdx + 1).trim() : ''
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 8,
+        padding: '9px 11px',
+        borderRadius: 8,
+        background: D.surface,
+        border: `1px solid ${D.borderSoft}`,
+        borderLeft: `2px solid ${accent}`,
+        lineHeight: 1.45,
+      }}
+    >
+      <span style={{ fontSize: 12.5, color: D.text2 }}>
+        {pre}
+        {post && (
+          <span style={{ color: accent, fontWeight: 600 }}> → {post}</span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+function CommandCenterPanel() {
+  const [aiOpen, setAiOpen] = useState(false)
+  const [messages, setMessages] = useState<PanelMsg[]>([{ role: 'assistant', content: AI_GREETING }])
+  const [input, setInput] = useState('')
+  const [thinking, setThinking] = useState(false)
+  const endRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (aiOpen) endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, thinking, aiOpen])
+
+  async function send(text?: string) {
+    const msg = (text ?? input).trim()
+    if (!msg || thinking) return
+    const next: PanelMsg[] = [...messages, { role: 'user', content: msg }]
+    setMessages(next)
+    setInput('')
+    setThinking(true)
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: next.map(m => ({ role: m.role, content: m.content })),
+          pageContext: '/command-center',
+        }),
+      })
+      if (!res.ok) throw new Error(`API error ${res.status}`)
+      const data = await res.json()
+      setMessages([...next, { role: 'assistant', content: data.content || 'No response.' }])
+    } catch {
+      setMessages([...next, { role: 'assistant', content: 'Connection error. Please try again.' }])
+    } finally {
+      setThinking(false)
+    }
+  }
+
+  function onKey(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    }
+  }
+
+  return (
+    <aside
+      style={{
+        position: 'fixed',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 440,
+        zIndex: 40,
+        background: D.bg,
+        color: D.text,
+        borderLeft: `1px solid ${D.border}`,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        fontFamily: 'var(--font-geist), sans-serif',
+      }}
+    >
+      {/* ── SECTION 1 — System Insights ── */}
+      <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: '18px 18px 22px' }}>
+        {/* Header */}
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: '2px',
+            textTransform: 'uppercase',
+            color: D.text2,
+          }}
+        >
+          System Insights
+        </div>
+        <div
+          style={{
+            height: 1,
+            background: `linear-gradient(90deg, ${D.border}, transparent)`,
+            margin: '11px 0 4px',
+          }}
+        />
+
+        {/* Status rows */}
+        <div>
+          {INSIGHTS.map(row => (
+            <InsightRowItem key={row.label} row={row} />
+          ))}
+        </div>
+
+        {/* Recommended actions */}
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '1.8px',
+            textTransform: 'uppercase',
+            color: D.text3,
+            margin: '22px 0 11px',
+          }}
+        >
+          Recommended Actions
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {RECOMMENDED.map(a => (
+            <RecommendedItem key={a.text} text={a.text} accent={a.accent} />
+          ))}
+        </div>
+      </div>
+
+      {/* ── SECTION 2 — CCFOS AI (collapsible) ── */}
+      <div
+        style={{
+          flex: aiOpen ? '1 1 0' : '0 0 auto',
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          borderTop: `1px solid ${D.border}`,
+          background: D.bg,
+        }}
+      >
+        {/* Header / toggle */}
+        <button
+          onClick={() => setAiOpen(o => !o)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
+            padding: '13px 16px',
+            background: D.surface,
+            border: 'none',
+            cursor: 'pointer',
+            flexShrink: 0,
+            fontFamily: 'inherit',
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: D.accent,
+                boxShadow: `0 0 8px ${D.accent}`,
+              }}
+            />
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: '1.6px',
+                textTransform: 'uppercase',
+                color: D.text,
+              }}
+            >
+              CCFOS AI
+            </span>
+          </span>
+          <span
+            style={{
+              color: D.text3,
+              fontSize: 11,
+              transform: aiOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 160ms ease',
+            }}
+          >
+            ▼
+          </span>
+        </button>
+
+        {/* Chat — only when expanded */}
+        {aiOpen && (
+          <>
+            {/* Feed */}
+            <div
+              style={{
+                flex: '1 1 0',
+                minHeight: 0,
+                overflowY: 'auto',
+                padding: '6px 16px 10px',
+              }}
+            >
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: '11px 0',
+                    borderBottom: i < messages.length - 1 ? `1px solid ${D.borderSoft}` : 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 800,
+                      letterSpacing: '1.5px',
+                      textTransform: 'uppercase',
+                      color: m.role === 'user' ? D.text3 : D.accent,
+                      marginBottom: 5,
+                    }}
+                  >
+                    {m.role === 'user' ? 'You' : 'CCFOS AI'}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12.5,
+                      lineHeight: 1.55,
+                      color: m.role === 'user' ? D.text2 : D.text,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+
+              {thinking && (
+                <div style={{ padding: '11px 0' }}>
+                  <div
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 800,
+                      letterSpacing: '1.5px',
+                      textTransform: 'uppercase',
+                      color: D.accent,
+                      marginBottom: 5,
+                    }}
+                  >
+                    CCFOS AI
+                  </div>
+                  <div style={{ fontSize: 12.5, color: D.text3, fontStyle: 'italic' }}>Analyzing…</div>
+                </div>
+              )}
+              <div ref={endRef} />
+            </div>
+
+            {/* Quick prompts (only at start) */}
+            {messages.length <= 1 && !thinking && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 16px 10px' }}>
+                {QUICK_PROMPTS.map(q => (
+                  <button
+                    key={q}
+                    onClick={() => send(q)}
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 500,
+                      padding: '5px 10px',
+                      borderRadius: 20,
+                      background: D.surface,
+                      border: `1px solid ${D.border}`,
+                      color: D.text2,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      transition: 'border-color 150ms ease, color 150ms ease',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.borderColor = `${D.accent}66`
+                      e.currentTarget.style.color = D.text
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.borderColor = D.border
+                      e.currentTarget.style.color = D.text2
+                    }}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Input */}
+            <div style={{ padding: '10px 16px 14px', borderTop: `1px solid ${D.border}`, flexShrink: 0 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-end',
+                  gap: 6,
+                  borderRadius: 9,
+                  padding: 5,
+                  border: `1px solid ${D.border}`,
+                  background: D.surface,
+                }}
+              >
+                <textarea
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={onKey}
+                  placeholder="Ask about departments, reports..."
+                  rows={1}
+                  style={{
+                    flex: 1,
+                    resize: 'none',
+                    background: 'transparent',
+                    fontSize: 12.5,
+                    padding: '5px 6px',
+                    outline: 'none',
+                    lineHeight: 1.5,
+                    color: D.text,
+                    fontFamily: 'inherit',
+                    maxHeight: 96,
+                    overflowY: 'auto',
+                    border: 'none',
+                  }}
+                />
+                <button
+                  onClick={() => send()}
+                  disabled={!input.trim() || thinking}
+                  style={{
+                    flexShrink: 0,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 7,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: input.trim() && !thinking ? D.accent : D.surface,
+                    color: input.trim() && !thinking ? '#0f0f0f' : D.text3,
+                    border: 'none',
+                    cursor: !input.trim() || thinking ? 'not-allowed' : 'pointer',
+                    transition: 'background 150ms ease',
+                  }}
+                  title="Send"
+                >
+                  <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                    <path
+                      d="M6 1L11 6L6 11M11 6H1"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </aside>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function CommandCenterPage() {
@@ -972,6 +1434,9 @@ export default function CommandCenterPage() {
           </div>
         </div>
       </div>
+
+      {/* System Insights + CCFOS AI — overlays the shared AI panel column, this page only */}
+      <CommandCenterPanel />
     </>
   )
 }
