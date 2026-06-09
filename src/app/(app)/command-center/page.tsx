@@ -800,14 +800,14 @@ export default function CommandCenterPage() {
             <h1
               style={{
                 fontFamily: 'var(--font-instrument), Georgia, serif',
-                fontSize: 40,
-                lineHeight: 1,
+                lineHeight: 1.1,
                 color: PALETTE.text,
                 letterSpacing: '-0.5px',
                 margin: 0,
               }}
             >
-              CASK Operating System
+              <span style={{ display: 'block', fontSize: 40 }}>CASK Construction</span>
+              <span style={{ display: 'block', fontSize: 28, opacity: 0.75 }}>Financial Operating System</span>
             </h1>
             <p
               style={{
@@ -961,7 +961,7 @@ export default function CommandCenterPage() {
                 </div>
               </div>
               <div style={{ fontSize: 13, color: PALETTE.text3, marginBottom: 18, marginLeft: 46 }}>
-                All systems feed CASK Operating System
+                All systems feed CASK Construction Financial Operating System
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {DATA_SOURCES.map((s) => (
