@@ -193,6 +193,16 @@ function PencilIcon({ size = 13 }: { size?: number }) {
   )
 }
 
+function TrashIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6"/>
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+    </svg>
+  )
+}
+
 function EmptyState() {
   return (
     <div style={{
@@ -280,7 +290,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
   )
 }
 
-function EventCard({ event, onGenerateAgenda, onEdit }: { event: CalendarEvent; onGenerateAgenda: (event: CalendarEvent) => void; onEdit: (event: CalendarEvent) => void }) {
+function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: CalendarEvent; onGenerateAgenda: (event: CalendarEvent) => void; onEdit: (event: CalendarEvent) => void; onDelete: (event: CalendarEvent) => void }) {
   const [hovered, setHovered] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [linkInput, setLinkInput] = useState('')
@@ -358,22 +368,38 @@ function EventCard({ event, onGenerateAgenda, onEdit }: { event: CalendarEvent; 
                 ↻ Recurring
               </span>
             )}
-            <button
-              onClick={() => onEdit(event)}
-              title="Edit event"
-              style={{
-                marginLeft: 'auto', flexShrink: 0,
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 26, height: 26, borderRadius: 6,
-                background: 'transparent', border: '1px solid transparent',
-                color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
-                transition: 'border-color 150ms ease, color 150ms ease',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
-            >
-              <PencilIcon />
-            </button>
+            <div style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, opacity: hovered ? 1 : 0, transition: 'opacity 150ms ease' }}>
+              <button
+                onClick={() => onEdit(event)}
+                title="Edit event"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 26, height: 26, borderRadius: 6,
+                  background: 'transparent', border: '1px solid transparent',
+                  color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
+                  transition: 'border-color 150ms ease, color 150ms ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+              >
+                <PencilIcon />
+              </button>
+              <button
+                onClick={ev => { ev.stopPropagation(); onDelete(event) }}
+                title="Delete event"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 26, height: 26, borderRadius: 6,
+                  background: 'transparent', border: '1px solid transparent',
+                  color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
+                  transition: 'border-color 150ms ease, color 150ms ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#fecaca'; e.currentTarget.style.color = '#ef4444' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+              >
+                <TrashIcon />
+              </button>
+            </div>
           </div>
 
           {/* Title */}
@@ -527,7 +553,7 @@ function EventCard({ event, onGenerateAgenda, onEdit }: { event: CalendarEvent; 
   )
 }
 
-function EventRow({ event, onEdit }: { event: CalendarEvent; onEdit: (event: CalendarEvent) => void }) {
+function EventRow({ event, onEdit, onDelete }: { event: CalendarEvent; onEdit: (event: CalendarEvent) => void; onDelete: (event: CalendarEvent) => void }) {
   const [hovered, setHovered] = useState(false)
   const borderColor = getEventBorderColor(event)
 
@@ -581,22 +607,38 @@ function EventRow({ event, onEdit }: { event: CalendarEvent; onEdit: (event: Cal
           View Event
         </a>
       )}
-      <button
-        onClick={() => onEdit(event)}
-        title="Edit event"
-        style={{
-          flexShrink: 0,
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 26, height: 26, borderRadius: 6,
-          background: 'transparent', border: '1px solid transparent',
-          color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
-          transition: 'border-color 150ms ease, color 150ms ease',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
-      >
-        <PencilIcon size={12} />
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, opacity: hovered ? 1 : 0, transition: 'opacity 150ms ease', flexShrink: 0 }}>
+        <button
+          onClick={() => onEdit(event)}
+          title="Edit event"
+          style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 26, height: 26, borderRadius: 6,
+            background: 'transparent', border: '1px solid transparent',
+            color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'border-color 150ms ease, color 150ms ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+        >
+          <PencilIcon size={12} />
+        </button>
+        <button
+          onClick={ev => { ev.stopPropagation(); onDelete(event) }}
+          title="Delete event"
+          style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 26, height: 26, borderRadius: 6,
+            background: 'transparent', border: '1px solid transparent',
+            color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'border-color 150ms ease, color 150ms ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = '#fecaca'; e.currentTarget.style.color = '#ef4444' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+        >
+          <TrashIcon size={12} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -634,6 +676,10 @@ export default function CalendarPage() {
   const [editEvent, setEditEvent] = useState<CalendarEvent | null>(null)
   const [editScopeAsk, setEditScopeAsk] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
+
+  // Delete event state
+  const [deleteEvent, setDeleteEvent] = useState<CalendarEvent | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [editForm, setEditForm] = useState({
     title: '', date: '', startTime: '', endTime: '',
     organizer: '', location: '', teamsLink: '', isAllDay: false,
@@ -890,6 +936,60 @@ export default function CalendarPage() {
     // Realtime subscription reloads events automatically
   }
 
+  async function handleDelete(scope: 'one' | 'all') {
+    if (!deleteEvent) return
+    setDeleting(true)
+    const supabase = createClient()
+
+    let error = null
+    let deletedIds: string[] = []
+
+    if (scope === 'all' && deleteEvent.recurring_id) {
+      const { data, error: e } = await supabase
+        .from('calendar_events')
+        .delete()
+        .eq('recurring_id', deleteEvent.recurring_id)
+        .select('id')
+      error = e
+      deletedIds = (data ?? []).map((r: { id: string }) => r.id)
+    } else {
+      const { data, error: e } = await supabase
+        .from('calendar_events')
+        .delete()
+        .eq('id', deleteEvent.id)
+        .select('id')
+      error = e
+      deletedIds = (data ?? []).map((r: { id: string }) => r.id)
+    }
+
+    setDeleting(false)
+
+    if (error) {
+      console.error('[delete-event] failed:', error.message)
+      setSaveToast({ message: `Failed to delete: ${error.message}`, type: 'error' })
+      setTimeout(() => setSaveToast(null), 5000)
+      setDeleteEvent(null)
+      return
+    }
+
+    // If no rows were actually deleted (e.g. RLS blocked it silently), bail out
+    if (deletedIds.length === 0) {
+      console.error('[delete-event] delete returned no rows — RLS may be blocking this operation')
+      setSaveToast({ message: 'Delete failed — check Supabase RLS permissions', type: 'error' })
+      setTimeout(() => setSaveToast(null), 6000)
+      setDeleteEvent(null)
+      return
+    }
+
+    // Supabase confirmed deletion — now update UI
+    const deletedSet = new Set(deletedIds)
+    setEvents(ev => ev.filter(e => !deletedSet.has(e.id)))
+
+    setDeleteEvent(null)
+    setSaveToast({ message: 'Event deleted', type: 'success' })
+    setTimeout(() => setSaveToast(null), 3000)
+  }
+
   async function handleGenerateAgenda(event: CalendarEvent) {
     const dateLabel = new Date(event.start_time).toLocaleDateString('en-US', {
       timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
@@ -987,7 +1087,7 @@ export default function CalendarPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {todayEvents.length === 0
                   ? <EmptyState />
-                  : todayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} />)
+                  : todayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} onDelete={ev => setDeleteEvent(ev)} />)
                 }
               </div>
             </div>
@@ -998,7 +1098,7 @@ export default function CalendarPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {tomorrowEvents.length === 0
                   ? <EmptyState />
-                  : tomorrowEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} />)
+                  : tomorrowEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} onDelete={ev => setDeleteEvent(ev)} />)
                 }
               </div>
             </div>
@@ -1023,7 +1123,7 @@ export default function CalendarPage() {
                         })}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {dayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} />)}
+                        {dayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} onDelete={ev => setDeleteEvent(ev)} />)}
                       </div>
                     </div>
                   ))}
@@ -1045,7 +1145,7 @@ export default function CalendarPage() {
                       {i > 0 && (
                         <div style={{ height: 1, background: 'var(--border)', margin: '0 16px' }} />
                       )}
-                      <EventRow event={e} onEdit={openEdit} />
+                      <EventRow event={e} onEdit={openEdit} onDelete={ev => setDeleteEvent(ev)} />
                     </div>
                   ))}
                 </div>
@@ -1762,6 +1862,181 @@ export default function CalendarPage() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteEvent && (
+        <div
+          onClick={() => { if (!deleting) setDeleteEvent(null) }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1001,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              width: 420,
+              maxWidth: 'calc(100vw - 32px)',
+              animation: 'modalFadeIn 180ms ease',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '16px 20px', borderBottom: '1px solid var(--border)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: '#fee2e2', border: '1px solid #fecaca',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#ef4444', flexShrink: 0,
+                }}>
+                  <TrashIcon size={14} />
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Delete this event?</div>
+              </div>
+              <button
+                onClick={() => { if (!deleting) setDeleteEvent(null) }}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--text3)', padding: 4, borderRadius: 6,
+                  display: 'flex', alignItems: 'center',
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Event info */}
+              <div style={{
+                background: 'var(--surface2)', border: '1px solid var(--border)',
+                borderRadius: 10, padding: '13px 15px',
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
+                  {deleteEvent.title}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                  {new Date(deleteEvent.start_time).toLocaleDateString('en-US', {
+                    timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+                  })}
+                  {!deleteEvent.is_all_day && ` · ${formatTimeRange(deleteEvent.start_time, deleteEvent.end_time)}`}
+                </div>
+              </div>
+
+              {/* Outlook warning */}
+              <div style={{
+                display: 'flex', alignItems: 'flex-start', gap: 9,
+                padding: '11px 13px', borderRadius: 8,
+                background: '#fffbeb', border: '1px solid #fde68a',
+                color: '#92400e',
+              }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                  This will remove it from CASK Hub only.<br />
+                  <strong>It will NOT delete from Outlook calendar.</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '14px 20px', borderTop: '1px solid var(--border)',
+            }}>
+              {deleteEvent.is_recurring && deleteEvent.recurring_id ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>
+                    Delete just this event or all recurring events?
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => setDeleteEvent(null)}
+                      disabled={deleting}
+                      style={{
+                        flex: 1, padding: '8px 14px', borderRadius: 8,
+                        background: 'none', border: '1px solid var(--border2)',
+                        color: 'var(--text2)', fontSize: 13, fontWeight: 500,
+                        fontFamily: 'inherit', cursor: deleting ? 'not-allowed' : 'pointer',
+                        opacity: deleting ? 0.5 : 1,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleDelete('one')}
+                      disabled={deleting}
+                      style={{
+                        flex: 1, padding: '8px 14px', borderRadius: 8,
+                        background: 'none', border: '1px solid var(--border2)',
+                        color: 'var(--text2)', fontSize: 13, fontWeight: 600,
+                        fontFamily: 'inherit', cursor: deleting ? 'not-allowed' : 'pointer',
+                        opacity: deleting ? 0.5 : 1,
+                      }}
+                    >
+                      Just This One
+                    </button>
+                    <button
+                      onClick={() => handleDelete('all')}
+                      disabled={deleting}
+                      style={{
+                        flex: 1, padding: '8px 14px', borderRadius: 8,
+                        background: '#ef4444', color: 'white',
+                        border: 'none', fontSize: 13, fontWeight: 600,
+                        fontFamily: 'inherit', cursor: deleting ? 'not-allowed' : 'pointer',
+                        opacity: deleting ? 0.5 : 1,
+                        transition: 'opacity 150ms ease',
+                      }}
+                    >
+                      {deleting ? 'Deleting…' : 'All Recurring'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                  <button
+                    onClick={() => setDeleteEvent(null)}
+                    disabled={deleting}
+                    style={{
+                      padding: '8px 16px', borderRadius: 8,
+                      background: 'none', border: '1px solid var(--border2)',
+                      color: 'var(--text2)', fontSize: 13, fontWeight: 500,
+                      fontFamily: 'inherit', cursor: deleting ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleDelete('one')}
+                    disabled={deleting}
+                    style={{
+                      padding: '8px 18px', borderRadius: 8,
+                      background: '#ef4444', color: 'white',
+                      border: 'none', fontSize: 13, fontWeight: 600,
+                      fontFamily: 'inherit', cursor: deleting ? 'not-allowed' : 'pointer',
+                      opacity: deleting ? 0.5 : 1,
+                      transition: 'opacity 150ms ease',
+                    }}
+                  >
+                    {deleting ? 'Deleting…' : 'Delete Event'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
