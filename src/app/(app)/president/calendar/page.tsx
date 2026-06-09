@@ -19,6 +19,8 @@ interface CalendarEvent {
   is_recurring?: boolean | null
   recurring_id?: string | null
   recurring_days?: string[] | null
+  recurring_indefinite?: boolean | null
+  is_exception?: boolean | null
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -365,7 +367,7 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
                 background: 'var(--purple-bg)', border: '1px solid var(--purple-border)',
                 borderRadius: 4, padding: '1px 6px',
               }}>
-                ↻ Recurring
+                ↻ {event.recurring_indefinite ? 'Repeats forever' : 'Recurring'}
               </span>
             )}
             <div style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, opacity: hovered ? 1 : 0, transition: 'opacity 150ms ease' }}>
@@ -675,6 +677,7 @@ export default function CalendarPage() {
   // Edit event state
   const [editEvent, setEditEvent] = useState<CalendarEvent | null>(null)
   const [editScopeAsk, setEditScopeAsk] = useState(false)
+  const [editScope, setEditScope] = useState<'one' | 'future' | null>(null)
   const [editSaving, setEditSaving] = useState(false)
 
   // Delete event state
@@ -782,7 +785,15 @@ export default function CalendarPage() {
     const supabase = createClient()
 
     // Build the list of occurrence dates (single, frequency-stepped, or day-of-week based)
-    const dates = buildOccurrenceDates(form.date, form.isRecurring, form.repeatUntil, form.frequency, form.recurringDays)
+    const isIndefinite = form.isRecurring && form.frequency === 'Indefinitely'
+    const effectiveFrequency = isIndefinite ? 'Weekly' : form.frequency
+    let effectiveRepeatUntil = form.repeatUntil
+    if (isIndefinite && form.date) {
+      const [iy, im, id2] = form.date.split('-').map(Number)
+      const endDt = new Date(Date.UTC(iy, im - 1 + 12, id2, 12, 0, 0))
+      effectiveRepeatUntil = endDt.toISOString().split('T')[0]
+    }
+    const dates = buildOccurrenceDates(form.date, form.isRecurring, effectiveRepeatUntil, effectiveFrequency, form.recurringDays)
     const isRecurring = form.isRecurring && dates.length > 1
     const recurringId = isRecurring && typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
@@ -809,6 +820,7 @@ export default function CalendarPage() {
         recurring_id: recurringId,
         is_recurring: isRecurring,
         recurring_days: recurringDays,
+        recurring_indefinite: isIndefinite && isRecurring ? true : null,
       }
     })
     console.log('[add-event] inserting into calendar_events:', payloads)
@@ -816,13 +828,14 @@ export default function CalendarPage() {
     let { data, error } = await supabase.from('calendar_events').insert(payloads).select()
 
     // Graceful fallback if the recurring columns haven't been added to the table yet.
-    if (error && /recurring_id|is_recurring|recurring_days|schema cache|column/i.test(error.message)) {
+    if (error && /recurring_id|is_recurring|recurring_days|recurring_indefinite|schema cache|column/i.test(error.message)) {
       console.warn('[add-event] recurring columns missing — retrying without them. Run the migration to enable grouping.')
       const stripped = payloads.map(p => {
         const clone: Record<string, unknown> = { ...p }
         delete clone.recurring_id
         delete clone.is_recurring
         delete clone.recurring_days
+        delete clone.recurring_indefinite
         return clone
       })
       const res = await supabase.from('calendar_events').insert(stripped).select()
@@ -850,8 +863,6 @@ export default function CalendarPage() {
   }
 
   function openEdit(event: CalendarEvent) {
-    setEditScopeAsk(false)
-    setEditEvent(event)
     setEditForm({
       title: event.title ?? '',
       date: toDateStr(event.start_time),
@@ -862,6 +873,14 @@ export default function CalendarPage() {
       teamsLink: event.teams_link ?? event.meeting_link ?? '',
       isAllDay: !!event.is_all_day,
     })
+    setEditEvent(event)
+    if (event.is_recurring && event.recurring_id) {
+      setEditScopeAsk(true)
+      setEditScope(null)
+    } else {
+      setEditScopeAsk(false)
+      setEditScope('one')
+    }
   }
 
   async function handleEditSave(scope: 'one' | 'future') {
@@ -887,34 +906,41 @@ export default function CalendarPage() {
     })
 
     let error = null
-    let count = 1
+    const updatedIds: string[] = []
 
     if (scope === 'future' && editEvent.recurring_id) {
-      // Update this and every later occurrence in the group — keep each one's own date,
-      // apply the new fields + time-of-day to each.
-      const { data: rows } = await supabase
+      // Single bulk UPDATE — one call for all future occurrences. Each row keeps its own
+      // start_time/end_time; only metadata fields are overwritten.
+      const todayStartISO = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z'
+      const { data: updated, error: e } = await supabase
         .from('calendar_events')
-        .select('id, start_time')
+        .update(baseUpdate)
         .eq('recurring_id', editEvent.recurring_id)
-        .gte('start_time', editEvent.start_time)
-
-      const targets = (rows as { id: string; start_time: string }[]) ?? [{ id: editEvent.id, start_time: editEvent.start_time }]
-      count = targets.length
-      for (const row of targets) {
-        const dateStr = toDateStr(row.start_time)
-        const { error: e } = await supabase
-          .from('calendar_events')
-          .update({ ...baseUpdate, ...timesFor(dateStr) })
-          .eq('id', row.id)
-        if (e) error = e
-      }
-    } else {
-      // Just this one — date is editable here.
-      const { error: e } = await supabase
-        .from('calendar_events')
-        .update({ ...baseUpdate, ...timesFor(editForm.date) })
-        .eq('id', editEvent.id)
+        .gte('start_time', todayStartISO)
+        .select('id')
       error = e
+      if (updated?.length) updatedIds.push(...(updated as { id: string }[]).map(r => r.id))
+    } else {
+      // Just this one — mark as exception so Make.com knows it was manually overridden.
+      const singleUpdate = { ...baseUpdate, ...timesFor(editForm.date), is_exception: true }
+      const { data: updated, error: e } = await supabase
+        .from('calendar_events')
+        .update(singleUpdate)
+        .eq('id', editEvent.id)
+        .select('id')
+      // Graceful fallback if is_exception column hasn't been migrated yet
+      if (e && /is_exception|column/i.test(e.message)) {
+        const { data: updated2, error: e2 } = await supabase
+          .from('calendar_events')
+          .update({ ...baseUpdate, ...timesFor(editForm.date) })
+          .eq('id', editEvent.id)
+          .select('id')
+        error = e2
+        if (updated2?.length) updatedIds.push(...(updated2 as { id: string }[]).map(r => r.id))
+      } else {
+        error = e
+        if (updated?.length) updatedIds.push(...(updated as { id: string }[]).map(r => r.id))
+      }
     }
 
     setEditSaving(false)
@@ -926,14 +952,30 @@ export default function CalendarPage() {
       return
     }
 
+    // .select('id') returns actually-updated rows — empty means RLS silently blocked the update
+    if (updatedIds.length === 0) {
+      console.error('[edit-event] update returned no rows — RLS may be blocking this operation')
+      setSaveToast({ message: 'Update failed — check Supabase RLS permissions', type: 'error' })
+      setTimeout(() => setSaveToast(null), 6000)
+      return
+    }
+
+    // Confirmed updated — re-fetch fresh data from Supabase
+    const { data: freshData } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .gte('start_time', new Date().toISOString())
+      .order('start_time', { ascending: true })
+    if (freshData) setEvents(freshData as CalendarEvent[])
+
     setEditEvent(null)
     setEditScopeAsk(false)
+    setEditScope(null)
     setSaveToast({
-      message: scope === 'future' && count > 1 ? `Updated ${count} events` : 'Event updated',
+      message: updatedIds.length > 1 ? `Updated ${updatedIds.length} events successfully` : 'Event updated',
       type: 'success',
     })
     setTimeout(() => setSaveToast(null), 3500)
-    // Realtime subscription reloads events automatically
   }
 
   async function handleDelete(scope: 'one' | 'all') {
@@ -1506,8 +1548,10 @@ export default function CalendarPage() {
                         <option value="Daily">Daily</option>
                         <option value="Weekly">Weekly</option>
                         <option value="Monthly">Monthly</option>
+                        <option value="Indefinitely">Indefinitely</option>
                       </select>
                     </div>
+                    {form.frequency !== 'Indefinitely' ? (
                     <div>
                       <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
                         Repeat Until <span style={{ color: 'var(--red)' }}>*</span>
@@ -1524,6 +1568,21 @@ export default function CalendarPage() {
                         }}
                       />
                     </div>
+                    ) : (
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        Repeat Until
+                      </label>
+                      <div style={{
+                        padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--purple-border)', background: 'var(--surface2)',
+                        fontSize: 13, fontWeight: 600, color: '#7c3aed',
+                        display: 'flex', alignItems: 'center', gap: 6,
+                      }}>
+                        ↻ Repeats forever (generates 12 months)
+                      </div>
+                    </div>
+                    )}
                   </div>
                 </>
               )}
@@ -1568,7 +1627,7 @@ export default function CalendarPage() {
       {/* Edit Event Modal */}
       {editEvent && (
         <div
-          onClick={() => { setEditEvent(null); setEditScopeAsk(false) }}
+          onClick={() => { setEditEvent(null); setEditScopeAsk(false); setEditScope(null) }}
           style={{
             position: 'fixed', inset: 0, zIndex: 1000,
             background: 'rgba(0,0,0,0.55)',
@@ -1588,279 +1647,305 @@ export default function CalendarPage() {
               animation: 'modalFadeIn 180ms ease',
             }}
           >
-            {/* Header */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '16px 20px', borderBottom: '1px solid var(--border)',
-            }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Edit Calendar Event</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
-                  {editEvent.is_recurring ? 'Part of a recurring series' : 'Update this event'}
-                </div>
-              </div>
-              <button
-                onClick={() => { setEditEvent(null); setEditScopeAsk(false) }}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--text3)', padding: 4, borderRadius: 6,
-                  display: 'flex', alignItems: 'center',
-                }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
-            </div>
-
-            {/* Form */}
-            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-              {/* All Day toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>All Day Event</label>
-                <button
-                  onClick={() => setEditForm(f => ({ ...f, isAllDay: !f.isAllDay }))}
-                  style={{
-                    width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
-                    background: editForm.isAllDay ? 'var(--red)' : 'var(--border2)',
-                    position: 'relative', transition: 'background 150ms ease',
-                  }}
-                >
-                  <div style={{
-                    position: 'absolute', top: 3, left: editForm.isAllDay ? 21 : 3,
-                    width: 16, height: 16, borderRadius: '50%', background: 'white',
-                    transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                  }} />
-                </button>
-              </div>
-
-              {/* Title */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Title <span style={{ color: 'var(--red)' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  value={editForm.title}
-                  onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Event title"
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {/* Date */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Date <span style={{ color: 'var(--red)' }}>*</span>
-                </label>
-                <input
-                  type="date"
-                  value={editForm.date}
-                  onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))}
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-                {editEvent.is_recurring && (
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
-                    Changing the date only applies when saving “Just This One”.
-                  </div>
-                )}
-              </div>
-
-              {/* Start / End Time */}
-              {!editForm.isAllDay && (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        Start Time <span style={{ color: 'var(--red)' }}>*</span>
-                      </label>
-                      <input
-                        type="time"
-                        value={editForm.startTime}
-                        onChange={e => setEditForm(f => ({ ...f, startTime: e.target.value }))}
-                        style={{
-                          width: '100%', padding: '9px 12px', borderRadius: 8,
-                          border: '1px solid var(--border2)', background: 'var(--surface2)',
-                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                          outline: 'none', boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        End Time
-                      </label>
-                      <input
-                        type="time"
-                        value={editForm.endTime}
-                        onChange={e => setEditForm(f => ({ ...f, endTime: e.target.value }))}
-                        style={{
-                          width: '100%', padding: '9px 12px', borderRadius: 8,
-                          border: '1px solid var(--border2)', background: 'var(--surface2)',
-                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                          outline: 'none', boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
-                    Enter time in ET (Florida time)
-                  </div>
-                </>
-              )}
-
-              {/* Organizer */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Organizer
-                </label>
-                <input
-                  type="text"
-                  value={editForm.organizer}
-                  onChange={e => setEditForm(f => ({ ...f, organizer: e.target.value }))}
-                  placeholder="Calin Noonan"
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {/* Location */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Location
-                </label>
-                <input
-                  type="text"
-                  value={editForm.location}
-                  onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))}
-                  placeholder="Conference room, address, etc."
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {/* Teams Link */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Teams Meeting Link
-                </label>
-                <input
-                  type="url"
-                  value={editForm.teamsLink}
-                  onChange={e => setEditForm(f => ({ ...f, teamsLink: e.target.value }))}
-                  placeholder="https://teams.microsoft.com/..."
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Footer */}
             {editScopeAsk ? (
-              <div style={{
-                padding: '14px 20px', borderTop: '1px solid var(--border)',
-                display: 'flex', flexDirection: 'column', gap: 10,
-              }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>
-                  Edit just this event or all future occurrences?
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '16px 20px', borderBottom: '1px solid var(--border)',
+                }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Edit Recurring Event</div>
+                    <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>Choose what to update</div>
+                  </div>
                   <button
-                    onClick={() => handleEditSave('one')}
-                    disabled={editSaving}
+                    onClick={() => { setEditEvent(null); setEditScopeAsk(false); setEditScope(null) }}
                     style={{
-                      flex: 1, padding: '9px 14px', borderRadius: 8,
-                      background: 'none', border: '1px solid var(--border2)',
-                      color: 'var(--text2)', fontSize: 13, fontWeight: 600,
-                      fontFamily: 'inherit', cursor: editSaving ? 'not-allowed' : 'pointer',
-                      opacity: editSaving ? 0.5 : 1,
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--text3)', padding: 4, borderRadius: 6,
+                      display: 'flex', alignItems: 'center',
                     }}
                   >
-                    Just This One
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Event summary */}
+                  <div style={{
+                    background: 'var(--surface2)', border: '1px solid var(--border)',
+                    borderRadius: 10, padding: '13px 15px',
+                  }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>
+                      {editEvent.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                      {new Date(editEvent.start_time).toLocaleDateString('en-US', {
+                        timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
+                      })}
+                      {!editEvent.is_all_day && ` · ${formatTimeRange(editEvent.start_time, editEvent.end_time)}`}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>
+                    This is a recurring event. What would you like to edit?
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <button
+                      onClick={() => { setEditScopeAsk(false); setEditScope('one') }}
+                      style={{
+                        width: '100%', padding: '12px 16px', borderRadius: 9,
+                        background: 'none', border: '1px solid var(--border2)',
+                        color: 'var(--text2)', fontSize: 13, fontWeight: 600,
+                        fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left',
+                        transition: 'border-color 150ms ease, color 150ms ease',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--text3)'; e.currentTarget.style.color = 'var(--text)' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text2)' }}
+                    >
+                      <div style={{ fontWeight: 700, marginBottom: 2 }}>Edit Just This Event</div>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: 'var(--text3)' }}>Only changes this one occurrence</div>
+                    </button>
+                    <button
+                      onClick={() => { setEditScopeAsk(false); setEditScope('future') }}
+                      style={{
+                        width: '100%', padding: '12px 16px', borderRadius: 9,
+                        background: 'var(--charcoal)', border: '1px solid var(--charcoal)',
+                        color: 'white', fontSize: 13, fontWeight: 600,
+                        fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left',
+                        transition: 'opacity 150ms ease',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                    >
+                      <div style={{ fontWeight: 700, marginBottom: 2 }}>Edit All Future Events</div>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: 'rgba(255,255,255,0.65)' }}>Updates this and all upcoming occurrences</div>
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '16px 20px', borderBottom: '1px solid var(--border)',
+                }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Edit Calendar Event</div>
+                    <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
+                      {editScope === 'future' ? 'Editing all future occurrences' : editEvent.is_recurring ? 'Editing just this occurrence' : 'Update this event'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setEditEvent(null); setEditScopeAsk(false); setEditScope(null) }}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--text3)', padding: 4, borderRadius: 6,
+                      display: 'flex', alignItems: 'center',
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Form */}
+                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+                  {/* All Day toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>All Day Event</label>
+                    <button
+                      onClick={() => setEditForm(f => ({ ...f, isAllDay: !f.isAllDay }))}
+                      style={{
+                        width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                        background: editForm.isAllDay ? 'var(--red)' : 'var(--border2)',
+                        position: 'relative', transition: 'background 150ms ease',
+                      }}
+                    >
+                      <div style={{
+                        position: 'absolute', top: 3, left: editForm.isAllDay ? 21 : 3,
+                        width: 16, height: 16, borderRadius: '50%', background: 'white',
+                        transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      }} />
+                    </button>
+                  </div>
+
+                  {/* Title */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Title <span style={{ color: 'var(--red)' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.title}
+                      onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                      placeholder="Event title"
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  {/* Date */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Date <span style={{ color: 'var(--red)' }}>*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={editForm.date}
+                      onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                    {editScope === 'one' && editEvent.is_recurring && (
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
+                        Date change applies to this occurrence only.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Start / End Time */}
+                  {!editForm.isAllDay && (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                            Start Time <span style={{ color: 'var(--red)' }}>*</span>
+                          </label>
+                          <input
+                            type="time"
+                            value={editForm.startTime}
+                            onChange={e => setEditForm(f => ({ ...f, startTime: e.target.value }))}
+                            style={{
+                              width: '100%', padding: '9px 12px', borderRadius: 8,
+                              border: '1px solid var(--border2)', background: 'var(--surface2)',
+                              color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                              outline: 'none', boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                            End Time
+                          </label>
+                          <input
+                            type="time"
+                            value={editForm.endTime}
+                            onChange={e => setEditForm(f => ({ ...f, endTime: e.target.value }))}
+                            style={{
+                              width: '100%', padding: '9px 12px', borderRadius: 8,
+                              border: '1px solid var(--border2)', background: 'var(--surface2)',
+                              color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                              outline: 'none', boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
+                        Enter time in ET (Florida time)
+                      </div>
+                    </>
+                  )}
+
+                  {/* Organizer */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Organizer
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.organizer}
+                      onChange={e => setEditForm(f => ({ ...f, organizer: e.target.value }))}
+                      placeholder="Calin Noonan"
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  {/* Location */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Location
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.location}
+                      onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))}
+                      placeholder="Conference room, address, etc."
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  {/* Teams Link */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Teams Meeting Link
+                    </label>
+                    <input
+                      type="url"
+                      value={editForm.teamsLink}
+                      onChange={e => setEditForm(f => ({ ...f, teamsLink: e.target.value }))}
+                      placeholder="https://teams.microsoft.com/..."
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+                  padding: '14px 20px', borderTop: '1px solid var(--border)',
+                }}>
+                  <button
+                    onClick={() => { setEditEvent(null); setEditScopeAsk(false); setEditScope(null) }}
+                    style={{
+                      padding: '8px 16px', borderRadius: 8,
+                      background: 'none', border: '1px solid var(--border2)',
+                      color: 'var(--text2)', fontSize: 13, fontWeight: 500,
+                      fontFamily: 'inherit', cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
                   </button>
                   <button
-                    onClick={() => handleEditSave('future')}
-                    disabled={editSaving}
+                    onClick={() => handleEditSave(editScope ?? 'one')}
+                    disabled={editSaving || !editForm.title || !editForm.date || (!editForm.isAllDay && !editForm.startTime)}
                     style={{
-                      flex: 1, padding: '9px 14px', borderRadius: 8,
+                      padding: '8px 18px', borderRadius: 8,
                       background: 'var(--red)', color: 'white',
                       border: 'none', fontSize: 13, fontWeight: 600,
-                      fontFamily: 'inherit', cursor: editSaving ? 'not-allowed' : 'pointer',
-                      opacity: editSaving ? 0.5 : 1,
+                      fontFamily: 'inherit', cursor: 'pointer',
+                      opacity: (editSaving || !editForm.title || !editForm.date || (!editForm.isAllDay && !editForm.startTime)) ? 0.5 : 1,
+                      transition: 'opacity 150ms ease',
                     }}
                   >
-                    {editSaving ? 'Saving…' : 'All Future Events'}
+                    {editSaving ? 'Saving…' : 'Save Changes'}
                   </button>
                 </div>
-                <button
-                  onClick={() => setEditScopeAsk(false)}
-                  disabled={editSaving}
-                  style={{
-                    alignSelf: 'flex-start', background: 'none', border: 'none',
-                    color: 'var(--text3)', fontSize: 12, fontWeight: 500,
-                    fontFamily: 'inherit', cursor: 'pointer', padding: 0,
-                  }}
-                >
-                  ← Back
-                </button>
-              </div>
-            ) : (
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
-                padding: '14px 20px', borderTop: '1px solid var(--border)',
-              }}>
-                <button
-                  onClick={() => { setEditEvent(null); setEditScopeAsk(false) }}
-                  style={{
-                    padding: '8px 16px', borderRadius: 8,
-                    background: 'none', border: '1px solid var(--border2)',
-                    color: 'var(--text2)', fontSize: 13, fontWeight: 500,
-                    fontFamily: 'inherit', cursor: 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    if (editEvent.is_recurring && editEvent.recurring_id) setEditScopeAsk(true)
-                    else handleEditSave('one')
-                  }}
-                  disabled={editSaving || !editForm.title || !editForm.date || (!editForm.isAllDay && !editForm.startTime)}
-                  style={{
-                    padding: '8px 18px', borderRadius: 8,
-                    background: 'var(--red)', color: 'white',
-                    border: 'none', fontSize: 13, fontWeight: 600,
-                    fontFamily: 'inherit', cursor: 'pointer',
-                    opacity: (editSaving || !editForm.title || !editForm.date || (!editForm.isAllDay && !editForm.startTime)) ? 0.5 : 1,
-                    transition: 'opacity 150ms ease',
-                  }}
-                >
-                  {editSaving ? 'Saving…' : 'Save Changes'}
-                </button>
-              </div>
+              </>
             )}
           </div>
         </div>
