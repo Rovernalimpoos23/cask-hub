@@ -4,12 +4,35 @@
 // Framework / placeholder only. All data hardcoded — no Supabase, no real connections yet.
 // Premium design matched to the Command Center page. Theme-adaptive (light + dark).
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { TopBar, PillRed } from '@/components/ui'
 
 const ACCENT = '#F59E0B'
 const RED = '#EF4444'
+
+// ── Floating Operations AI — palette + chat config ───────────────────
+// Drawer palette uses CSS variables so it adapts to light/dark mode with the app.
+const D = {
+  bg: 'var(--surface)',
+  surface: 'var(--surface2)',
+  border: 'var(--border)',
+  borderSoft: 'var(--border)',
+  text: 'var(--text)',
+  text2: 'var(--text2)',
+  text3: 'var(--text3)',
+  accent: ACCENT,
+}
+
+const AI_GREETING =
+  "Operations AI online. I have context on projects, WIP, job costs, schedules, and the Operations reports — fed from BuilderTrend. Ask about projects, WIP, profitability, or what to connect next."
+
+const QUICK_PROMPTS = ['WIP overview', 'Project profitability', 'What to connect?']
+
+interface PanelMsg {
+  role: 'user' | 'assistant'
+  content: string
+}
 
 const GRAIN =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E\")"
@@ -243,6 +266,343 @@ function ReportCard({ icon, name, description }: { icon: string; name: string; d
   )
 }
 
+// ── Floating Operations AI button + chat drawer ──────────────────────
+
+function FloatingOperationsAI() {
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState<PanelMsg[]>([{ role: 'assistant', content: AI_GREETING }])
+  const [input, setInput] = useState('')
+  const [thinking, setThinking] = useState(false)
+  const [btnHover, setBtnHover] = useState(false)
+  const endRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, thinking, open])
+
+  async function send(text?: string) {
+    const msg = (text ?? input).trim()
+    if (!msg || thinking) return
+    const next: PanelMsg[] = [...messages, { role: 'user', content: msg }]
+    setMessages(next)
+    setInput('')
+    setThinking(true)
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: next.map(m => ({ role: m.role, content: m.content })),
+          pageContext: '/command-center/operations',
+        }),
+      })
+      if (!res.ok) throw new Error(`API error ${res.status}`)
+      const data = await res.json()
+      setMessages([...next, { role: 'assistant', content: data.content || 'No response.' }])
+    } catch {
+      setMessages([...next, { role: 'assistant', content: 'Connection error. Please try again.' }])
+    } finally {
+      setThinking(false)
+    }
+  }
+
+  function onKey(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    }
+  }
+
+  return (
+    <>
+      <style>{`
+        @keyframes opsSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
+
+      {/* Floating button — always visible on Operations */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        onMouseEnter={() => setBtnHover(true)}
+        onMouseLeave={() => setBtnHover(false)}
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          zIndex: 60,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '12px 18px',
+          borderRadius: 999,
+          background: 'var(--charcoal)',
+          color: '#fff',
+          border: 'none',
+          cursor: 'pointer',
+          fontFamily: 'var(--font-geist), sans-serif',
+          fontSize: 13,
+          fontWeight: 700,
+          letterSpacing: '0.2px',
+          boxShadow: btnHover
+            ? '0 12px 30px -6px rgba(0,0,0,0.45)'
+            : '0 6px 18px -4px rgba(0,0,0,0.35)',
+          transform: btnHover ? 'translateY(-2px)' : 'translateY(0)',
+          transition: 'transform 160ms ease, box-shadow 160ms ease',
+        }}
+      >
+        <span style={{ fontSize: 15, lineHeight: 1 }}>💬</span>
+        Operations AI
+      </button>
+
+      {/* Chat drawer — slides up from bottom-right */}
+      {open && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 61,
+            width: 380,
+            maxWidth: 'calc(100vw - 48px)',
+            height: 500,
+            maxHeight: 'calc(100vh - 48px)',
+            background: D.bg,
+            color: D.text,
+            border: `1px solid ${D.border}`,
+            borderRadius: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            fontFamily: 'var(--font-geist), sans-serif',
+            boxShadow: '0 24px 60px -12px rgba(0,0,0,0.5)',
+            animation: 'opsSlideUp 220ms ease',
+          }}
+        >
+          {/* Dark header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '13px 16px',
+              background: 'var(--charcoal)',
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: D.accent,
+                  boxShadow: `0 0 8px ${D.accent}`,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: '1.6px',
+                  textTransform: 'uppercase',
+                  color: '#fff',
+                }}
+              >
+                Operations AI
+              </span>
+            </span>
+            <button
+              onClick={() => setOpen(false)}
+              title="Close"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 26,
+                height: 26,
+                borderRadius: 7,
+                background: 'transparent',
+                border: 'none',
+                color: 'rgba(255,255,255,0.7)',
+                cursor: 'pointer',
+                transition: 'background 150ms ease, color 150ms ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                e.currentTarget.style.color = '#fff'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Feed */}
+          <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: '6px 16px 10px' }}>
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: '11px 0',
+                  borderBottom: i < messages.length - 1 ? `1px solid ${D.borderSoft}` : 'none',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    color: m.role === 'user' ? D.text3 : D.accent,
+                    marginBottom: 5,
+                  }}
+                >
+                  {m.role === 'user' ? 'You' : 'Operations AI'}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    lineHeight: 1.55,
+                    color: m.role === 'user' ? D.text2 : D.text,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {m.content}
+                </div>
+              </div>
+            ))}
+
+            {thinking && (
+              <div style={{ padding: '11px 0' }}>
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    color: D.accent,
+                    marginBottom: 5,
+                  }}
+                >
+                  Operations AI
+                </div>
+                <div style={{ fontSize: 12.5, color: D.text3, fontStyle: 'italic' }}>Analyzing…</div>
+              </div>
+            )}
+            <div ref={endRef} />
+          </div>
+
+          {/* Quick prompts (only at start) */}
+          {messages.length <= 1 && !thinking && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 16px 10px' }}>
+              {QUICK_PROMPTS.map(q => (
+                <button
+                  key={q}
+                  onClick={() => send(q)}
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 500,
+                    padding: '5px 10px',
+                    borderRadius: 20,
+                    background: D.surface,
+                    border: `1px solid ${D.border}`,
+                    color: D.text2,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    transition: 'border-color 150ms ease, color 150ms ease',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = `${D.accent}66`
+                    e.currentTarget.style.color = D.text
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = D.border
+                    e.currentTarget.style.color = D.text2
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div style={{ padding: '10px 16px 14px', borderTop: `1px solid ${D.border}`, flexShrink: 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: 6,
+                borderRadius: 9,
+                padding: 5,
+                border: `1px solid ${D.border}`,
+                background: D.surface,
+              }}
+            >
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={onKey}
+                placeholder="Ask about projects, WIP, BuilderTrend..."
+                rows={1}
+                style={{
+                  flex: 1,
+                  resize: 'none',
+                  background: 'transparent',
+                  fontSize: 12.5,
+                  padding: '5px 6px',
+                  outline: 'none',
+                  lineHeight: 1.5,
+                  color: D.text,
+                  fontFamily: 'inherit',
+                  maxHeight: 96,
+                  overflowY: 'auto',
+                  border: 'none',
+                }}
+              />
+              <button
+                onClick={() => send()}
+                disabled={!input.trim() || thinking}
+                style={{
+                  flexShrink: 0,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 7,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: input.trim() && !thinking ? D.accent : D.surface,
+                  color: input.trim() && !thinking ? '#0f0f0f' : D.text3,
+                  border: 'none',
+                  cursor: !input.trim() || thinking ? 'not-allowed' : 'pointer',
+                  transition: 'background 150ms ease',
+                }}
+                title="Send"
+              >
+                <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                  <path
+                    d="M6 1L11 6L6 11M11 6H1"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function OperationsDepartmentPage() {
@@ -404,6 +764,9 @@ export default function OperationsDepartmentPage() {
           </div>
         </div>
       </div>
+
+      {/* Floating Operations AI button + chat drawer — bottom-right, this page only */}
+      <FloatingOperationsAI />
     </>
   )
 }
