@@ -16,6 +16,9 @@ interface CalendarEvent {
   teams_link: string | null
   web_link: string | null
   is_all_day: boolean | null
+  is_recurring?: boolean | null
+  recurring_id?: string | null
+  recurring_days?: string[] | null
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -66,6 +69,78 @@ function stepDate(dateStr: string, frequency: string): string {
   return dt.toISOString().split('T')[0]
 }
 
+// Day-of-week selector model. dow matches JS getUTCDay(): 0=Sun … 6=Sat.
+const WEEKDAYS: { label: string; dow: number }[] = [
+  { label: 'Mon', dow: 1 },
+  { label: 'Tue', dow: 2 },
+  { label: 'Wed', dow: 3 },
+  { label: 'Thu', dow: 4 },
+  { label: 'Fri', dow: 5 },
+  { label: 'Sat', dow: 6 },
+  { label: 'Sun', dow: 0 },
+]
+
+// Weekday (0=Sun..6=Sat) for a YYYY-MM-DD string, anchored at UTC noon to dodge DST.
+function weekdayOf(dateStr: string): number {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay()
+}
+
+// Step a YYYY-MM-DD date string forward by exactly one day.
+function nextDay(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
+  dt.setUTCDate(dt.getUTCDate() + 1)
+  return dt.toISOString().split('T')[0]
+}
+
+// Extract HH:MM (24h, Eastern Time) from an ISO timestamp — for pre-filling <input type="time">.
+function isoToETTime(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(iso))
+  const h = parts.find(p => p.type === 'hour')!.value
+  const m = parts.find(p => p.type === 'minute')!.value
+  return `${h}:${m}`
+}
+
+// Build the list of occurrence dates for an event (single, frequency-stepped, or day-of-week based).
+function buildOccurrenceDates(
+  startDate: string,
+  isRecurring: boolean,
+  repeatUntil: string,
+  frequency: string,
+  days: string[],
+): string[] {
+  if (!isRecurring || !repeatUntil || repeatUntil < startDate) return [startDate]
+
+  // Day-of-week mode: walk the range day by day, keep only selected weekdays.
+  if (days.length > 0) {
+    const wanted = new Set(WEEKDAYS.filter(w => days.includes(w.label)).map(w => w.dow))
+    const out: string[] = []
+    let cur = startDate
+    let guard = 0
+    while (cur <= repeatUntil && guard < 800) {
+      if (wanted.has(weekdayOf(cur))) out.push(cur)
+      cur = nextDay(cur)
+      guard++
+    }
+    return out.length > 0 ? out : [startDate]
+  }
+
+  // Frequency mode: step Daily / Weekly / Monthly from the start date.
+  const out: string[] = [startDate]
+  let cur = startDate
+  let guard = 0
+  while (guard < 365) {
+    cur = stepDate(cur, frequency)
+    if (cur > repeatUntil) break
+    out.push(cur)
+    guard++
+  }
+  return out
+}
+
 function getCountdown(iso: string): string {
   const diff = new Date(iso).getTime() - Date.now()
   if (diff <= 0) return 'Now'
@@ -104,6 +179,16 @@ function CalendarIcon() {
       <line x1="16" y1="2" x2="16" y2="6"/>
       <line x1="8" y1="2" x2="8" y2="6"/>
       <line x1="3" y1="10" x2="21" y2="10"/>
+    </svg>
+  )
+}
+
+function PencilIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9"/>
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>
     </svg>
   )
 }
@@ -195,7 +280,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
   )
 }
 
-function EventCard({ event, onGenerateAgenda }: { event: CalendarEvent; onGenerateAgenda: (event: CalendarEvent) => void }) {
+function EventCard({ event, onGenerateAgenda, onEdit }: { event: CalendarEvent; onGenerateAgenda: (event: CalendarEvent) => void; onEdit: (event: CalendarEvent) => void }) {
   const [hovered, setHovered] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [linkInput, setLinkInput] = useState('')
@@ -263,6 +348,32 @@ function EventCard({ event, onGenerateAgenda }: { event: CalendarEvent; onGenera
                 {duration}
               </span>
             )}
+            {event.is_recurring && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                fontSize: 11, fontWeight: 600, color: '#7c3aed',
+                background: 'var(--purple-bg)', border: '1px solid var(--purple-border)',
+                borderRadius: 4, padding: '1px 6px',
+              }}>
+                ↻ Recurring
+              </span>
+            )}
+            <button
+              onClick={() => onEdit(event)}
+              title="Edit event"
+              style={{
+                marginLeft: 'auto', flexShrink: 0,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 26, height: 26, borderRadius: 6,
+                background: 'transparent', border: '1px solid transparent',
+                color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
+                transition: 'border-color 150ms ease, color 150ms ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+            >
+              <PencilIcon />
+            </button>
           </div>
 
           {/* Title */}
@@ -416,7 +527,7 @@ function EventCard({ event, onGenerateAgenda }: { event: CalendarEvent; onGenera
   )
 }
 
-function EventRow({ event }: { event: CalendarEvent }) {
+function EventRow({ event, onEdit }: { event: CalendarEvent; onEdit: (event: CalendarEvent) => void }) {
   const [hovered, setHovered] = useState(false)
   const borderColor = getEventBorderColor(event)
 
@@ -444,6 +555,14 @@ function EventRow({ event }: { event: CalendarEvent }) {
           {event.organizer && ` · ${event.organizer}`}
         </div>
       </div>
+      {event.is_recurring && (
+        <span style={{
+          fontSize: 11, fontWeight: 600, color: '#7c3aed',
+          flexShrink: 0,
+        }} title="Recurring event">
+          ↻
+        </span>
+      )}
       {event.meeting_link && (
         <a
           href={event.meeting_link}
@@ -462,6 +581,22 @@ function EventRow({ event }: { event: CalendarEvent }) {
           View Event
         </a>
       )}
+      <button
+        onClick={() => onEdit(event)}
+        title="Edit event"
+        style={{
+          flexShrink: 0,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 26, height: 26, borderRadius: 6,
+          background: 'transparent', border: '1px solid transparent',
+          color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
+          transition: 'border-color 150ms ease, color 150ms ease',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+      >
+        <PencilIcon size={12} />
+      </button>
     </div>
   )
 }
@@ -491,9 +626,18 @@ export default function CalendarPage() {
   const [form, setForm] = useState({
     title: '', date: '', startTime: '', endTime: '',
     organizer: '', location: '', teamsLink: '', isAllDay: false,
-    isRecurring: false, frequency: 'Weekly', repeatUntil: '',
+    isRecurring: false, frequency: 'Weekly', repeatUntil: '', recurringDays: [] as string[],
   })
   const [agenda, setAgenda] = useState<{ title: string; content: string; loading: boolean } | null>(null)
+
+  // Edit event state
+  const [editEvent, setEditEvent] = useState<CalendarEvent | null>(null)
+  const [editScopeAsk, setEditScopeAsk] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editForm, setEditForm] = useState({
+    title: '', date: '', startTime: '', endTime: '',
+    organizer: '', location: '', teamsLink: '', isAllDay: false,
+  })
 
   // Tick every minute to refresh countdowns
   useEffect(() => {
@@ -591,18 +735,13 @@ export default function CalendarPage() {
 
     const supabase = createClient()
 
-    // Build the list of occurrence dates (single, or recurring up to repeatUntil)
-    const dates: string[] = [form.date]
-    if (form.isRecurring && form.repeatUntil && form.repeatUntil >= form.date) {
-      let cur = form.date
-      let guard = 0
-      while (guard < 365) {
-        cur = stepDate(cur, form.frequency)
-        if (cur > form.repeatUntil) break
-        dates.push(cur)
-        guard++
-      }
-    }
+    // Build the list of occurrence dates (single, frequency-stepped, or day-of-week based)
+    const dates = buildOccurrenceDates(form.date, form.isRecurring, form.repeatUntil, form.frequency, form.recurringDays)
+    const isRecurring = form.isRecurring && dates.length > 1
+    const recurringId = isRecurring && typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : null
+    const recurringDays = isRecurring && form.recurringDays.length > 0 ? form.recurringDays : null
 
     const payloads = dates.map(d => {
       const startISO = form.isAllDay
@@ -621,11 +760,29 @@ export default function CalendarPage() {
         is_all_day: form.isAllDay,
         user_email: 'c.noonan@caskconstruction.com',
         attendees: [],
+        recurring_id: recurringId,
+        is_recurring: isRecurring,
+        recurring_days: recurringDays,
       }
     })
     console.log('[add-event] inserting into calendar_events:', payloads)
 
-    const { data, error } = await supabase.from('calendar_events').insert(payloads).select()
+    let { data, error } = await supabase.from('calendar_events').insert(payloads).select()
+
+    // Graceful fallback if the recurring columns haven't been added to the table yet.
+    if (error && /recurring_id|is_recurring|recurring_days|schema cache|column/i.test(error.message)) {
+      console.warn('[add-event] recurring columns missing — retrying without them. Run the migration to enable grouping.')
+      const stripped = payloads.map(p => {
+        const clone: Record<string, unknown> = { ...p }
+        delete clone.recurring_id
+        delete clone.is_recurring
+        delete clone.recurring_days
+        return clone
+      })
+      const res = await supabase.from('calendar_events').insert(stripped).select()
+      data = res.data
+      error = res.error
+    }
     console.log('[add-event] insert result — data:', data, ' error:', error)
 
     setSaving(false)
@@ -638,12 +795,99 @@ export default function CalendarPage() {
     }
 
     setShowAddModal(false)
-    setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntil: '' })
+    setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntil: '', recurringDays: [] })
     setSaveToast({
       message: payloads.length > 1 ? `Added ${payloads.length} events to calendar` : 'Event added to calendar',
       type: 'success',
     })
     setTimeout(() => setSaveToast(null), 3500)
+  }
+
+  function openEdit(event: CalendarEvent) {
+    setEditScopeAsk(false)
+    setEditEvent(event)
+    setEditForm({
+      title: event.title ?? '',
+      date: toDateStr(event.start_time),
+      startTime: event.is_all_day ? '' : isoToETTime(event.start_time),
+      endTime: event.end_time ? isoToETTime(event.end_time) : '',
+      organizer: event.organizer ?? '',
+      location: event.location ?? '',
+      teamsLink: event.teams_link ?? event.meeting_link ?? '',
+      isAllDay: !!event.is_all_day,
+    })
+  }
+
+  async function handleEditSave(scope: 'one' | 'future') {
+    if (!editEvent || !editForm.title || !editForm.date || (!editForm.isAllDay && !editForm.startTime)) return
+    setEditSaving(true)
+    const supabase = createClient()
+
+    const baseUpdate = {
+      title: editForm.title,
+      organizer: editForm.organizer || null,
+      location: editForm.location || null,
+      meeting_link: editForm.teamsLink || null,
+      teams_link: editForm.teamsLink || null,
+      is_all_day: editForm.isAllDay,
+    }
+
+    // Compute start/end ISO for a given date using the edited time-of-day.
+    const timesFor = (dateStr: string) => ({
+      start_time: editForm.isAllDay
+        ? new Date(`${dateStr}T00:00:00`).toISOString()
+        : etToISO(dateStr, editForm.startTime),
+      end_time: editForm.endTime ? etToISO(dateStr, editForm.endTime) : null,
+    })
+
+    let error = null
+    let count = 1
+
+    if (scope === 'future' && editEvent.recurring_id) {
+      // Update this and every later occurrence in the group — keep each one's own date,
+      // apply the new fields + time-of-day to each.
+      const { data: rows } = await supabase
+        .from('calendar_events')
+        .select('id, start_time')
+        .eq('recurring_id', editEvent.recurring_id)
+        .gte('start_time', editEvent.start_time)
+
+      const targets = (rows as { id: string; start_time: string }[]) ?? [{ id: editEvent.id, start_time: editEvent.start_time }]
+      count = targets.length
+      for (const row of targets) {
+        const dateStr = toDateStr(row.start_time)
+        const { error: e } = await supabase
+          .from('calendar_events')
+          .update({ ...baseUpdate, ...timesFor(dateStr) })
+          .eq('id', row.id)
+        if (e) error = e
+      }
+    } else {
+      // Just this one — date is editable here.
+      const { error: e } = await supabase
+        .from('calendar_events')
+        .update({ ...baseUpdate, ...timesFor(editForm.date) })
+        .eq('id', editEvent.id)
+      error = e
+    }
+
+    setEditSaving(false)
+
+    if (error) {
+      console.error('[edit-event] update failed:', error.message)
+      setSaveToast({ message: `Failed to update: ${error.message}`, type: 'error' })
+      setTimeout(() => setSaveToast(null), 5000)
+      return
+    }
+
+    setEditEvent(null)
+    setEditScopeAsk(false)
+    setSaveToast({
+      message: scope === 'future' && count > 1 ? `Updated ${count} events` : 'Event updated',
+      type: 'success',
+    })
+    setTimeout(() => setSaveToast(null), 3500)
+    // Realtime subscription reloads events automatically
   }
 
   async function handleGenerateAgenda(event: CalendarEvent) {
@@ -743,7 +987,7 @@ export default function CalendarPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {todayEvents.length === 0
                   ? <EmptyState />
-                  : todayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} />)
+                  : todayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} />)
                 }
               </div>
             </div>
@@ -754,7 +998,7 @@ export default function CalendarPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {tomorrowEvents.length === 0
                   ? <EmptyState />
-                  : tomorrowEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} />)
+                  : tomorrowEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} />)
                 }
               </div>
             </div>
@@ -779,7 +1023,7 @@ export default function CalendarPage() {
                         })}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {dayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} />)}
+                        {dayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} />)}
                       </div>
                     </div>
                   ))}
@@ -801,7 +1045,7 @@ export default function CalendarPage() {
                       {i > 0 && (
                         <div style={{ height: 1, background: 'var(--border)', margin: '0 16px' }} />
                       )}
-                      <EventRow event={e} />
+                      <EventRow event={e} onEdit={openEdit} />
                     </div>
                   ))}
                 </div>
@@ -1103,43 +1347,85 @@ export default function CalendarPage() {
 
               {/* Recurring options */}
               {form.isRecurring && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <>
+                  {/* Day-of-week selector */}
                   <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                      Frequency
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Repeat On
                     </label>
-                    <select
-                      value={form.frequency}
-                      onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '9px 12px', borderRadius: 8,
-                        border: '1px solid var(--border2)', background: 'var(--surface2)',
-                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                        outline: 'none', boxSizing: 'border-box', cursor: 'pointer',
-                      }}
-                    >
-                      <option value="Daily">Daily</option>
-                      <option value="Weekly">Weekly</option>
-                      <option value="Monthly">Monthly</option>
-                    </select>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {WEEKDAYS.map(w => {
+                        const active = form.recurringDays.includes(w.label)
+                        return (
+                          <button
+                            key={w.label}
+                            type="button"
+                            onClick={() => setForm(f => ({
+                              ...f,
+                              recurringDays: active
+                                ? f.recurringDays.filter(d => d !== w.label)
+                                : [...f.recurringDays, w.label],
+                            }))}
+                            style={{
+                              padding: '6px 13px', borderRadius: 8,
+                              fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                              background: active ? 'var(--red)' : 'transparent',
+                              color: active ? 'white' : 'var(--text2)',
+                              border: `1px solid ${active ? 'var(--red)' : 'var(--border2)'}`,
+                              transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                            }}
+                          >
+                            {w.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 7 }}>
+                      Pick the days to repeat on (e.g. Mon + Wed + Fri), or leave blank to use the frequency below.
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                      Repeat Until
-                    </label>
-                    <input
-                      type="date"
-                      value={form.repeatUntil}
-                      onChange={e => setForm(f => ({ ...f, repeatUntil: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '9px 12px', borderRadius: 8,
-                        border: '1px solid var(--border2)', background: 'var(--surface2)',
-                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                        outline: 'none', boxSizing: 'border-box',
-                      }}
-                    />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        Frequency
+                      </label>
+                      <select
+                        value={form.frequency}
+                        onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
+                        disabled={form.recurringDays.length > 0}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 8,
+                          border: '1px solid var(--border2)', background: 'var(--surface2)',
+                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                          outline: 'none', boxSizing: 'border-box',
+                          cursor: form.recurringDays.length > 0 ? 'not-allowed' : 'pointer',
+                          opacity: form.recurringDays.length > 0 ? 0.5 : 1,
+                        }}
+                      >
+                        <option value="Daily">Daily</option>
+                        <option value="Weekly">Weekly</option>
+                        <option value="Monthly">Monthly</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        Repeat Until <span style={{ color: 'var(--red)' }}>*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={form.repeatUntil}
+                        onChange={e => setForm(f => ({ ...f, repeatUntil: e.target.value }))}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 8,
+                          border: '1px solid var(--border2)', background: 'var(--surface2)',
+                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                          outline: 'none', boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
 
@@ -1175,6 +1461,307 @@ export default function CalendarPage() {
                 {saving ? 'Saving…' : 'Add Event'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Event Modal */}
+      {editEvent && (
+        <div
+          onClick={() => { setEditEvent(null); setEditScopeAsk(false) }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              width: 480,
+              maxWidth: 'calc(100vw - 32px)',
+              maxHeight: 'calc(100vh - 64px)',
+              overflowY: 'auto',
+              animation: 'modalFadeIn 180ms ease',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '16px 20px', borderBottom: '1px solid var(--border)',
+            }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Edit Calendar Event</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
+                  {editEvent.is_recurring ? 'Part of a recurring series' : 'Update this event'}
+                </div>
+              </div>
+              <button
+                onClick={() => { setEditEvent(null); setEditScopeAsk(false) }}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--text3)', padding: 4, borderRadius: 6,
+                  display: 'flex', alignItems: 'center',
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Form */}
+            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+              {/* All Day toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>All Day Event</label>
+                <button
+                  onClick={() => setEditForm(f => ({ ...f, isAllDay: !f.isAllDay }))}
+                  style={{
+                    width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                    background: editForm.isAllDay ? 'var(--red)' : 'var(--border2)',
+                    position: 'relative', transition: 'background 150ms ease',
+                  }}
+                >
+                  <div style={{
+                    position: 'absolute', top: 3, left: editForm.isAllDay ? 21 : 3,
+                    width: 16, height: 16, borderRadius: '50%', background: 'white',
+                    transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }} />
+                </button>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Title <span style={{ color: 'var(--red)' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editForm.title}
+                  onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                  placeholder="Event title"
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Date */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Date <span style={{ color: 'var(--red)' }}>*</span>
+                </label>
+                <input
+                  type="date"
+                  value={editForm.date}
+                  onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+                {editEvent.is_recurring && (
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
+                    Changing the date only applies when saving “Just This One”.
+                  </div>
+                )}
+              </div>
+
+              {/* Start / End Time */}
+              {!editForm.isAllDay && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        Start Time <span style={{ color: 'var(--red)' }}>*</span>
+                      </label>
+                      <input
+                        type="time"
+                        value={editForm.startTime}
+                        onChange={e => setEditForm(f => ({ ...f, startTime: e.target.value }))}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 8,
+                          border: '1px solid var(--border2)', background: 'var(--surface2)',
+                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                          outline: 'none', boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        End Time
+                      </label>
+                      <input
+                        type="time"
+                        value={editForm.endTime}
+                        onChange={e => setEditForm(f => ({ ...f, endTime: e.target.value }))}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 8,
+                          border: '1px solid var(--border2)', background: 'var(--surface2)',
+                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                          outline: 'none', boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
+                    Enter time in ET (Florida time)
+                  </div>
+                </>
+              )}
+
+              {/* Organizer */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Organizer
+                </label>
+                <input
+                  type="text"
+                  value={editForm.organizer}
+                  onChange={e => setEditForm(f => ({ ...f, organizer: e.target.value }))}
+                  placeholder="Calin Noonan"
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Location */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Location
+                </label>
+                <input
+                  type="text"
+                  value={editForm.location}
+                  onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))}
+                  placeholder="Conference room, address, etc."
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Teams Link */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Teams Meeting Link
+                </label>
+                <input
+                  type="url"
+                  value={editForm.teamsLink}
+                  onChange={e => setEditForm(f => ({ ...f, teamsLink: e.target.value }))}
+                  placeholder="https://teams.microsoft.com/..."
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            {editScopeAsk ? (
+              <div style={{
+                padding: '14px 20px', borderTop: '1px solid var(--border)',
+                display: 'flex', flexDirection: 'column', gap: 10,
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>
+                  Edit just this event or all future occurrences?
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    onClick={() => handleEditSave('one')}
+                    disabled={editSaving}
+                    style={{
+                      flex: 1, padding: '9px 14px', borderRadius: 8,
+                      background: 'none', border: '1px solid var(--border2)',
+                      color: 'var(--text2)', fontSize: 13, fontWeight: 600,
+                      fontFamily: 'inherit', cursor: editSaving ? 'not-allowed' : 'pointer',
+                      opacity: editSaving ? 0.5 : 1,
+                    }}
+                  >
+                    Just This One
+                  </button>
+                  <button
+                    onClick={() => handleEditSave('future')}
+                    disabled={editSaving}
+                    style={{
+                      flex: 1, padding: '9px 14px', borderRadius: 8,
+                      background: 'var(--red)', color: 'white',
+                      border: 'none', fontSize: 13, fontWeight: 600,
+                      fontFamily: 'inherit', cursor: editSaving ? 'not-allowed' : 'pointer',
+                      opacity: editSaving ? 0.5 : 1,
+                    }}
+                  >
+                    {editSaving ? 'Saving…' : 'All Future Events'}
+                  </button>
+                </div>
+                <button
+                  onClick={() => setEditScopeAsk(false)}
+                  disabled={editSaving}
+                  style={{
+                    alignSelf: 'flex-start', background: 'none', border: 'none',
+                    color: 'var(--text3)', fontSize: 12, fontWeight: 500,
+                    fontFamily: 'inherit', cursor: 'pointer', padding: 0,
+                  }}
+                >
+                  ← Back
+                </button>
+              </div>
+            ) : (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+                padding: '14px 20px', borderTop: '1px solid var(--border)',
+              }}>
+                <button
+                  onClick={() => { setEditEvent(null); setEditScopeAsk(false) }}
+                  style={{
+                    padding: '8px 16px', borderRadius: 8,
+                    background: 'none', border: '1px solid var(--border2)',
+                    color: 'var(--text2)', fontSize: 13, fontWeight: 500,
+                    fontFamily: 'inherit', cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (editEvent.is_recurring && editEvent.recurring_id) setEditScopeAsk(true)
+                    else handleEditSave('one')
+                  }}
+                  disabled={editSaving || !editForm.title || !editForm.date || (!editForm.isAllDay && !editForm.startTime)}
+                  style={{
+                    padding: '8px 18px', borderRadius: 8,
+                    background: 'var(--red)', color: 'white',
+                    border: 'none', fontSize: 13, fontWeight: 600,
+                    fontFamily: 'inherit', cursor: 'pointer',
+                    opacity: (editSaving || !editForm.title || !editForm.date || (!editForm.isAllDay && !editForm.startTime)) ? 0.5 : 1,
+                    transition: 'opacity 150ms ease',
+                  }}
+                >
+                  {editSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

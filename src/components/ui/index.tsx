@@ -202,7 +202,7 @@ const LEFT_GLOW_COLOR: Record<string, string> = {
 }
 
 // ── Meeting Card ─────────────────────────────────────────────────────
-export function MeetingCard({ meeting }: { meeting: Meeting }) {
+export function MeetingCard({ meeting, recapBadge = false }: { meeting: Meeting; recapBadge?: boolean }) {
   const { theme, mounted } = useTheme()
   const isDark = mounted && theme === 'dark'
   const [hovered, setHovered] = useState(false)
@@ -273,19 +273,43 @@ export function MeetingCard({ meeting }: { meeting: Meeting }) {
         </div>
       </div>
 
-      <MeetingTypeTag type={meeting.meeting_type} />
-
-      <span
-        className="text-[16px] shrink-0 font-light"
-        style={{
-          color: hovered ? 'var(--text2)' : 'var(--text3)',
-          transform: hovered ? 'translateX(3px)' : 'translateX(0)',
-          transition: 'transform 150ms ease, color 150ms ease',
-          display: 'inline-block',
-        }}
-      >
-        ›
-      </span>
+      {recapBadge ? (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            padding: '5px 10px',
+            borderRadius: 6,
+            color: hovered ? 'var(--text)' : 'var(--text2)',
+            background: 'transparent',
+            border: '1px solid var(--border2)',
+            whiteSpace: 'nowrap',
+            transition: 'color 150ms ease, border-color 150ms ease',
+            borderColor: hovered ? 'var(--text3)' : undefined,
+            flexShrink: 0,
+          }}
+        >
+          View Recap →
+        </span>
+      ) : (
+        <>
+          <MeetingTypeTag type={meeting.meeting_type} />
+          <span
+            className="text-[16px] shrink-0 font-light"
+            style={{
+              color: hovered ? 'var(--text2)' : 'var(--text3)',
+              transform: hovered ? 'translateX(3px)' : 'translateX(0)',
+              transition: 'transform 150ms ease, color 150ms ease',
+              display: 'inline-block',
+            }}
+          >
+            ›
+          </span>
+        </>
+      )}
     </Link>
   )
 }

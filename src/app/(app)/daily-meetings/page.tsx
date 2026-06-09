@@ -137,7 +137,7 @@ export default function DailyMeetingsPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {filtered.map(m => (
-              <MeetingCard key={m.id} meeting={m} />
+              <MeetingCard key={m.id} meeting={m} recapBadge />
             ))}
             {filtered.length === 0 && (
               <div
