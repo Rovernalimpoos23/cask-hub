@@ -180,6 +180,11 @@ body {
   overflow: hidden;
 }
 
+/* Full-width variant — sidebar + main only (Command Center) */
+.app-shell--no-panel {
+  grid-template-columns: 232px 1fr;
+}
+
 /* Page animation */
 @keyframes pageIn {
   from { opacity: 0; transform: translateY(4px); }
