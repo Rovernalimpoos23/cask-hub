@@ -8,8 +8,8 @@ import AddMeetingModal from '@/components/add-meeting-modal/AddMeetingModal'
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   // These routes run full-width with their own floating AI — hide the shared panel.
-  const FULL_WIDTH_ROUTES = ['/command-center', '/command-center/sales', '/command-center/operations', '/command-center/finance', '/command-center/hr', '/command-center/executive']
-  const hideAIPanel = FULL_WIDTH_ROUTES.includes(pathname)
+  const FULL_WIDTH_ROUTES = ['/command-center', '/command-center/sales', '/command-center/operations', '/command-center/finance', '/command-center/hr', '/command-center/executive', '/sessions', '/generate', '/actions', '/president/overview', '/president/calendar', '/daily-meetings', '/customers', '/design-center', '/dashboard']
+  const hideAIPanel = FULL_WIDTH_ROUTES.includes(pathname) || /^\/customers\/[^/]+/.test(pathname)
 
   return (
     <div className={`app-shell${hideAIPanel ? ' app-shell--no-panel' : ''}`}>
