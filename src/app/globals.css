@@ -29,6 +29,22 @@
   --purple-bg: #faf5ff;
   --purple-border: #e9d5ff;
 
+  /* Fable design tokens — additive, do not replace legacy variables above */
+  --fable-red: #B5121B;
+  --fable-red-soft: #FBEAEB;
+  --fable-ink: #17181C;
+  --fable-ink-2: #4A4D55;
+  --fable-ink-3: #8A8D96;
+  --fable-line: #E7E6E2;
+  --fable-line-soft: #F0EFEB;
+  --fable-paper: #FAF9F7;
+  --fable-card: #FFFFFF;
+  --fable-ok: #1A7F4B;
+  --fable-ok-soft: #E8F4ED;
+  --fable-warn: #9A6700;
+  --fable-warn-soft: #FBF3E0;
+  --fable-radius: 10px;
+
   /* Status pills */
   --pill-green-bg: var(--green-bg);
   --pill-green-color: var(--green);
