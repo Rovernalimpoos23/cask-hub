@@ -1,67 +1,17 @@
-// v3
+// v4 — Fable redesign
 'use client'
 // src/app/(app)/dashboard/page.tsx
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  TopBar,
-  PillGreen,
-  PillRed,
-  StatCard,
-  MeetingCard,
-  ActionItemRow,
-  SectionLabel,
-} from '@/components/ui'
+import Link from 'next/link'
+import { TopBar } from '@/components/ui'
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem } from '@/types'
 
 function getCurrentMonthYear(): string {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/New_York' })
-}
-
-function IconSessions() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <rect x="2" y="11" width="3.5" height="5" rx="1" fill="currentColor"/>
-      <rect x="7.25" y="7" width="3.5" height="9" rx="1" fill="currentColor"/>
-      <rect x="12.5" y="3" width="3.5" height="13" rx="1" fill="currentColor"/>
-    </svg>
-  )
-}
-
-function IconCalendar() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <rect x="2" y="4" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.4"/>
-      <line x1="2" y1="8" x2="16" y2="8" stroke="currentColor" strokeWidth="1.4"/>
-      <line x1="6" y1="2" x2="6" y2="6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-      <line x1="12" y1="2" x2="12" y2="6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    </svg>
-  )
-}
-
-function IconList() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <line x1="6" y1="5" x2="16" y2="5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-      <line x1="6" y1="9" x2="16" y2="9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-      <line x1="6" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-      <circle cx="3" cy="5" r="1.2" fill="currentColor"/>
-      <circle cx="3" cy="9" r="1.2" fill="currentColor"/>
-      <circle cx="3" cy="13" r="1.2" fill="currentColor"/>
-    </svg>
-  )
-}
-
-function IconCheck() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.4"/>
-      <path d="M5.5 9l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  )
 }
 
 interface TodayEvent {
@@ -85,25 +35,76 @@ function fmtET(iso: string): string {
   })
 }
 
-function fmtDuration(start: string, end: string | null): string | null {
-  if (!end) return null
-  const mins = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000)
-  if (mins <= 0) return null
-  if (mins < 60) return `${mins}m`
-  const h = Math.floor(mins / 60), m = mins % 60
-  return m ? `${h}h ${m}m` : `${h}h`
+// ── Fable design tokens (additive — semantic colors only) ────────────
+const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
+const NUM: React.CSSProperties = { fontVariantNumeric: 'tabular-nums lining-nums' }
+
+// ── Sparkline (decorative trend hint) ────────────────────────────────
+function Spark({ d, hot }: { d: string; hot?: boolean }) {
+  return (
+    <svg width="84" height="22" viewBox="0 0 84 22" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d={d} fill="none" stroke={hot ? 'var(--fable-red)' : 'var(--border2)'} strokeWidth="1.5" />
+    </svg>
+  )
 }
 
-function getFirstNames(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return []
-  return (raw as unknown[]).map(a => {
-    const s = typeof a === 'string' ? a : String((a as Record<string, unknown>)?.name ?? (a as Record<string, unknown>)?.displayName ?? '')
-    return s.split(' ')[0]
-  }).filter(Boolean).slice(0, 2)
+// ── Stat cell — joined grid with hairline dividers ───────────────────
+function StatBox({
+  label,
+  value,
+  delta,
+  deltaTone = 'flat',
+  note,
+  sparkPath,
+  flag = false,
+}: {
+  label: string
+  value: string | number
+  delta: string
+  deltaTone?: 'up' | 'flat' | 'bad'
+  note: string
+  sparkPath: string
+  flag?: boolean
+}) {
+  const deltaColor =
+    deltaTone === 'up' ? 'var(--fable-ok)' : deltaTone === 'bad' ? 'var(--fable-red)' : 'var(--text3)'
+  return (
+    <div style={{ background: 'var(--surface)', padding: '16px 18px 14px' }}>
+      <div
+        style={{
+          fontSize: 10,
+          letterSpacing: '1px',
+          textTransform: 'uppercase',
+          color: 'var(--text3)',
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginTop: 8, ...NUM }}>
+        <span
+          style={{
+            fontSize: 26,
+            fontWeight: 650,
+            letterSpacing: '-0.5px',
+            lineHeight: 1,
+            color: flag ? 'var(--fable-red)' : 'var(--text)',
+          }}
+        >
+          {value}
+        </span>
+        <span style={{ fontSize: 11.5, fontWeight: 550, color: deltaColor }}>{delta}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+        <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>{note}</span>
+        <Spark d={sparkPath} hot={flag} />
+      </div>
+    </div>
+  )
 }
 
-// ── Floating Dashboard AI — palette + chat config ────────────────────
-const AI_ACCENT = '#c8311a' // CASK red
+// ── Floating CASK Intelligence — palette + chat config ───────────────
+const AI_ACCENT = '#B5121B' // fable red (hex needed for alpha suffix tricks)
 
 // Drawer palette uses CSS variables so it adapts to light/dark mode with the app.
 const AI_D = {
@@ -118,7 +119,7 @@ const AI_D = {
 }
 
 const AI_GREETING =
-  "Dashboard AI online. I have context on your day — today's meetings, upcoming events, and open action items. Ask about your day, meetings, or actions."
+  "CASK Intelligence online. I have context on your day — today's meetings, upcoming events, and open action items. Ask about your day, meetings, or actions."
 
 const AI_QUICK_PROMPTS = ["What's on today?", 'My open actions', 'Next meeting']
 
@@ -127,7 +128,7 @@ interface PanelMsg {
   content: string
 }
 
-// ── Floating Dashboard AI button + chat drawer ───────────────────────
+// ── Floating CASK Intelligence button + chat drawer ──────────────────
 
 function FloatingDashboardAI() {
   const [open, setOpen] = useState(false)
@@ -178,6 +179,11 @@ function FloatingDashboardAI() {
     <>
       <style>{`
         @keyframes dashboardSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes caskPulse {
+          0% { box-shadow: 0 0 0 0 rgba(181,18,27,0.45); }
+          70% { box-shadow: 0 0 0 6px rgba(181,18,27,0); }
+          100% { box-shadow: 0 0 0 0 rgba(181,18,27,0); }
+        }
       `}</style>
 
       {/* Floating button — always visible on Dashboard */}
@@ -192,8 +198,8 @@ function FloatingDashboardAI() {
           zIndex: 60,
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          padding: '12px 18px',
+          gap: 9,
+          padding: '12px 19px 12px 15px',
           borderRadius: 999,
           background: 'var(--charcoal)',
           color: '#fff',
@@ -201,7 +207,7 @@ function FloatingDashboardAI() {
           cursor: 'pointer',
           fontFamily: 'var(--font-geist), sans-serif',
           fontSize: 13,
-          fontWeight: 700,
+          fontWeight: 600,
           letterSpacing: '0.2px',
           boxShadow: btnHover
             ? '0 12px 30px -6px rgba(0,0,0,0.45)'
@@ -210,8 +216,17 @@ function FloatingDashboardAI() {
           transition: 'transform 160ms ease, box-shadow 160ms ease',
         }}
       >
-        <span style={{ fontSize: 15, lineHeight: 1 }}>💬</span>
-        Dashboard AI
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: '50%',
+            background: 'var(--fable-red)',
+            flexShrink: 0,
+            animation: 'caskPulse 2.2s ease-out infinite',
+          }}
+        />
+        CASK Intelligence
       </button>
 
       {/* Chat drawer — slides up from bottom-right */}
@@ -268,7 +283,7 @@ function FloatingDashboardAI() {
                   color: '#fff',
                 }}
               >
-                Dashboard AI
+                CASK Intelligence
               </span>
             </span>
             <button
@@ -323,7 +338,7 @@ function FloatingDashboardAI() {
                     marginBottom: 5,
                   }}
                 >
-                  {m.role === 'user' ? 'You' : 'Dashboard AI'}
+                  {m.role === 'user' ? 'You' : 'CASK Intelligence'}
                 </div>
                 <div
                   style={{
@@ -351,7 +366,7 @@ function FloatingDashboardAI() {
                     marginBottom: 5,
                   }}
                 >
-                  Dashboard AI
+                  CASK Intelligence
                 </div>
                 <div style={{ fontSize: 12.5, color: AI_D.text3, fontStyle: 'italic' }}>Analyzing…</div>
               </div>
@@ -479,6 +494,8 @@ export default function DashboardPage() {
   const [actionItemsLoading, setActionItemsLoading] = useState(true)
   const [bottomActionItems, setBottomActionItems] = useState<ActionItem[]>([])
   const [bottomLoading, setBottomLoading] = useState(true)
+  const [syncMins, setSyncMins] = useState(0)
+  const [expandedOwners, setExpandedOwners] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
@@ -502,6 +519,11 @@ export default function DashboardPage() {
     }
     tick()
     const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    const id = setInterval(() => setSyncMins(m => m + 1), 60000)
     return () => clearInterval(id)
   }, [])
 
@@ -637,364 +659,745 @@ export default function DashboardPage() {
   const completedActions = coreActions.filter(a => a.done)
   const recentMeetings = meetings.slice(0, 3)
 
+  // ── Derived display values (presentation only — no new fetching) ────
+  const etTodayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+  function isOverdue(a: ActionItem): boolean {
+    return !!a.due_date && a.due_date < etTodayStr
+  }
+  function overdueDays(a: ActionItem): number {
+    return Math.max(0, Math.floor((Date.parse(etTodayStr) - Date.parse(a.due_date)) / 86400000))
+  }
+  function fmtDue(dateStr: string): string {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  const overdueActions = openActions.filter(isOverdue)
+  const oldestOverdue = overdueActions.reduce<ActionItem | null>(
+    (oldest, a) => (!oldest || a.due_date < oldest.due_date ? a : oldest),
+    null
+  )
+  const oldestDays = oldestOverdue ? overdueDays(oldestOverdue) : 0
+
+  const thisMonthPrefix = etTodayStr.slice(0, 7)
+  const sessionsThisMonth = meetings.filter(m => m.date?.startsWith(thisMonthPrefix)).length
+
+  const completionRate = coreActions.length > 0
+    ? Math.round((completedActions.length / coreActions.length) * 100)
+    : 0
+
+  const nowMs = Date.now()
+  const nextEventToday = calendarEvents.find(
+    ev => !ev.is_all_day && new Date(ev.start_time).getTime() > nowMs
+  )
+  const allEventsDone =
+    calendarEvents.length > 0 &&
+    calendarEvents.every(ev => ev.is_all_day || (ev.end_time ? new Date(ev.end_time).getTime() < nowMs : false))
+
+  // Owner groups for the action items column — overdue-heavy owners first
+  const ownerGroups = (() => {
+    const map = new Map<string, ActionItem[]>()
+    for (const a of openActions) {
+      const first = a.owner.trim().split(' ')[0]
+      const name = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+      const list = map.get(name) ?? []
+      list.push(a)
+      map.set(name, list)
+    }
+    return Array.from(map.entries())
+      .map(([name, items]) => ({
+        name,
+        items: [...items].sort((x, y) => {
+          const xo = isOverdue(x) ? 0 : 1
+          const yo = isOverdue(y) ? 0 : 1
+          if (xo !== yo) return xo - yo
+          return (x.due_date || '9999').localeCompare(y.due_date || '9999')
+        }),
+        overdue: items.filter(isOverdue).length,
+      }))
+      .sort((a, b) => b.overdue - a.overdue || b.items.length - a.items.length)
+  })()
+
+  const briefingLabel =
+    greeting === 'Good morning' ? 'Morning Briefing'
+    : greeting === 'Good afternoon' ? 'Afternoon Briefing'
+    : 'Evening Briefing'
+
+  const greetSub =
+    greeting === 'Good evening'
+      ? 'Here’s where CASK Construction stands tonight.'
+      : `Here’s where CASK Construction stands — ${getCurrentMonthYear()}.`
+
+  const syncText = syncMins === 0 ? 'Synced just now' : `Synced ${syncMins} min ago`
+
   return (
     <>
+      <style>{`
+        .fb-sess-item:hover { background: var(--surface2); }
+        .fb-task:hover { background: var(--surface2); }
+        .fb-task:last-child { border-bottom: none !important; }
+        .fb-show-more:hover { color: var(--text); }
+        .fb-btn:hover { border-color: var(--border2); }
+        .fb-btn-primary:hover { opacity: 0.88; }
+        .fb-all:hover { color: var(--text); }
+        .fb-cb:hover { border-color: var(--text2) !important; }
+        @media (prefers-reduced-motion: no-preference) {
+          .fb-rise { animation: fbRise .35s ease both; }
+          @keyframes fbRise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+        }
+      `}</style>
+
       <TopBar title="Dashboard" subtitle="CASK Construction Command Center">
-        <PillGreen>Claude AI Active</PillGreen>
-        <PillRed>{loading ? '…' : `${meetings.length} Sessions`}</PillRed>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--text3)' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--fable-ok)', flexShrink: 0 }} />
+          {syncText}
+        </span>
       </TopBar>
 
       <div className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ background: 'transparent' }}>
-        {/* Page Header */}
-        <div className="mb-7">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1
-                className="font-serif text-[32px] font-normal tracking-[-0.5px] leading-[1.1]"
-                style={{ color: 'var(--text)' }}
-              >
-                {greeting}{firstName ? `, ${firstName}.` : '.'}
-              </h1>
-              <p className="text-[13px] mt-1.5" style={{ color: 'var(--text3)' }}>
-                Here&apos;s your CASK Construction intelligence overview — {getCurrentMonthYear()}.
-              </p>
-            </div>
-            <div className="text-[12px] font-medium shrink-0 mt-1" style={{ color: 'var(--text3)' }}>
-              {clockStr}
-            </div>
+        {/* Greeting */}
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 26 }}>
+          <div>
+            <h1
+              style={{
+                fontFamily: SERIF,
+                fontWeight: 500,
+                fontSize: 30,
+                letterSpacing: '-0.45px',
+                lineHeight: 1.15,
+                color: 'var(--text)',
+              }}
+            >
+              {greeting}{firstName ? `, ${firstName}.` : '.'}
+            </h1>
+            <div style={{ color: 'var(--text2)', fontSize: 13.5, marginTop: 6 }}>{greetSub}</div>
           </div>
-          <div className="h-px mt-5" style={{ background: 'var(--border)' }} />
+          <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--text3)', lineHeight: 1.5, flexShrink: 0, ...NUM }}>
+            {clockStr}
+          </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-3 mb-8">
-          <StatCard
-            value={loading ? '…' : meetings.length}
-            label="Total Sessions"
-            hint="All time"
-            variant="default"
-            index={0}
-            icon={<IconSessions />}
-          />
-          <StatCard
-            value={upcomingCount ?? '…'}
-            label="Events This Week"
-            hint={nextEventHint}
-            variant="alert"
-            index={1}
-            icon={<IconCalendar />}
-          />
-          <StatCard
-            value={actionItemsLoading ? '…' : openActions.length}
-            label="Open Action Items"
-            hint="Across all sessions"
-            variant="default"
-            index={2}
-            icon={<IconList />}
-          />
-          <StatCard
-            value={actionItemsLoading ? '…' : completedActions.length}
-            label="Completed"
-            hint="All time"
-            variant="success"
-            index={3}
-            icon={<IconCheck />}
-          />
-        </div>
-
-        {/* Morning Briefing */}
-        <div className="mb-8">
-          <div style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 12,
+        {/* Stats — joined hairline grid */}
+        <div
+          className="fb-rise"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: 1,
+            background: 'var(--fable-line, var(--border))',
+            border: '1px solid var(--fable-line, var(--border))',
+            borderRadius: 'var(--fable-radius)',
             overflow: 'hidden',
-          }}>
-
-            {/* Card header */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '13px 18px',
-              borderBottom: '1px solid var(--border)',
-              background: 'linear-gradient(to bottom, var(--surface), var(--surface2))',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{
-                  width: 30, height: 30, borderRadius: 8, flexShrink: 0,
-                  background: 'linear-gradient(135deg, #f59e0b, #fbbf24)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="5"/>
-                    <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                  </svg>
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>Morning Briefing</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{todayLabel}</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  fontSize: 10, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase',
-                  color: 'var(--green)', background: 'var(--green-bg)',
-                  border: '1px solid #bbf7d0', padding: '3px 8px', borderRadius: 20,
-                }}>
-                  Daily Briefing
-                </span>
-                <a
-                  href="/president/calendar"
-                  style={{
-                    fontSize: 12, fontWeight: 500, color: 'var(--text2)',
-                    padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border2)',
-                    textDecoration: 'none', transition: 'background 150ms ease',
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--surface2)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent' }}
-                >
-                  View Calendar →
-                </a>
-              </div>
-            </div>
-
-            {/* Section 1 — Today's Schedule */}
-            <div style={{ padding: '0 18px' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '11px 0 9px',
-              }}>
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text3)' }}>
-                  Today&apos;s Schedule
-                </span>
-                {!calendarLoading && (
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, color: 'white',
-                    background: '#2563eb', borderRadius: 20, padding: '1px 7px',
-                  }}>
-                    {calendarEvents.length}
-                  </span>
-                )}
-              </div>
-              <div style={{ paddingBottom: 14, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {calendarLoading ? (
-                  <>
-                    <div className="shimmer" style={{ height: 46, borderRadius: 8, border: '1px solid var(--border)' }} />
-                    <div className="shimmer" style={{ height: 46, borderRadius: 8, border: '1px solid var(--border)', opacity: 0.6 }} />
-                  </>
-                ) : calendarEvents.length === 0 ? (
-                  <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ opacity: 0.45 }}>
-                      <rect x="3" y="4" width="18" height="18" rx="2"/>
-                      <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
-                      <line x1="3" y1="10" x2="21" y2="10"/>
-                    </svg>
-                    No meetings scheduled today
-                  </div>
-                ) : (
-                  (() => {
-                    const nowMs = Date.now()
-                    const allDone = calendarEvents.every(ev =>
-                      ev.is_all_day || (ev.end_time ? new Date(ev.end_time).getTime() < nowMs : false)
-                    )
-                    if (allDone) return (
-                      <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 8, color: '#10b981', fontSize: 13, fontWeight: 600 }}>
-                        All meetings completed for today ✓
-                      </div>
-                    )
-                    return calendarEvents.map(ev => {
-                      const startMs = new Date(ev.start_time).getTime()
-                      const endMs = ev.end_time ? new Date(ev.end_time).getTime() : null
-                      const isDone = !ev.is_all_day && endMs !== null && endMs < nowMs
-                      const isNow = !ev.is_all_day && startMs <= nowMs && endMs !== null && endMs >= nowMs
-                      const isUpcoming = !ev.is_all_day && startMs > nowMs
-                      const duration = fmtDuration(ev.start_time, ev.end_time)
-                      const minsUntil = isUpcoming ? Math.round((startMs - nowMs) / 60000) : 0
-                      const timeUntil = minsUntil < 60
-                        ? `in ${minsUntil}m`
-                        : `in ${Math.floor(minsUntil / 60)}h${minsUntil % 60 ? ` ${minsUntil % 60}m` : ''}`
-                      const borderLeft = isDone ? '3px solid var(--border)' : isNow ? '3px solid #10b981' : '3px solid #2563eb'
-                      return (
-                        <div
-                          key={ev.id}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 10,
-                            padding: '9px 12px 9px 10px',
-                            borderRadius: 8,
-                            border: `1px solid ${isNow ? 'rgba(16,185,129,0.35)' : 'var(--border)'}`,
-                            borderLeft,
-                            background: isNow ? 'rgba(16,185,129,0.04)' : 'transparent',
-                            opacity: isDone ? 0.5 : 1,
-                            transition: 'border-color 150ms ease',
-                          }}
-                        >
-                          <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500, minWidth: 66, flexShrink: 0, lineHeight: 1.2 }}>
-                            {ev.is_all_day ? 'All Day' : fmtET(ev.start_time)}
-                          </span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-                              {ev.title}
-                            </div>
-                            {ev.organizer && (
-                              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{ev.organizer}</div>
-                            )}
-                          </div>
-
-                          {/* Status badge */}
-                          {isDone ? (
-                            <span style={{
-                              fontSize: 10, fontWeight: 700,
-                              color: 'var(--text3)', background: 'var(--surface2)', border: '1px solid var(--border)',
-                              borderRadius: 20, padding: '2px 8px', flexShrink: 0,
-                            }}>
-                              ✓ Done
-                            </span>
-                          ) : isNow ? (
-                            <span style={{
-                              fontSize: 9, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase',
-                              color: 'white', background: '#10b981',
-                              borderRadius: 20, padding: '2px 7px', flexShrink: 0,
-                            }}>
-                              🔴 Live Now
-                            </span>
-                          ) : isUpcoming ? (
-                            <span style={{
-                              fontSize: 10, fontWeight: 600,
-                              color: '#2563eb', background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.2)',
-                              borderRadius: 20, padding: '2px 8px', flexShrink: 0,
-                            }}>
-                              {timeUntil}
-                            </span>
-                          ) : duration ? (
-                            <span style={{
-                              fontSize: 10, fontWeight: 600, color: 'var(--text3)',
-                              background: 'var(--surface2)', border: '1px solid var(--border)',
-                              borderRadius: 4, padding: '1px 6px', flexShrink: 0,
-                            }}>
-                              {duration}
-                            </span>
-                          ) : null}
-
-                          {ev.web_link && (
-                            <a
-                              href={ev.web_link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                fontSize: 11, fontWeight: 600, color: 'white',
-                                background: '#7c3aed', padding: '4px 11px', borderRadius: 6,
-                                textDecoration: 'none', flexShrink: 0,
-                                transition: 'opacity 150ms ease',
-                              }}
-                              onMouseEnter={e => { e.currentTarget.style.opacity = '0.82' }}
-                              onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
-                            >
-                              View Event
-                            </a>
-                          )}
-                        </div>
-                      )
-                    })
-                  })()
-                )}
-              </div>
-            </div>
-
-          </div>
+            marginBottom: 26,
+          }}
+        >
+          <StatBox
+            label="Sessions"
+            value={loading ? '…' : meetings.length}
+            delta={loading ? '' : sessionsThisMonth > 0 ? `▲ ${sessionsThisMonth} this month` : 'None this month'}
+            deltaTone={sessionsThisMonth > 0 ? 'up' : 'flat'}
+            note="All time"
+            sparkPath="M0 17 L12 15 L24 16 L36 12 L48 13 L60 9 L72 7 L84 4"
+          />
+          <StatBox
+            label="Events this week"
+            value={upcomingCount ?? '…'}
+            delta={nextEventHint}
+            deltaTone="flat"
+            note={
+              calendarLoading ? '…'
+              : nextEventToday ? `Next: ${fmtET(nextEventToday.start_time)}`
+              : allEventsDone ? 'All done today'
+              : 'No more events today'
+            }
+            sparkPath="M0 12 L12 14 L24 10 L36 13 L48 8 L60 12 L72 10 L84 11"
+          />
+          <StatBox
+            label="Open action items"
+            value={actionItemsLoading ? '…' : openActions.length}
+            delta={actionItemsLoading ? '' : overdueActions.length > 0 ? `${overdueActions.length} overdue` : 'On track'}
+            deltaTone={overdueActions.length > 0 ? 'bad' : 'flat'}
+            note={overdueActions.length > 0 ? `Oldest: ${oldestDays} days` : 'Nothing overdue'}
+            sparkPath="M0 16 L12 14 L24 14 L36 11 L48 9 L60 9 L72 6 L84 5"
+            flag={!actionItemsLoading && overdueActions.length > 0}
+          />
+          <StatBox
+            label="Completed"
+            value={actionItemsLoading ? '…' : completedActions.length}
+            delta={actionItemsLoading ? '' : `▲ ${completionRate}%`}
+            deltaTone={completionRate > 0 ? 'up' : 'flat'}
+            note="Completion rate · all time"
+            sparkPath="M0 18 L12 17 L24 15 L36 14 L48 11 L60 10 L72 7 L84 5"
+          />
         </div>
 
-        {/* Recent Sessions */}
-        <div className="mb-8">
+        {/* Briefing — the signature element */}
+        <section
+          aria-label="Daily briefing"
+          className="fb-rise"
+          style={{
+            border: '1px solid var(--fable-line, var(--border))',
+            borderRadius: 'var(--fable-radius)',
+            background: 'var(--surface)',
+            marginBottom: 30,
+            overflow: 'hidden',
+          }}
+        >
           <div
-            className="text-[11px] font-semibold tracking-[1px] uppercase flex items-center justify-between mb-3"
             style={{
-              color: 'var(--text2)',
-              borderLeft: '3px solid var(--red)',
-              paddingLeft: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 20px',
+              borderBottom: '1px solid var(--fable-line-soft, var(--border))',
             }}
           >
-            Recent Sessions
-            <div className="flex items-center gap-2">
-              <a
-                href="/sessions"
-                className="text-[12px] font-medium normal-case tracking-normal no-underline"
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 18, height: 2, background: 'var(--fable-red)', flexShrink: 0 }} />
+              <h2
                 style={{
-                  color: 'var(--text2)',
-                  padding: '3px 9px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border2)',
-                  lineHeight: '1.4',
+                  fontSize: 11.5,
+                  letterSpacing: '1.4px',
+                  textTransform: 'uppercase',
+                  fontWeight: 650,
+                  color: 'var(--text)',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'var(--surface2)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent' }}
               >
-                View all
-              </a>
+                {briefingLabel}
+              </h2>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>{todayLabel}</div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr' }}>
+            {/* Main briefing text */}
+            <div style={{ padding: '18px 20px', borderRight: '1px solid var(--fable-line-soft, var(--border))' }}>
+              <p
+                style={{
+                  fontFamily: SERIF,
+                  fontSize: 17,
+                  lineHeight: 1.55,
+                  color: 'var(--text)',
+                  fontWeight: 500,
+                }}
+              >
+                {calendarLoading ? (
+                  'Pulling today’s schedule…'
+                ) : calendarEvents.length === 0 ? (
+                  'Nothing on the calendar today.'
+                ) : allEventsDone ? (
+                  'All of today’s meetings are wrapped.'
+                ) : nextEventToday ? (
+                  <>
+                    Next up:{' '}
+                    <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
+                      {nextEventToday.title} at {fmtET(nextEventToday.start_time)}
+                    </em>
+                    .
+                  </>
+                ) : (
+                  `${calendarEvents.length} event${calendarEvents.length === 1 ? '' : 's'} on today’s calendar.`
+                )}{' '}
+                {actionItemsLoading ? null : overdueActions.length > 0 ? (
+                  <>
+                    <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
+                      {overdueActions.length} action item{overdueActions.length === 1 ? ' is' : 's are'} past due
+                    </em>
+                    {ownerGroups[0] && ownerGroups[0].overdue > 1
+                      ? `, ${ownerGroups[0].overdue} of them ${ownerGroups[0].name}’s.`
+                      : '.'}
+                  </>
+                ) : (
+                  'No action items are overdue — the board is clean.'
+                )}
+              </p>
+              <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+                <Link
+                  href="/actions"
+                  className="fb-btn-primary"
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 550,
+                    borderRadius: 7,
+                    padding: '8px 13px',
+                    lineHeight: 1,
+                    background: 'var(--charcoal)',
+                    border: '1px solid var(--charcoal)',
+                    color: '#fff',
+                    textDecoration: 'none',
+                    transition: 'opacity 150ms ease',
+                  }}
+                >
+                  Review overdue items
+                </Link>
+                <Link
+                  href="/president/calendar"
+                  className="fb-btn"
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 550,
+                    borderRadius: 7,
+                    padding: '8px 13px',
+                    lineHeight: 1,
+                    background: 'var(--surface)',
+                    border: '1px solid var(--fable-line, var(--border))',
+                    color: 'var(--text)',
+                    textDecoration: 'none',
+                    transition: 'border-color 150ms ease',
+                  }}
+                >
+                  Open calendar
+                </Link>
+              </div>
+            </div>
+
+            {/* Today's schedule */}
+            <div style={{ padding: '18px 20px' }}>
+              <h3
+                style={{
+                  fontSize: 10,
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  color: 'var(--text3)',
+                  fontWeight: 600,
+                  marginBottom: 10,
+                }}
+              >
+                Today&apos;s schedule
+              </h3>
+              {calendarLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div className="shimmer" style={{ height: 18, borderRadius: 5 }} />
+                  <div className="shimmer" style={{ height: 18, borderRadius: 5, opacity: 0.6 }} />
+                </div>
+              ) : calendarEvents.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No meetings scheduled today.</div>
+              ) : (
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {calendarEvents.map(ev => {
+                    const startMs = new Date(ev.start_time).getTime()
+                    const endMs = ev.end_time ? new Date(ev.end_time).getTime() : null
+                    const isDone = !ev.is_all_day && endMs !== null && endMs < nowMs
+                    const isNow = !ev.is_all_day && startMs <= nowMs && endMs !== null && endMs >= nowMs
+                    const title = ev.web_link ? (
+                      <a
+                        href={ev.web_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: 'inherit', textDecoration: 'none' }}
+                      >
+                        {ev.title}
+                      </a>
+                    ) : (
+                      ev.title
+                    )
+                    return (
+                      <li
+                        key={ev.id}
+                        style={{ display: 'flex', gap: 10, fontSize: 12.5, padding: '5px 0', color: 'var(--text2)' }}
+                      >
+                        <span
+                          style={{
+                            fontWeight: 600,
+                            color: 'var(--text)',
+                            width: 62,
+                            flexShrink: 0,
+                            ...NUM,
+                          }}
+                        >
+                          {ev.is_all_day ? 'All day' : fmtET(ev.start_time)}
+                        </span>
+                        <span
+                          style={{
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            ...(isDone
+                              ? {
+                                  color: 'var(--text3)',
+                                  textDecoration: 'line-through',
+                                  textDecorationColor: 'var(--border2)',
+                                }
+                              : {}),
+                          }}
+                        >
+                          {title}
+                        </span>
+                        {isDone && <span style={{ color: 'var(--fable-ok)', fontWeight: 600, flexShrink: 0 }}>✓</span>}
+                        {isNow && (
+                          <span
+                            style={{
+                              color: 'var(--fable-ok)',
+                              fontWeight: 650,
+                              fontSize: 10.5,
+                              flexShrink: 0,
+                              alignSelf: 'center',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                            }}
+                          >
+                            ● Now
+                          </span>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Work area — sessions left, actions right */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: 26, alignItems: 'start' }}>
+          {/* Recent sessions */}
+          <section aria-label="Recent sessions">
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h2 style={{ fontSize: 11.5, letterSpacing: '1.4px', textTransform: 'uppercase', fontWeight: 650, color: 'var(--text)' }}>
+                Recent Sessions
+              </h2>
+              <Link
+                href="/sessions"
+                className="fb-all"
+                style={{ fontSize: 12, color: 'var(--text2)', textDecoration: 'none', fontWeight: 500, transition: 'color 150ms ease' }}
+              >
+                View all →
+              </Link>
+            </div>
+            <div
+              className="fb-rise"
+              style={{
+                border: '1px solid var(--fable-line, var(--border))',
+                borderRadius: 'var(--fable-radius)',
+                background: 'var(--surface)',
+                overflow: 'hidden',
+              }}
+            >
+              {loading ? (
+                <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="shimmer" style={{ height: 54, borderRadius: 8 }} />
+                  ))}
+                </div>
+              ) : (
+                recentMeetings.map((m, i) => {
+                  const date = new Date(m.date + 'T00:00:00')
+                  const recapReady = (m.summary?.length ?? 0) > 0
+                  const shown = m.attendees.slice(0, 4)
+                  const extra = m.attendees.length - shown.length
+                  return (
+                    <Link
+                      key={m.id}
+                      href={`/sessions/${m.id}`}
+                      className="fb-sess-item"
+                      style={{
+                        display: 'flex',
+                        gap: 14,
+                        padding: '14px 16px',
+                        borderBottom:
+                          i < recentMeetings.length - 1 ? '1px solid var(--fable-line-soft, var(--border))' : 'none',
+                        cursor: 'pointer',
+                        textDecoration: 'none',
+                        transition: 'background 150ms ease',
+                      }}
+                    >
+                      <div style={{ width: 40, flexShrink: 0, textAlign: 'center', paddingTop: 1 }}>
+                        <div style={{ fontSize: 16, fontWeight: 650, lineHeight: 1, color: 'var(--text)', ...NUM }}>
+                          {date.getDate()}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 9.5,
+                            letterSpacing: '1px',
+                            textTransform: 'uppercase',
+                            color: 'var(--text3)',
+                            marginTop: 3,
+                          }}
+                        >
+                          {date.toLocaleString('en-US', { month: 'short' })}
+                        </div>
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 550, color: 'var(--text)', letterSpacing: '-0.1px' }}>
+                          {m.title}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11.5,
+                            color: 'var(--text3)',
+                            marginTop: 3,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {shown.join(', ')}
+                          {extra > 0 ? ` +${extra}` : ''}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          marginLeft: 'auto',
+                          flexShrink: 0,
+                          alignSelf: 'center',
+                          fontSize: 11,
+                          fontWeight: 550,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          color: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)',
+                          }}
+                        />
+                        {recapReady ? 'Recap ready' : 'Awaiting recap'}
+                      </div>
+                    </Link>
+                  )
+                })
+              )}
               <button
                 onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
+                className="fb-show-more"
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'center',
+                  padding: 11,
+                  fontSize: 12.5,
+                  fontWeight: 550,
+                  color: 'var(--text2)',
+                  background: 'var(--surface2)',
+                  border: 'none',
+                  borderTop: '1px solid var(--fable-line-soft, var(--border))',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  transition: 'color 150ms ease',
+                }}
+              >
+                + New session
+              </button>
+            </div>
+          </section>
+
+          {/* Open action items */}
+          <section aria-label="Open action items">
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h2 style={{ fontSize: 11.5, letterSpacing: '1.4px', textTransform: 'uppercase', fontWeight: 650, color: 'var(--text)' }}>
+                Open Action Items
+              </h2>
+              <Link
+                href="/actions"
+                className="fb-all"
+                style={{ fontSize: 12, color: 'var(--text2)', textDecoration: 'none', fontWeight: 500, transition: 'color 150ms ease' }}
+              >
+                View all {actionItemsLoading ? '' : openActions.length} →
+              </Link>
+            </div>
+
+            {/* Overdue alert strip */}
+            {!actionItemsLoading && overdueActions.length > 0 && (
+              <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 4,
-                  padding: '3px 9px',
-                  borderRadius: 6,
-                  background: 'var(--red)',
-                  color: 'white',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: 12,
+                  gap: 9,
+                  padding: '10px 14px',
+                  marginBottom: 12,
+                  background: 'var(--fable-red-soft)',
+                  border: '1px solid #F2D4D6',
+                  borderRadius: 8,
+                  fontSize: 12.5,
+                  color: '#7E1018',
                   fontWeight: 500,
-                  fontFamily: 'inherit',
-                  letterSpacing: 'normal',
-                  textTransform: 'none',
-                  lineHeight: '1.4',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
-                onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
               >
-                + New Session
-              </button>
-            </div>
-          </div>
-          {loading ? (
-            <div className="flex flex-col gap-2">
-              {[0, 1, 2].map(i => (
-                <div key={i} className="rounded-[10px] h-[82px] shimmer" style={{ border: '1px solid var(--border)' }} />
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {recentMeetings.map(m => (
-                <MeetingCard key={m.id} meeting={m} />
-              ))}
-            </div>
-          )}
-        </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ flexShrink: 0 }}>
+                  <path d="M12 9v4M12 17h.01" />
+                  <path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" />
+                </svg>
+                <span>
+                  <b style={{ fontWeight: 650 }}>
+                    {overdueActions.length} item{overdueActions.length === 1 ? '' : 's'} overdue
+                  </b>
+                  {oldestOverdue ? ` — oldest open since ${fmtDue(oldestOverdue.due_date)}` : ''}
+                </span>
+              </div>
+            )}
 
-        {/* Open Action Items */}
-        <div>
-          <SectionLabel action="View all →" href="/actions">
-            Open Action Items — Calin, Kai &amp; Rovern
-          </SectionLabel>
-          {bottomLoading ? (
-            <div className="flex flex-col gap-[5px]">
-              {[0, 1, 2].map(i => (
-                <div key={i} className="rounded-[6px] h-[56px] shimmer" style={{ border: '1px solid var(--border)' }} />
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-[5px]">
-              {bottomActionItems.map(item => (
-                <ActionItemRow key={item.id} item={item} onToggle={handleBottomToggle} />
-              ))}
-            </div>
-          )}
+            {bottomLoading && actionItemsLoading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="shimmer" style={{ height: 54, borderRadius: 8, border: '1px solid var(--border)' }} />
+                ))}
+              </div>
+            ) : ownerGroups.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--text3)', padding: '8px 0' }}>
+                No open action items. 🎉
+              </div>
+            ) : (
+              ownerGroups.map(group => {
+                const expanded = !!expandedOwners[group.name]
+                const visible = expanded ? group.items : group.items.slice(0, 3)
+                const hidden = group.items.length - visible.length
+                return (
+                  <div
+                    key={group.name}
+                    className="fb-rise"
+                    style={{
+                      border: '1px solid var(--fable-line, var(--border))',
+                      borderRadius: 'var(--fable-radius)',
+                      background: 'var(--surface)',
+                      overflow: 'hidden',
+                      marginBottom: 14,
+                    }}
+                  >
+                    {/* Owner header */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 9,
+                        padding: '10px 14px',
+                        background: 'var(--surface2)',
+                        borderBottom: '1px solid var(--fable-line-soft, var(--border))',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 22,
+                          height: 22,
+                          borderRadius: '50%',
+                          background: 'var(--charcoal)',
+                          color: '#fff',
+                          display: 'grid',
+                          placeItems: 'center',
+                          fontSize: 9.5,
+                          fontWeight: 600,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {group.name.charAt(0)}
+                      </span>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{group.name}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text3)', ...NUM }}>
+                        {group.overdue > 0 && (
+                          <>
+                            <b style={{ color: 'var(--fable-red)', fontWeight: 650 }}>{group.overdue} overdue</b>
+                            {' · '}
+                          </>
+                        )}
+                        {group.items.length} open
+                      </span>
+                    </div>
+
+                    {/* Tasks */}
+                    {visible.map(item => {
+                      const over = isOverdue(item)
+                      return (
+                        <div
+                          key={item.id}
+                          className="fb-task"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 11,
+                            padding: '11px 14px',
+                            borderBottom: '1px solid var(--fable-line-soft, var(--border))',
+                            transition: 'background 150ms ease',
+                          }}
+                        >
+                          <button
+                            className="fb-cb"
+                            role="checkbox"
+                            aria-checked="false"
+                            title="Mark complete"
+                            onClick={() => handleBottomToggle(item.id, true)}
+                            style={{
+                              width: 15,
+                              height: 15,
+                              border: '1.5px solid var(--border2)',
+                              borderRadius: 4,
+                              flexShrink: 0,
+                              marginTop: 2,
+                              cursor: 'pointer',
+                              background: 'transparent',
+                              padding: 0,
+                              transition: 'border-color 150ms ease',
+                            }}
+                          />
+                          <span style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--text)' }}>{item.task}</span>
+                          <span
+                            style={{
+                              marginLeft: 'auto',
+                              flexShrink: 0,
+                              fontSize: 11,
+                              fontWeight: 550,
+                              paddingTop: 2,
+                              whiteSpace: 'nowrap',
+                              color: over ? 'var(--fable-red)' : 'var(--text3)',
+                              ...NUM,
+                            }}
+                          >
+                            {item.due_date ? fmtDue(item.due_date) : 'No due date'}
+                            {over && (
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  marginLeft: 6,
+                                  background: 'var(--fable-red-soft)',
+                                  padding: '1px 6px',
+                                  borderRadius: 5,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {overdueDays(item)}d
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )
+                    })}
+
+                    {/* Show more / less */}
+                    {(hidden > 0 || expanded) && (
+                      <button
+                        className="fb-show-more"
+                        onClick={() => setExpandedOwners(prev => ({ ...prev, [group.name]: !expanded }))}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'center',
+                          padding: 9,
+                          fontSize: 11.5,
+                          fontWeight: 500,
+                          color: 'var(--text3)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          transition: 'color 150ms ease',
+                        }}
+                      >
+                        {expanded ? 'Show less' : `Show ${hidden} more from ${group.name}`}
+                      </button>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </section>
         </div>
       </div>
 
-      {/* Floating Dashboard AI button + chat drawer — bottom-right, this page only */}
+      {/* Floating CASK Intelligence button + chat drawer — bottom-right, this page only */}
       <FloatingDashboardAI />
     </>
   )
