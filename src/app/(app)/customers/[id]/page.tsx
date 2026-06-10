@@ -327,6 +327,16 @@ function formatCurrency(v: number) {
   return '$' + v.toLocaleString('en-US')
 }
 
+// Strip HTML/markdown noise and clamp to a short, single-line summary.
+function summarize(text: string, max: number): string {
+  const clean = text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[#*_`>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return clean.length > max ? clean.slice(0, max).trimEnd() + '…' : clean
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function BackLink() {
@@ -341,20 +351,6 @@ function BackLink() {
   )
 }
 
-function SectionLabel({ icon, children }: { icon: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 mb-4">
-      <span style={{ fontSize: 14, opacity: 0.6 }}>{icon}</span>
-      <span
-        className="text-[11px] font-semibold tracking-[1.2px] uppercase"
-        style={{ color: 'var(--text3)' }}
-      >
-        {children}
-      </span>
-    </div>
-  )
-}
-
 function buildGreeting(client: ClientData, journeyRows: Map<string, ClientMeetingRow>): string {
   const completedCount = Array.from(journeyRows.values()).filter(r => r.completed).length
   for (const phase of JOURNEY_PHASES) {
@@ -366,17 +362,21 @@ function buildGreeting(client: ClientData, journeyRows: Map<string, ClientMeetin
   return `Hey! I have full context on ${client.name}. All ${TOTAL_MEETINGS} meetings completed — journey finished! How can I help?`
 }
 
-function IntelligencePanel({ client, journeyRows, messages, onSend, onClear }: {
+function FloatingClientAI({ client, journeyRows, messages, onSend, onClear, open, onOpenChange }: {
   client: ClientData
   journeyRows: Map<string, ClientMeetingRow>
   messages: { role: 'user' | 'assistant'; content: string }[]
   onSend: (msg: string) => void
   onClear: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [btnHover, setBtnHover] = useState(false)
   const messagesRef = useRef<HTMLDivElement>(null)
   const greeting = buildGreeting(client, journeyRows)
+  const firstName = client.name.split(' ')[0]
 
   // Keep the latest message in view by scrolling the chat's OWN container only.
   // Using scrollTop (not scrollIntoView) means this never bubbles up to scroll
@@ -384,7 +384,7 @@ function IntelligencePanel({ client, journeyRows, messages, onSend, onClear }: {
   useEffect(() => {
     const el = messagesRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages])
+  }, [messages, sending, open])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -397,49 +397,105 @@ function IntelligencePanel({ client, journeyRows, messages, onSend, onClear }: {
   }
 
   return (
-    <div
-      className="rounded-[10px] overflow-hidden"
-      style={{ background: 'var(--charcoal)', border: '1px solid rgba(255,255,255,0.07)' }}
-    >
-      {/* Header */}
-      <div
-        className="px-6 py-4"
-        style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
+    <>
+      <style>{`
+        @keyframes clientAISlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes clientAIPulse {
+          0% { box-shadow: 0 0 0 0 rgba(181,18,27,0.45); }
+          70% { box-shadow: 0 0 0 6px rgba(181,18,27,0); }
+          100% { box-shadow: 0 0 0 0 rgba(181,18,27,0); }
+        }
+      `}</style>
+
+      {/* Floating launcher */}
+      <button
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        onMouseEnter={() => setBtnHover(true)}
+        onMouseLeave={() => setBtnHover(false)}
+        style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 60,
+          display: 'flex', alignItems: 'center', gap: 9,
+          padding: '11px 18px 11px 14px', borderRadius: 999,
+          background: 'var(--charcoal)', color: '#fff', border: 'none',
+          cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, letterSpacing: '0.2px',
+          boxShadow: btnHover ? '0 12px 30px -6px rgba(0,0,0,0.45)' : '0 6px 18px -4px rgba(0,0,0,0.35)',
+          transform: btnHover ? 'translateY(-2px)' : 'translateY(0)',
+          transition: 'transform 160ms ease, box-shadow 160ms ease',
+        }}
       >
-        <div className="flex items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2.5">
-            <div
-              className="w-[7px] h-[7px] rounded-full"
-              style={{ background: 'var(--red, #c8311a)', boxShadow: '0 0 6px rgba(200,49,26,0.6)' }}
-            />
-            <span
-              className="text-[12px] font-semibold tracking-[0.8px] uppercase"
-              style={{ color: 'rgba(255,255,255,0.5)' }}
-            >
-              CASK Intelligence — {client.name} context
-            </span>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--fable-red)', flexShrink: 0, animation: 'clientAIPulse 2.2s ease-out infinite' }} />
+        CASK Intelligence <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.55)' }}>· {firstName}</span>
+      </button>
+
+      {open && (
+      <div
+        style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 61,
+          width: 400, maxWidth: 'calc(100vw - 48px)',
+          height: 540, maxHeight: 'calc(100vh - 48px)',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          borderRadius: 16, background: 'var(--charcoal)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          boxShadow: '0 24px 60px -12px rgba(0,0,0,0.5)',
+          animation: 'clientAISlideUp 220ms ease',
+        }}
+      >
+        {/* Header */}
+        <div
+          className="px-5 py-3.5"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}
+        >
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <div
+                className="w-[7px] h-[7px] rounded-full"
+                style={{ background: 'var(--fable-red)', boxShadow: '0 0 6px rgba(181,18,27,0.6)' }}
+              />
+              <span
+                className="text-[12px] font-semibold tracking-[0.8px] uppercase"
+                style={{ color: 'rgba(255,255,255,0.5)' }}
+              >
+                CASK Intelligence · {firstName}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={onClear}
+                className="text-[10px] font-medium px-2 py-1 rounded-[4px] transition-opacity"
+                style={{
+                  color: 'rgba(255,255,255,0.3)',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenChange(false)}
+                title="Close"
+                className="flex items-center justify-center rounded-[6px]"
+                style={{
+                  width: 26, height: 26, background: 'transparent', border: 'none',
+                  color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={onClear}
-            className="text-[10px] font-medium px-2 py-1 rounded-[4px] transition-opacity"
-            style={{
-              color: 'rgba(255,255,255,0.3)',
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
-          >
-            Clear
-          </button>
         </div>
-      </div>
 
       {/* Messages */}
-      <div ref={messagesRef} className="px-5 py-4 flex flex-col gap-3" style={{ minHeight: 120, maxHeight: 420, overflowY: 'auto' }}>
+      <div ref={messagesRef} className="px-5 py-4 flex flex-col gap-3" style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
         <div className="flex justify-start">
           <div
             className="text-[12px] leading-relaxed px-3.5 py-2.5 max-w-[88%]"
@@ -555,7 +611,9 @@ function IntelligencePanel({ client, journeyRows, messages, onSend, onClear }: {
           </button>
         </div>
       </form>
-    </div>
+      </div>
+      )}
+    </>
   )
 }
 
@@ -696,6 +754,9 @@ function PhaseCard({
   onViewAgenda,
   sentEmailsByCode,
   onViewSentEmail,
+  isCurrent,
+  isDone,
+  defaultExpanded,
 }: {
   phase: JourneyPhaseDef
   journeyRows: Map<string, ClientMeetingRow>
@@ -705,21 +766,25 @@ function PhaseCard({
   onViewAgenda: (code: string) => void
   sentEmailsByCode: Map<string, EmailDraft>
   onViewSentEmail: (draft: EmailDraft) => void
+  isCurrent: boolean
+  isDone: boolean
+  defaultExpanded: boolean
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(defaultExpanded)
 
   const completedInPhase = phase.meetings.filter(m => journeyRows.get(m.code)?.completed).length
+  const total = phase.meetings.length
+  const nextCode = phase.meetings.find(m => !journeyRows.get(m.code)?.completed)?.code
+  const isTodo = !isCurrent && !isDone
+
+  const markStyle: React.CSSProperties = isDone
+    ? { background: 'var(--fable-ok-soft)', border: '1.5px solid #BFDECB', color: 'var(--fable-ok)' }
+    : isCurrent
+    ? { background: 'var(--charcoal)', border: '1.5px solid var(--charcoal)', color: '#fff' }
+    : { background: 'var(--white)', border: '1.5px solid var(--border)', color: 'var(--text3)' }
 
   return (
-    <div
-      style={{
-        border: `1px solid var(--border)`,
-        borderLeft: `3px solid ${phase.color}`,
-        borderRadius: 10,
-        overflow: 'hidden',
-        background: 'var(--surface, #fff)',
-      }}
-    >
+    <div style={{ borderBottom: '1px solid var(--border)' }}>
       {/* Phase header */}
       <button
         type="button"
@@ -728,51 +793,62 @@ function PhaseCard({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
-          padding: '12px 16px',
-          background: expanded ? phase.bgColor : 'transparent',
+          gap: 12,
+          padding: '11px 2px',
+          background: 'transparent',
           border: 'none',
           cursor: 'pointer',
-          transition: 'background 150ms ease',
           fontFamily: 'inherit',
         }}
       >
-        {/* Phase number badge */}
+        {/* Phase mark */}
         <span
-          className="text-[10px] font-bold shrink-0"
+          className="shrink-0"
           style={{
             width: 22,
             height: 22,
             borderRadius: '50%',
-            background: phase.color,
-            color: '#fff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 10,
+            fontSize: 11,
+            fontWeight: 600,
+            fontVariantNumeric: 'tabular-nums',
+            ...markStyle,
           }}
         >
-          {phase.number}
+          {isDone ? '✓' : phase.number}
         </span>
 
         {/* Label */}
         <span
-          className="text-[13px] font-semibold flex-1 text-left"
-          style={{ color: 'var(--text)' }}
+          className="flex-1 text-left"
+          style={{ fontSize: 13.5, fontWeight: isCurrent ? 600 : 500, color: isTodo ? 'var(--text2)' : 'var(--text)' }}
         >
           {phase.label}
         </span>
 
-        {/* Progress pill */}
+        {/* Current marker */}
+        {isCurrent && (
+          <span
+            className="uppercase shrink-0"
+            style={{ fontSize: 10, letterSpacing: '0.08em', fontWeight: 700, color: 'var(--fable-red)' }}
+          >
+            Current
+          </span>
+        )}
+
+        {/* Count */}
         <span
-          className="text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0"
+          className="shrink-0"
           style={{
-            background: completedInPhase === phase.meetings.length ? '#f0fdf4' : phase.bgColor,
-            color: completedInPhase === phase.meetings.length ? '#16a34a' : phase.color,
-            border: `1px solid ${completedInPhase === phase.meetings.length ? '#bbf7d0' : phase.borderColor}`,
+            fontSize: 12,
+            fontVariantNumeric: 'tabular-nums',
+            color: isDone ? 'var(--fable-ok)' : 'var(--text3)',
+            fontWeight: isDone ? 600 : 400,
           }}
         >
-          {completedInPhase}/{phase.meetings.length}
+          {completedInPhase} / {total}
         </span>
 
         {/* Chevron */}
@@ -791,7 +867,7 @@ function PhaseCard({
 
       {/* Meetings list */}
       {expanded && (
-        <div style={{ borderTop: `1px solid ${phase.borderColor}` }}>
+        <div style={{ padding: '0 0 12px 34px' }}>
           {phase.meetings.map((meeting, i) => {
             const row = journeyRows.get(meeting.code)
             const isCompleted = row?.completed ?? false
@@ -799,49 +875,42 @@ function PhaseCard({
             const hasRecap = !!(row?.recap)
             const sentEmail = meeting.type === 'email' ? sentEmailsByCode.get(meeting.code) : undefined
 
+            const isNext = meeting.code === nextCode
             return (
               <div
                 key={meeting.code}
-                style={{
-                  borderTop: i > 0 ? `1px solid var(--border)` : 'none',
-                  background: isCompleted ? '#fafaf9' : 'var(--surface, #fff)',
-                  transition: 'background 150ms ease',
-                }}
+                style={{ transition: 'background 150ms ease' }}
               >
                 {/* Main meeting row */}
                 <div
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 10,
-                    padding: '10px 16px',
+                    gap: 9,
+                    padding: '7px 0',
                     flexWrap: 'wrap',
                   }}
                 >
-                  {/* Code badge */}
+                  {/* Status dot */}
                   <span
-                    className="text-[10px] font-mono font-bold shrink-0"
+                    className="shrink-0"
                     style={{
-                      background: isCompleted ? '#f0fdf4' : phase.bgColor,
-                      color: isCompleted ? '#16a34a' : phase.color,
-                      border: `1px solid ${isCompleted ? '#bbf7d0' : phase.borderColor}`,
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      letterSpacing: '0.3px',
-                      minWidth: 48,
-                      textAlign: 'center',
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: isCompleted ? 'var(--fable-ok)' : isNext ? 'var(--fable-red)' : '#D6D5D0',
                     }}
-                  >
-                    {meeting.code}
-                  </span>
+                  />
 
                   {/* Title */}
                   <span
-                    className="text-[12px] flex-1"
+                    className="flex-1"
                     style={{
-                      color: isCompleted ? 'var(--text3)' : 'var(--text2)',
-                      fontWeight: isCompleted ? 400 : 500,
+                      fontSize: 13,
+                      color: isCompleted ? 'var(--text3)' : isNext ? 'var(--text)' : 'var(--text2)',
+                      fontWeight: isNext ? 600 : 400,
                       textDecoration: isCompleted ? 'line-through' : 'none',
+                      textDecorationColor: '#CFCEC9',
                       minWidth: 140,
                     }}
                   >
@@ -869,18 +938,18 @@ function PhaseCard({
                           gap: 4,
                           fontSize: 11,
                           fontWeight: 500,
-                          color: phase.color,
-                          background: phase.bgColor,
-                          border: `1px solid ${phase.borderColor}`,
+                          color: 'var(--text2)',
+                          background: 'var(--surface2)',
+                          border: '1px solid var(--border)',
                           padding: '3px 8px',
                           borderRadius: 5,
                           whiteSpace: 'nowrap',
                           cursor: 'pointer',
                           fontFamily: 'inherit',
-                          transition: 'opacity 120ms ease',
+                          transition: 'border-color 120ms ease, color 120ms ease',
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
-                        onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
                       >
                         📋 View Agenda
                       </button>
@@ -897,18 +966,18 @@ function PhaseCard({
                           gap: 4,
                           fontSize: 11,
                           fontWeight: 500,
-                          color: '#92400e',
-                          background: '#fef3c7',
-                          border: '1px solid #fde68a',
+                          color: 'var(--text2)',
+                          background: 'var(--surface2)',
+                          border: '1px solid var(--border)',
                           padding: '3px 8px',
                           borderRadius: 5,
                           whiteSpace: 'nowrap',
                           cursor: 'pointer',
                           fontFamily: 'inherit',
-                          transition: 'opacity 120ms ease',
+                          transition: 'border-color 120ms ease, color 120ms ease',
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
-                        onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
                       >
                         📧 View Email
                       </button>
@@ -1045,6 +1114,8 @@ function getInitials(name: string): string {
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
+  const journeyRef = useRef<HTMLDivElement>(null)
+  const [aiOpen, setAiOpen] = useState(false)
   const [client, setClient] = useState<ClientData | null | 'loading'>('loading')
   const [journeyRows, setJourneyRows] = useState<Map<string, ClientMeetingRow>>(new Map())
   const [markingIds, setMarkingIds] = useState<Set<string>>(new Set())
@@ -1554,6 +1625,74 @@ Today's date is ${today}.
   const sentEmailCount = sentEmails.length
   const journeyPct = Math.round((completedCount / 18) * 100)
   const sentEmailsByCode = new Map(sentEmails.map(e => [e.email_code, e]))
+
+  // ── Derived values for the Fable redesign ──────────────────────────────────
+  const allMeetingDefs = JOURNEY_PHASES.flatMap(p => p.meetings)
+
+  // Current phase = first phase not fully complete (mirrors the AI-context logic)
+  let currentPhaseNumber = 0
+  for (const p of JOURNEY_PHASES) {
+    if (!p.meetings.every(m => journeyRows.get(m.code)?.completed)) {
+      currentPhaseNumber = p.number
+      break
+    }
+  }
+  const currentPhase = JOURNEY_PHASES.find(p => p.number === currentPhaseNumber) ?? null
+
+  // First incomplete meeting in the current phase (falls back to global next)
+  const nextMeetingDef =
+    currentPhase?.meetings.find(m => !journeyRows.get(m.code)?.completed) ??
+    allMeetingDefs.find(m => !journeyRows.get(m.code)?.completed) ??
+    null
+
+  // Most recent completed meeting — drives next-step context + the "updated" date
+  const completedRows = Array.from(journeyRows.values())
+    .filter(r => r.completed)
+    .sort((a, b) => {
+      const ta = a.completed_at ? new Date(a.completed_at).getTime() : 0
+      const tb = b.completed_at ? new Date(b.completed_at).getTime() : 0
+      return tb - ta
+    })
+  const lastCompleted = completedRows[0] ?? null
+
+  const updatedTimes = [
+    lastCompleted?.completed_at ? new Date(lastCompleted.completed_at).getTime() : 0,
+    ...sentEmails.map(e => (e.sent_at ? new Date(e.sent_at).getTime() : 0)),
+  ].filter(Boolean)
+  const lastUpdated = updatedTimes.length
+    ? new Date(Math.max(...updatedTimes)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : ''
+
+  const sentimentLabel: Record<Happiness, string> = {
+    green: 'Sentiment positive',
+    yellow: 'Sentiment watch',
+    red: 'Needs attention',
+  }
+  const sentiment = sentimentLabel[client.happiness]
+
+  const nextStepDesc = lastCompleted?.recap
+    ? summarize(lastCompleted.recap, 180)
+    : currentPhase
+    ? `Continue the ${currentPhase.label} phase — ${currentPhase.meetings.filter(m => journeyRows.get(m.code)?.completed).length} of ${currentPhase.meetings.length} steps complete.`
+    : ''
+
+  const clientSinceDate = client.start_date ? new Date(client.start_date) : null
+  const clientSince =
+    clientSinceDate && !isNaN(clientSinceDate.getTime())
+      ? clientSinceDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : client.start_date || ''
+
+  const firstName = client.name.split(' ')[0]
+  const hasInterests = !!client.key_interests && client.key_interests !== INTEREST_PLACEHOLDER
+  const hasComm = !!client.communication_style && client.communication_style !== COMM_PLACEHOLDER
+  const hasTip = !!client.ai_tip && client.ai_tip !== 'Add personality details to get AI communication tips.'
+
+  // Shared button style for the next-step actions
+  const nextBtn: React.CSSProperties = {
+    fontSize: 13, fontWeight: 550, borderRadius: 7, cursor: 'pointer',
+    padding: '9px 15px', lineHeight: 1, border: '1px solid var(--border)',
+    background: 'var(--white)', color: 'var(--text)', whiteSpace: 'nowrap', fontFamily: 'inherit',
+  }
 
   return (
     <>
@@ -2136,62 +2275,59 @@ Today's date is ${today}.
         </div>
       )}
 
-      <TopBar title={client.name} subtitle="Customer Journey" />
+      <TopBar title="Active Clients" subtitle={client.name} />
 
-      <div ref={containerRef} className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ scrollbarGutter: 'stable' }}>
+      <div ref={containerRef} className="flex-1 overflow-y-auto animate-page-in" style={{ scrollbarGutter: 'stable' }}>
+        <div style={{ maxWidth: 1180, padding: '28px 36px 90px' }}>
         <BackLink />
 
-        {/* ── Hero Card ─────────────────────────────────────────────────── */}
-        <div
-          className="rounded-[10px] p-7 mb-3.5 relative overflow-hidden"
-          style={{ background: 'var(--charcoal)' }}
+        {/* ── Hero (kept dark — it earned it) ───────────────────────────── */}
+        <section
+          className="rounded-[10px]"
+          style={{
+            background: 'var(--charcoal)',
+            color: '#E8E8EB',
+            padding: '22px 24px',
+            marginBottom: 24,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 24,
+          }}
         >
-          <div
-            className="absolute bottom-0 right-0 w-[260px] h-[260px] pointer-events-none"
-            style={{
-              background: 'radial-gradient(circle at 80% 80%, rgba(255,255,255,0.03) 0%, transparent 60%)',
-            }}
-          />
-
-          <div className="absolute top-7 right-7 text-right">
+          <div className="flex items-start gap-4 min-w-0">
+            {/* Avatar */}
             <div
-              className="text-[11px] font-medium tracking-[0.8px] uppercase mb-0.5"
-              style={{ color: 'rgba(255,255,255,0.35)' }}
-            >
-              Project Value
-            </div>
-            <div
-              className="text-[22px] font-semibold tracking-[-0.5px]"
-              style={{ color: 'rgba(255,255,255,0.92)' }}
-            >
-              {formatCurrency(client.project_value)}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-5 mb-5">
-            <div
-              className="flex items-center justify-center rounded-full text-white font-bold tracking-[0.5px] shrink-0"
+              className="shrink-0 flex items-center justify-center rounded-full text-white font-semibold"
               style={{
-                width: 64,
-                height: 64,
+                width: 46,
+                height: 46,
+                fontSize: 15,
+                letterSpacing: '0.3px',
                 background: 'rgba(255,255,255,0.1)',
-                border: '2px solid rgba(255,255,255,0.12)',
-                fontSize: 20,
+                border: '1px solid rgba(255,255,255,0.16)',
               }}
             >
               {client.initials}
             </div>
-            <div>
+            <div className="min-w-0">
               <div
-                className="text-[9px] font-medium tracking-[1.8px] uppercase mb-1"
-                style={{ color: 'rgba(255,255,255,0.35)' }}
+                className="uppercase"
+                style={{ fontSize: 10.5, letterSpacing: '0.14em', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}
               >
-                Customer Journey · CASK Construction
+                Customer Journey{client.project_type ? ` · ${client.project_type}` : ''}
               </div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5" style={{ marginTop: 3 }}>
                 <h1
-                  className="font-serif text-[26px] text-white leading-[1.15] tracking-[-0.3px]"
-                  style={{ margin: 0 }}
+                  style={{
+                    fontFamily: 'var(--font-fraunces), Georgia, serif',
+                    fontWeight: 500,
+                    fontSize: 28,
+                    letterSpacing: '-0.015em',
+                    color: '#fff',
+                    lineHeight: 1.1,
+                    margin: 0,
+                  }}
                 >
                   {client.name}
                 </h1>
@@ -2214,206 +2350,212 @@ Today's date is ${today}.
                   ✏️
                 </button>
               </div>
-            </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className="text-[11px] font-medium px-3 py-1 rounded-full"
-              style={{
-                color: 'rgba(255,255,255,0.7)',
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.1)',
-              }}
-            >
-              {client.project_type}
-            </span>
-            <span
-              className="text-[11px] font-medium px-3 py-1 rounded-full"
-              style={{
-                color: 'rgba(255,255,255,0.7)',
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.1)',
-              }}
-            >
-              📍 {client.location}
-            </span>
-            <span
-              className="text-[11px] font-medium px-3 py-1 rounded-full"
-              style={{
-                color: 'rgba(255,255,255,0.7)',
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.1)',
-              }}
-            >
-              Started {client.start_date}
-            </span>
-            <span
-              className="text-[11px] font-medium px-3 py-1 rounded-full"
-              style={{
-                color: 'rgba(255,255,255,0.7)',
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.1)',
-              }}
-            >
-              Owner: {client.owner}
-            </span>
-            {client.email && (
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(client.email).then(() => {
-                    setToast('Email copied to clipboard!')
-                    setTimeout(() => setToast(null), 2000)
-                  })
-                }}
-                className="text-[11px] font-medium px-3 py-1 rounded-full"
-                style={{
-                  color: 'rgba(255,255,255,0.7)',
-                  background: 'rgba(255,255,255,0.08)',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  transition: 'background 150ms ease',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
-              >
-                📧 {client.email}
-              </button>
-            )}
-            <span
-              className="text-[11px] font-semibold px-3 py-1 rounded-full"
-              style={{ background: happiness.bg, color: happiness.color }}
-            >
-              {happiness.label}
-            </span>
-          </div>
-        </div>
-
-        {/* ── Two-column grid ───────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-
-          {/* Card 1 — Personality & Communication */}
-          <div
-            className="rounded-lg p-5"
-            style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
-          >
-            <SectionLabel icon="👤">Personality & Communication</SectionLabel>
-
-            <div className="flex flex-wrap gap-1.5 mb-4">
-              {client.personality_tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="text-[11px] font-medium px-2.5 py-1 rounded-full"
-                  style={{
-                    background: 'var(--surface2, #f5f5f5)',
-                    color: 'var(--text2)',
-                    border: '1px solid var(--border)',
-                  }}
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-
-            <div className="mb-3">
+              {/* Meta row — only non-empty fields, separators interleaved cleanly */}
               <div
-                className="text-[10px] font-semibold tracking-[0.8px] uppercase mb-1"
-                style={{ color: 'var(--text3)' }}
+                className="flex flex-wrap items-center"
+                style={{ gap: '6px 14px', marginTop: 10, fontSize: 12.5, color: 'rgba(255,255,255,0.66)' }}
               >
-                Communication Style
-              </div>
-              <p
-                className="text-[13px] leading-relaxed m-0"
-                style={{ color: 'var(--text2)' }}
-              >
-                {client.communication_style}
-              </p>
-            </div>
-
-            <div className="mb-4">
-              <div
-                className="text-[10px] font-semibold tracking-[0.8px] uppercase mb-1"
-                style={{ color: 'var(--text3)' }}
-              >
-                Key Interests
-              </div>
-              <p
-                className="text-[13px] leading-relaxed m-0"
-                style={{ color: 'var(--text2)' }}
-              >
-                {client.key_interests}
-              </p>
-            </div>
-
-            <div
-              className="rounded-[8px] p-3.5"
-              style={{
-                background: 'var(--red-soft, #fdf2f0)',
-                borderLeft: '3px solid var(--red, #c8311a)',
-              }}
-            >
-              <div
-                className="text-[10px] font-semibold tracking-[0.8px] uppercase mb-1.5"
-                style={{ color: 'var(--red, #c8311a)', opacity: 0.8 }}
-              >
-                How to communicate with {client.name.split(' ')[0]}
-              </div>
-              <p
-                className="text-[12px] leading-relaxed m-0"
-                style={{ color: 'var(--text2)' }}
-              >
-                {client.ai_tip}
-              </p>
-            </div>
-          </div>
-
-          {/* Card 2 — Key Priorities */}
-          <div
-            className="rounded-lg p-5"
-            style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
-          >
-            <SectionLabel icon="🚩">Key Priorities</SectionLabel>
-
-            <div className="flex flex-col gap-2.5">
-              {client.priorities.map((p, i) => {
-                const cfg = PRIORITY_CONFIG[p.status]
-                return (
-                  <div key={i} className="flex items-center gap-2.5">
-                    <div
-                      className="shrink-0 rounded-full"
-                      style={{ width: 8, height: 8, background: cfg.dot }}
-                    />
-                    <span
-                      className="text-[13px] font-medium"
-                      style={{
-                        color: cfg.color,
-                        textDecoration: cfg.strike ? 'line-through' : 'none',
-                        opacity: cfg.strike ? 0.65 : 1,
+                {(() => {
+                  const sep = (k: string) => <span key={k} style={{ color: 'rgba(255,255,255,0.28)' }}>·</span>
+                  const nodes: React.ReactNode[] = []
+                  if (client.location) nodes.push(<span key="loc">{client.location}</span>)
+                  if (clientSince) nodes.push(<span key="since">Client since <b style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 550 }}>{clientSince}</b></span>)
+                  if (client.owner) nodes.push(<span key="owner">Owner <b style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 550 }}>{client.owner}</b></span>)
+                  if (client.email) nodes.push(
+                    <button
+                      key="email"
+                      onClick={() => {
+                        navigator.clipboard.writeText(client.email).then(() => {
+                          setToast('Email copied to clipboard!')
+                          setTimeout(() => setToast(null), 2000)
+                        })
                       }}
+                      title="Copy email"
+                      style={{ background: 'none', border: 'none', padding: 0, color: 'rgba(255,255,255,0.66)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.92)' }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.66)' }}
                     >
-                      {p.text}
-                    </span>
-                    <span
-                      className="ml-auto text-[10px] font-semibold tracking-[0.4px] shrink-0"
-                      style={{ color: cfg.color, opacity: 0.7 }}
-                    >
-                      {p.status === 'done' ? 'Done' : p.status === 'in_progress' ? 'In Progress' : 'Unresolved'}
-                    </span>
-                  </div>
-                )
-              })}
+                      {client.email}
+                    </button>
+                  )
+                  return nodes.flatMap((n, i) => (i === 0 ? [n] : [sep('s' + i), n]))
+                })()}
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* Project value */}
+          <div className="text-right shrink-0">
+            {client.project_value > 0 && (
+              <>
+                <div
+                  className="uppercase"
+                  style={{ fontSize: 10.5, letterSpacing: '0.12em', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}
+                >
+                  Project Value
+                </div>
+                <div
+                  style={{ fontSize: 26, fontWeight: 650, color: '#fff', letterSpacing: '-0.02em', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {formatCurrency(client.project_value)}
+                </div>
+              </>
+            )}
+            <div
+              className="inline-flex items-center"
+              style={{ gap: 6, marginTop: client.project_value > 0 ? 9 : 0, fontSize: 12, color: 'rgba(255,255,255,0.72)', fontWeight: 500 }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: happiness.accent }} />
+              {sentiment}{lastUpdated ? ` · updated ${lastUpdated}` : ''}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Next step (computed from the journey) ─────────────────────── */}
+        {nextMeetingDef && (
+          <section
+            className="rounded-[10px]"
+            style={{
+              border: '1px solid var(--border)',
+              background: 'var(--white)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 18,
+              padding: '16px 20px',
+              marginBottom: 24,
+            }}
+          >
+            <span style={{ width: 3, alignSelf: 'stretch', background: 'var(--fable-red)', borderRadius: 3, flexShrink: 0 }} />
+            <div className="flex-1 min-w-0">
+              <div
+                className="uppercase"
+                style={{ fontSize: 10.5, letterSpacing: '0.12em', color: 'var(--text3)', fontWeight: 700 }}
+              >
+                Next step{currentPhase ? ` · ${currentPhase.label}` : ''}
+              </div>
+              <div
+                style={{ fontFamily: 'var(--font-fraunces), Georgia, serif', fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em', marginTop: 4, color: 'var(--text)' }}
+              >
+                {nextMeetingDef.title}
+              </div>
+              {nextStepDesc && (
+                <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 4, lineHeight: 1.5 }}>{nextStepDesc}</div>
+              )}
+            </div>
+            <button
+              onClick={() => setAiOpen(true)}
+              style={nextBtn}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+            >
+              Draft follow-up
+            </button>
+            <button
+              onClick={() => journeyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              style={{ ...nextBtn, background: 'var(--charcoal)', borderColor: 'var(--charcoal)', color: '#fff' }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '0.88' }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+            >
+              Schedule meeting →
+            </button>
+          </section>
+        )}
+
+        {/* ── Two-column layout ─────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: 24, alignItems: 'start' }}>
+
+          {/* ===== Left column ===== */}
+          <div className="flex flex-col gap-5">
+
+            {/* Personality & Communication — hidden when all fields are empty */}
+            {(client.personality_tags.length > 0 || hasInterests || hasComm || hasTip) && (
+            <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+              <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+                <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Personality &amp; Communication</h2>
+              </div>
+              <div style={{ padding: '15px 17px' }}>
+                {client.personality_tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5" style={{ marginBottom: 13 }}>
+                    {client.personality_tags.map(tag => (
+                      <span
+                        key={tag}
+                        style={{ fontSize: 12, fontWeight: 500, color: 'var(--text2)', border: '1px solid var(--border)', borderRadius: 99, padding: '4px 11px', background: 'var(--surface2)' }}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {hasInterests && (
+                  <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.55, margin: 0 }}>{client.key_interests}</p>
+                )}
+
+                {hasComm && (
+                  <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.55, margin: hasInterests ? '8px 0 0' : 0 }}>{client.communication_style}</p>
+                )}
+
+                {hasTip && (
+                  <div
+                    style={{ marginTop: 14, borderLeft: '3px solid var(--fable-red)', background: 'var(--red-soft)', borderRadius: '0 7px 7px 0', padding: '11px 14px' }}
+                  >
+                    <h3 className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.11em', color: 'var(--fable-red)', fontWeight: 700, marginBottom: 6 }}>
+                      How to communicate with {firstName}
+                    </h3>
+                    <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, margin: 0 }}>{client.ai_tip}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            )}{/* /Personality & Communication */}
+
+            {/* Key Priorities — hidden entirely when empty or all items have blank text */}
+            {client.priorities.some(p => p.text.trim()) && (
+              <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+                <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+                  <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Key Priorities</h2>
+                  <span style={{ fontSize: 12, color: 'var(--text3)' }}>From meeting recaps</span>
+                </div>
+                <div style={{ padding: '6px 17px' }}>
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                    {client.priorities.filter(p => p.text.trim()).map((p, i, arr) => {
+                      const cfg = PRIORITY_CONFIG[p.status]
+                      const statusLabel = p.status === 'done' ? 'Done' : p.status === 'in_progress' ? 'In Progress' : 'Unresolved'
+                      return (
+                        <li
+                          key={i}
+                          style={{ display: 'flex', gap: 11, padding: '9px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', alignItems: 'flex-start' }}
+                        >
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', marginTop: 7, flexShrink: 0, background: cfg.dot }} />
+                          <div>
+                            <div style={{ fontSize: 13, lineHeight: 1.45, color: 'var(--text)', textDecoration: cfg.strike ? 'line-through' : 'none', opacity: cfg.strike ? 0.7 : 1 }}>
+                              {p.text}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 2 }}>
+                              <b style={{ color: cfg.color, fontWeight: 600 }}>{statusLabel}</b>
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+          </div>{/* /left column */}
+
+          {/* ===== Right column ===== */}
+          <div className="flex flex-col gap-5">
 
         {/* ── Pending Emails ───────────────────────────────────────────── */}
         {emailDrafts.length > 0 && (
           <div
-            className="rounded-lg p-5 mb-3"
+            className="rounded-lg p-5"
             style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
           >
-            {/* Custom header — bigger + bolder than SectionLabel */}
+            {/* Custom amber header for actionable drafts */}
             <div className="flex items-center gap-2 mb-4">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.85 }}>
                 <rect x="2" y="4" width="20" height="16" rx="2" />
@@ -2539,129 +2681,78 @@ Today's date is ${today}.
 
         {/* ── Sent Emails ──────────────────────────────────────────────── */}
         {sentEmails.length > 0 && (
-          <div
-            className="rounded-lg p-5 mb-3"
-            style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
-          >
-            <SectionLabel icon="📨">Sent Emails</SectionLabel>
-
-            <div className="flex flex-col gap-3">
-              {sentEmails.map(sent => (
-                <div
-                  key={sent.id}
-                  className="rounded-[8px] p-4"
-                  style={{
-                    background: '#f0fdf4',
-                    border: '1px solid #bbf7d0',
-                    borderLeft: '3px solid #16a34a',
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      {/* Code + title row */}
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className="text-[10px] font-bold shrink-0"
-                          style={{
-                            background: '#dcfce7',
-                            color: '#166534',
-                            border: '1px solid #bbf7d0',
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                            fontFamily: 'monospace',
-                          }}
-                        >
-                          ✅ {sent.email_code}
-                        </span>
-                        <span
-                          className="text-[12px] font-semibold truncate"
-                          style={{ color: '#166534' }}
-                        >
-                          {sent.subject}
-                        </span>
-                      </div>
-
-                      {/* Recipient */}
-                      <div className="text-[11px]" style={{ color: '#166534', opacity: 0.75 }}>
-                        Sent to: {sent.recipient_name}{sent.recipient_email ? ` (${sent.recipient_email})` : ''}
-                      </div>
-
-                      {/* Sent timestamp */}
-                      {sent.sent_at && (
-                        <div className="text-[11px] mt-0.5" style={{ color: '#166534', opacity: 0.65 }}>
-                          Sent on: {new Date(sent.sent_at).toLocaleString('en-US', {
-                            timeZone: 'America/New_York',
-                            month: 'long', day: 'numeric', year: 'numeric',
-                            hour: 'numeric', minute: '2-digit', hour12: true,
-                          })} ET
-                        </div>
+          <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+            <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+              <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Sent Emails</h2>
+              <span style={{ fontSize: 12, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>{sentEmails.length} sent</span>
+            </div>
+            <div>
+              {sentEmails.map((sent, i) => {
+                const title = allMeetingDefs.find(m => m.code === sent.email_code)?.title ?? sent.subject
+                const when = sent.sent_at
+                  ? new Date(sent.sent_at).toLocaleString('en-US', {
+                      timeZone: 'America/New_York',
+                      month: 'long', day: 'numeric',
+                      hour: 'numeric', minute: '2-digit', hour12: true,
+                    })
+                  : ''
+                return (
+                  <div
+                    key={sent.id}
+                    className="flex items-center"
+                    style={{ gap: 12, padding: '11px 17px', borderTop: i > 0 ? '1px solid var(--border)' : 'none', cursor: 'pointer' }}
+                    onClick={() => setViewSentEmail(sent)}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <span
+                      className="shrink-0 flex items-center justify-center"
+                      style={{ width: 28, height: 28, borderRadius: 7, background: 'var(--fable-ok-soft)', color: 'var(--fable-ok)' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M22 6l-10 7L2 6" />
+                        <rect x="2" y="4" width="20" height="16" rx="2" />
+                      </svg>
+                    </span>
+                    <div className="min-w-0">
+                      <div style={{ fontSize: 13, fontWeight: 550, letterSpacing: '-0.005em', color: 'var(--text)' }}>{title}</div>
+                      {when && (
+                        <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{when} ET · delivered</div>
                       )}
                     </div>
-
-                    {/* View button */}
-                    <button
-                      type="button"
-                      onClick={() => setViewSentEmail(sent)}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        fontSize: 11, fontWeight: 600,
-                        color: '#166534', background: '#dcfce7',
-                        border: '1px solid #bbf7d0',
-                        padding: '5px 12px', borderRadius: 6,
-                        cursor: 'pointer', fontFamily: 'inherit', shrink: 0,
-                        transition: 'opacity 120ms ease',
-                        whiteSpace: 'nowrap',
-                      } as React.CSSProperties}
-                      onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
-                      onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
-                    >
-                      View →
-                    </button>
+                    <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 550, color: 'var(--text)', flexShrink: 0 }}>View →</span>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
 
         {/* ── Meeting Journey ───────────────────────────────────────────── */}
-        <div
-          className="rounded-lg p-5 mb-3"
-          style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
-        >
-          <SectionLabel icon="📋">Meeting Journey</SectionLabel>
-
-          {/* Progress summary + bar */}
-          <div className="mb-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[13px] font-medium" style={{ color: 'var(--text2)' }}>
-                {completedCount} of 18 meetings completed
-                {sentEmailCount > 0 && (
-                  <span style={{ color: 'var(--text3)' }}> · {sentEmailCount} emails sent</span>
-                )}
-              </span>
-              <span className="text-[12px] font-semibold" style={{ color: happiness.accent }}>
-                {journeyPct}%
-              </span>
-            </div>
-            <div
-              className="h-[5px] rounded-full overflow-hidden"
-              style={{ background: 'var(--border)' }}
-            >
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${journeyPct}%`,
-                  background: happiness.accent,
-                  transition: 'width 400ms ease',
-                }}
-              />
-            </div>
+        <div ref={journeyRef} className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+          <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Meeting Journey</h2>
+            <span style={{ fontSize: 12, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
+              {completedCount} of 18 meetings{sentEmailCount > 0 ? ` · ${sentEmailCount} emails` : ''}
+            </span>
           </div>
 
-          {/* Phase cards */}
-          <div className="flex flex-col gap-2">
-            {JOURNEY_PHASES.map(phase => (
+          {/* Progress */}
+          <div className="flex items-center" style={{ gap: 12, padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ fontSize: 12.5, color: 'var(--text2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              <b style={{ fontWeight: 600, color: 'var(--text)' }}>{completedCount} of 18</b> complete
+            </span>
+            <span className="flex-1 overflow-hidden" style={{ height: 5, borderRadius: 99, background: 'var(--surface2)' }}>
+              <span style={{ display: 'block', height: '100%', width: `${journeyPct}%`, background: happiness.accent, borderRadius: 99, transition: 'width 400ms ease' }} />
+            </span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{journeyPct}%</span>
+          </div>
+
+          <div style={{ padding: '2px 17px 8px' }}>
+            <div className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.11em', color: 'var(--text3)', fontWeight: 700, padding: '11px 0 3px' }}>
+              Pre-Construction
+            </div>
+            {JOURNEY_PHASES.filter(p => p.number <= 5).map(phase => (
               <PhaseCard
                 key={phase.number}
                 phase={phase}
@@ -2672,20 +2763,49 @@ Today's date is ${today}.
                 onViewAgenda={setActiveAgenda}
                 sentEmailsByCode={sentEmailsByCode}
                 onViewSentEmail={setViewSentEmail}
+                isCurrent={phase.number === currentPhaseNumber}
+                isDone={phase.meetings.every(m => journeyRows.get(m.code)?.completed)}
+                defaultExpanded={phase.number === currentPhaseNumber}
+              />
+            ))}
+
+            <div className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.11em', color: 'var(--text3)', fontWeight: 700, padding: '14px 0 3px' }}>
+              Construction
+            </div>
+            {JOURNEY_PHASES.filter(p => p.number >= 6).map(phase => (
+              <PhaseCard
+                key={phase.number}
+                phase={phase}
+                journeyRows={journeyRows}
+                markingIds={markingIds}
+                onMarkComplete={markComplete}
+                onOpenRecap={(code) => router.push(`/customers/${params.id}/meetings/${code}`)}
+                onViewAgenda={setActiveAgenda}
+                sentEmailsByCode={sentEmailsByCode}
+                onViewSentEmail={setViewSentEmail}
+                isCurrent={phase.number === currentPhaseNumber}
+                isDone={phase.meetings.every(m => journeyRows.get(m.code)?.completed)}
+                defaultExpanded={phase.number === currentPhaseNumber}
               />
             ))}
           </div>
         </div>
 
-        {/* ── CASK Intelligence ─────────────────────────────────────────── */}
-        <IntelligencePanel
-          client={client}
-          journeyRows={journeyRows}
-          messages={chatMessages}
-          onSend={handleChatSend}
-          onClear={clearHistory}
-        />
+          </div>{/* /right column */}
+        </div>{/* /two-column layout */}
+        </div>{/* /max-width wrapper */}
       </div>
+
+      {/* ── CASK Intelligence (floating) ──────────────────────────────── */}
+      <FloatingClientAI
+        client={client}
+        journeyRows={journeyRows}
+        messages={chatMessages}
+        onSend={handleChatSend}
+        onClear={clearHistory}
+        open={aiOpen}
+        onOpenChange={setAiOpen}
+      />
     </>
   )
 }
