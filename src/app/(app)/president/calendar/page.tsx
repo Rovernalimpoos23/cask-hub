@@ -13,7 +13,6 @@ interface CalendarEvent {
   attendees: unknown
   location: string | null
   meeting_link: string | null
-  teams_link: string | null
   web_link: string | null
   is_all_day: boolean | null
   is_recurring?: boolean | null
@@ -56,7 +55,7 @@ function getDuration(start: string, end: string | null): string | null {
 
 function getEventBorderColor(event: CalendarEvent): string {
   if (event.is_all_day) return '#059669'
-  if (event.meeting_link || event.teams_link) return '#7c3aed'
+  if (event.meeting_link) return '#7c3aed'
   return '#2563eb'
 }
 
@@ -301,7 +300,7 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
   const duration = getDuration(event.start_time, event.end_time)
   const { shown, extra } = getAttendeesDisplay(event.attendees)
 
-  const teamsLink = event.teams_link ?? null
+  const teamsLink = event.meeting_link ?? null
 
   async function saveTeamsLink() {
     if (!linkInput.trim()) return
@@ -309,7 +308,7 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
     const supabase = createClient()
     await supabase
       .from('calendar_events')
-      .update({ teams_link: linkInput.trim() })
+      .update({ meeting_link: linkInput.trim() })
       .eq('id', event.id)
     setSavingLink(false)
     setPasteOpen(false)
@@ -1027,6 +1026,7 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [, setTick] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [addTimeError, setAddTimeError] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveToast, setSaveToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [form, setForm] = useState({
@@ -1146,6 +1146,11 @@ export default function CalendarPage() {
 
   async function handleSave() {
     if (!form.title || !form.date || (!form.isAllDay && !form.startTime)) return
+    if (!form.isAllDay && form.startTime && form.endTime && form.endTime <= form.startTime) {
+      setAddTimeError('End time must be after start time')
+      return
+    }
+    setAddTimeError('')
     setSaving(true)
     console.log('[add-event] handleSave triggered', form)
 
@@ -1180,7 +1185,6 @@ export default function CalendarPage() {
         organizer: form.organizer || null,
         location: form.location || null,
         meeting_link: form.teamsLink || null,
-        teams_link: form.teamsLink || null,
         is_all_day: form.isAllDay,
         user_email: 'c.noonan@caskconstruction.com',
         attendees: [],
@@ -1220,6 +1224,22 @@ export default function CalendarPage() {
       return
     }
 
+    const makeWebhookUrl = process.env.NEXT_PUBLIC_MAKE_CALENDAR_WEBHOOK_URL
+    if (makeWebhookUrl && data?.[0]) {
+      fetch(makeWebhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: data[0].id,
+          title: form.title,
+          start_time: new Date(payloads[0].start_time).toISOString().slice(0, 19),
+          end_time: payloads[0].end_time ? new Date(payloads[0].end_time).toISOString().slice(0, 19) : '',
+          location: form.location || '',
+          notes: '',
+        })
+      }).catch(console.error)
+    }
+
     setShowAddModal(false)
     setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntilMode: 'date', repeatUntil: '', recurringDays: [] })
     setSaveToast({
@@ -1237,7 +1257,7 @@ export default function CalendarPage() {
       endTime: event.end_time ? isoToETTime(event.end_time) : '',
       organizer: event.organizer ?? '',
       location: event.location ?? '',
-      teamsLink: event.teams_link ?? event.meeting_link ?? '',
+      teamsLink: event.meeting_link ?? '',
       isAllDay: !!event.is_all_day,
       frequency: (event.recurring_days?.length ? 'Custom' : 'Weekly') as 'Daily' | 'Weekly' | 'Monthly' | 'Custom',
       repeatUntilMode: event.recurring_indefinite ? 'indefinitely' : 'date',
@@ -1264,7 +1284,6 @@ export default function CalendarPage() {
       organizer: editForm.organizer || null,
       location: editForm.location || null,
       meeting_link: editForm.teamsLink || null,
-      teams_link: editForm.teamsLink || null,
       is_all_day: editForm.isAllDay,
     }
 
@@ -1649,7 +1668,7 @@ export default function CalendarPage() {
       {/* Add Event Modal */}
       {showAddModal && (
         <div
-          onClick={() => setShowAddModal(false)}
+          onClick={() => { setShowAddModal(false); setAddTimeError('') }}
           style={{
             position: 'fixed', inset: 0, zIndex: 1000,
             background: 'rgba(0,0,0,0.55)',
@@ -1680,7 +1699,7 @@ export default function CalendarPage() {
                 <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>Manually add an event to the calendar</div>
               </div>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => { setShowAddModal(false); setAddTimeError('') }}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
                   color: 'var(--text3)', padding: 4, borderRadius: 6,
@@ -2003,8 +2022,13 @@ export default function CalendarPage() {
               padding: '14px 20px',
               borderTop: '1px solid var(--border)',
             }}>
+              {addTimeError && (
+                <span style={{ flex: 1, fontSize: 12, color: 'var(--red)', fontWeight: 500 }}>
+                  {addTimeError}
+                </span>
+              )}
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => { setShowAddModal(false); setAddTimeError('') }}
                 style={{
                   padding: '8px 16px', borderRadius: 8,
                   background: 'none', border: '1px solid var(--border2)',
