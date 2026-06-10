@@ -3,8 +3,8 @@
 // CASK Operating System — Command Center
 // Framework only. All data hardcoded — no Supabase, no real connections yet.
 //
-// Design language: "Bloomberg Terminal meets luxury construction firm."
-// Premium, data-dense, intentional. Follows the app theme — works in both light and dark mode.
+// Design language: Fable — one red accent, neutral cards, semantic color only.
+// "Not connected" is a state, not an error: gray, never red.
 
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
@@ -13,10 +13,18 @@ import Link from 'next/link'
 
 type Status = 'red' | 'amber' | 'green'
 
-const STATUS_COLOR: Record<Status, string> = {
-  red: '#EF4444',
-  amber: '#F59E0B',
-  green: '#10B981',
+// Semantic display colors — 'red' in data means "not connected", which is
+// a neutral state, not an error. Gray dot, gray text.
+const DOT_COLOR: Record<Status, string> = {
+  red: 'var(--border2)',
+  amber: 'var(--fable-warn)',
+  green: 'var(--fable-ok)',
+}
+
+const STATE_TEXT_COLOR: Record<Status, string> = {
+  red: 'var(--text3)',
+  amber: 'var(--fable-warn)',
+  green: 'var(--fable-ok)',
 }
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -43,29 +51,10 @@ interface Department {
   href?: string
 }
 
-// ── Page palette — CSS variables so the page follows light/dark mode ─
+// ── Typography helpers ───────────────────────────────────────────────
 
-const PALETTE = {
-  page: 'var(--bg)',
-  header: 'var(--white)',
-  card: 'var(--surface)',
-  cardRaised: 'var(--surface2)',
-  inner: 'var(--surface2)',
-  border: 'var(--border)',
-  borderSoft: 'var(--border)',
-  text: 'var(--text)',
-  text2: 'var(--text2)',
-  text3: 'var(--text3)',
-  textDim: 'var(--text3)',
-}
-
-// 35×35 fractal-noise grain, used as a faint overlay for premium texture.
-const GRAIN =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E\")"
-
-// Faint engineering-grid overlay — neutral grey works on both light and dark cards.
-const GRID_BG =
-  'linear-gradient(rgba(128,128,128,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(128,128,128,0.06) 1px, transparent 1px)'
+const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
+const NUM: React.CSSProperties = { fontVariantNumeric: 'tabular-nums lining-nums' }
 
 // ── Data (hardcoded) ─────────────────────────────────────────────────
 
@@ -240,11 +229,11 @@ const DATA_SOURCES: { name: string; status: Status }[] = [
   { name: 'Banks & Credit', status: 'red' },
 ]
 
-const STATS: { value: number; label: string; icon: string; accent: string }[] = [
-  { value: 5, label: 'Departments', icon: 'building', accent: '#3B82F6' },
-  { value: 0, label: 'Connected', icon: 'link', accent: '#EF4444' },
-  { value: 49, label: 'Reports Tracked', icon: 'filetext', accent: '#F59E0B' },
-  { value: 4, label: 'Automated Alerts', icon: 'bell', accent: '#8B5CF6' },
+const STATS: { value: number; label: string; note: string; noteOk?: boolean }[] = [
+  { value: 5, label: 'Departments', note: 'Plus executive rollup' },
+  { value: 0, label: 'Connected', note: 'Of 7 data sources' },
+  { value: 49, label: 'Reports Tracked', note: 'Executive Dashboard is live', noteOk: true },
+  { value: 4, label: 'Automated Alerts', note: 'Activate on first connection' },
 ]
 
 // ── Icons (stroke = currentColor so they can be tinted) ──────────────
@@ -295,174 +284,101 @@ function Icon({ name, size = 16, color = 'currentColor', strokeWidth = 2 }: { na
 
 // ── Sub-components ───────────────────────────────────────────────────
 
-function IconBadge({ icon, color, size = 36 }: { icon: string; color: string; size?: number }) {
+// Small neutral gray rounded square — no department colors.
+function DeptIcon({ icon }: { icon: string }) {
   return (
     <div
       style={{
-        width: size,
-        height: size,
-        borderRadius: 10,
-        background: `linear-gradient(150deg, ${color}, ${color}cc)`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        background: 'var(--surface2)',
+        display: 'grid',
+        placeItems: 'center',
+        color: 'var(--text2)',
         flexShrink: 0,
-        color: '#fff',
-        boxShadow: `0 4px 14px ${color}55, inset 0 1px 0 rgba(255,255,255,0.28)`,
       }}
     >
-      <Icon name={icon} size={size * 0.46} color="#fff" />
+      <Icon name={icon} size={16} />
     </div>
   )
 }
 
-function StatusDot({ status, size = 8, glow = false }: { status: Status; size?: number; glow?: boolean }) {
-  const c = STATUS_COLOR[status]
+function StatusDot({ status, size = 6 }: { status: Status; size?: number }) {
   return (
     <span
       style={{
         width: size,
         height: size,
         borderRadius: '50%',
-        background: c,
+        background: DOT_COLOR[status],
         flexShrink: 0,
         display: 'inline-block',
-        boxShadow: glow ? `0 0 8px ${c}` : `0 0 4px ${c}66`,
-        animation: glow ? 'caskPulse 2.2s ease-in-out infinite' : undefined,
       }}
     />
   )
 }
 
-function StatusBadge({ status, prominent = false }: { status: Status; prominent?: boolean }) {
-  const c = STATUS_COLOR[status]
+// Source connection state — gray dot + gray text when off; semantic only when live.
+function SrcState({ status }: { status: Status }) {
   return (
     <span
       style={{
+        fontSize: 11,
+        fontWeight: 550,
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
-        fontSize: prominent ? 12 : 11,
-        fontWeight: 700,
-        padding: prominent ? '6px 12px' : '4px 9px',
-        borderRadius: 20,
-        color: c,
-        background: `${c}1a`,
-        border: `1px solid ${c}40`,
-        textTransform: 'uppercase',
-        letterSpacing: '0.5px',
+        color: STATE_TEXT_COLOR[status],
         whiteSpace: 'nowrap',
-        boxShadow: prominent ? `0 0 16px ${c}33` : 'none',
       }}
     >
-      {status === 'red'
-        ? <Icon name="lock" size={prominent ? 12 : 10} color={c} strokeWidth={2.4} />
-        : <StatusDot status={status} size={prominent ? 7 : 6} glow={status === 'green'} />}
+      <StatusDot status={status} />
       {STATUS_LABEL[status]}
     </span>
   )
 }
 
-function StatSegment({ stat, index }: { stat: typeof STATS[number]; index: number }) {
-  return (
-    <div
-      style={{
-        position: 'relative',
-        padding: '24px 26px',
-        borderLeft: index > 0 ? `1px solid ${PALETTE.borderSoft}` : 'none',
-        overflow: 'hidden',
-      }}
-    >
-      {/* per-stat background tint */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: `radial-gradient(120% 120% at 85% 0%, ${stat.accent}12, transparent 60%)`,
-          pointerEvents: 'none',
-        }}
-      />
-      {/* icon */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 22,
-          right: 22,
-          color: stat.accent,
-          opacity: 0.55,
-        }}
-      >
-        <Icon name={stat.icon} size={18} />
-      </div>
-      <div
-        style={{
-          fontFamily: 'var(--font-geist), sans-serif',
-          fontSize: 46,
-          fontWeight: 700,
-          lineHeight: 1,
-          letterSpacing: '-2px',
-          color: PALETTE.text,
-          textShadow: `0 0 30px ${stat.accent}25`,
-        }}
-      >
-        {stat.value}
-      </div>
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          color: PALETTE.text3,
-          textTransform: 'uppercase',
-          letterSpacing: '1.4px',
-          marginTop: 12,
-        }}
-      >
-        {stat.label}
-      </div>
-    </div>
-  )
-}
-
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-      <span
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+      <h2
         style={{
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: '2px',
-          color: PALETTE.text2,
+          fontSize: 11.5,
+          letterSpacing: '1.4px',
           textTransform: 'uppercase',
+          fontWeight: 650,
+          color: 'var(--text)',
+          margin: 0,
         }}
       >
         {title}
-      </span>
-      {subtitle && (
-        <span style={{ fontSize: 12, color: PALETTE.textDim, letterSpacing: '0.2px' }}>{subtitle}</span>
-      )}
-      <div
-        style={{
-          flex: 1,
-          height: 1,
-          background: `linear-gradient(90deg, ${PALETTE.border}, transparent)`,
-        }}
-      />
+      </h2>
+      {subtitle && <span style={{ fontSize: 12, color: 'var(--text3)' }}>{subtitle}</span>}
     </div>
   )
 }
 
+// Report row — small gray dot + gray text; live rows get ink text + green.
+// Locked / coming soon is just dimmed — no lock icons, no red.
 function ReportRow({ report }: { report: Report }) {
-  const connected = report.status !== 'red'
   const live = report.status === 'green'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 6px', borderRadius: 6 }}>
-      <StatusDot status={report.status} size={7} glow={live} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
       <span
         style={{
-          fontSize: 13,
-          fontWeight: connected ? 600 : 400,
-          color: live ? '#34d399' : connected ? PALETTE.text : PALETTE.text3,
-          textShadow: live ? '0 0 12px rgba(16,185,129,0.45)' : 'none',
+          width: 5,
+          height: 5,
+          borderRadius: '50%',
+          background: live ? 'var(--fable-ok)' : 'var(--border2)',
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: live ? 500 : 400,
+          color: live ? 'var(--text)' : 'var(--text3)',
         }}
       >
         {report.name}
@@ -472,9 +388,9 @@ function ReportRow({ report }: { report: Report }) {
           style={{
             marginLeft: 'auto',
             fontSize: 9,
-            fontWeight: 700,
+            fontWeight: 650,
             letterSpacing: '1px',
-            color: '#34d399',
+            color: 'var(--fable-ok)',
             textTransform: 'uppercase',
           }}
         >
@@ -486,155 +402,110 @@ function ReportRow({ report }: { report: Report }) {
 }
 
 function DeptCard({ dept, important = false }: { dept: Department; important?: boolean }) {
-  const [hovered, setHovered] = useState(false)
-  const color = dept.border
-  const connected = dept.status !== 'red'
+  const liveCount = dept.reports.filter(r => r.status === 'green').length
+  const visible = dept.reports.slice(0, important ? 7 : 4)
+  const more = dept.reports.length - visible.length
 
   const card = (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="fb-dept"
       style={{
-        position: 'relative',
+        border: `1px solid ${liveCount > 0 ? '#CBE3D4' : 'var(--fable-line, var(--border))'}`,
+        borderRadius: 'var(--fable-radius)',
         background: 'var(--surface)',
-        backgroundImage: GRID_BG,
-        backgroundSize: '22px 22px',
-        borderTop: `1px solid ${hovered ? `${color}44` : PALETTE.border}`,
-        borderRight: `1px solid ${hovered ? `${color}44` : PALETTE.border}`,
-        borderBottom: `1px solid ${hovered ? `${color}44` : PALETTE.border}`,
-        borderLeft: `6px solid ${color}`,
-        borderRadius: 14,
-        padding: '20px 22px',
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        cursor: dept.href ? 'pointer' : 'default',
         overflow: 'hidden',
-        transition: 'border-color 180ms ease, box-shadow 220ms ease, transform 220ms ease',
-        boxShadow: hovered
-          ? `0 16px 36px -10px ${color}55, 0 0 0 1px ${color}22`
-          : '0 1px 3px rgba(0,0,0,0.07)',
-        transform: hovered ? 'translateY(-4px)' : 'translateY(0)',
+        cursor: dept.href ? 'pointer' : 'default',
+        transition: 'border-color 150ms ease',
       }}
     >
-      <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100%' }}>
-        {/* Header: icon + name + (exec) prominent badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-          <IconBadge icon={dept.icon} color={dept.badge} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontFamily: 'var(--font-geist), sans-serif',
-                fontSize: 18,
-                fontWeight: 700,
-                color: PALETTE.text,
-                lineHeight: 1.15,
-                letterSpacing: '-0.3px',
-              }}
-            >
-              {dept.name}
-            </div>
-            <div
-              style={{
-                fontSize: 9.5,
-                fontWeight: 700,
-                color: PALETTE.textDim,
-                textTransform: 'uppercase',
-                letterSpacing: '1.5px',
-                marginTop: 5,
-              }}
-            >
-              {dept.owner} · {dept.frequency}
-            </div>
+      {/* Header: neutral icon + name + meta */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '15px 16px 12px' }}>
+        <DeptIcon icon={dept.icon} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.1px' }}>
+            {dept.name}
           </div>
-          {important && <StatusBadge status={dept.status} prominent />}
-        </div>
-
-        {/* Data source box — glow matches department color */}
-        <div
-          style={{
-            padding: '12px 14px',
-            borderRadius: 10,
-            background: connected ? `${color}12` : 'var(--surface2)',
-            border: `1px solid ${connected ? `${color}40` : `${color}1f`}`,
-            boxShadow: connected ? `0 0 22px ${color}22, inset 0 0 18px ${color}10` : 'none',
-            marginBottom: 16,
-          }}
-        >
-          {/* Label + badge share the top row — keeps the value text full-width */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <div
-              style={{
-                fontSize: 9,
-                fontWeight: 700,
-                color: connected ? color : PALETTE.textDim,
-                textTransform: 'uppercase',
-                letterSpacing: '1px',
-              }}
-            >
-              Data Source
-            </div>
-            {!important && <StatusBadge status={dept.status} />}
-          </div>
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: connected ? PALETTE.text : PALETTE.text3,
-            }}
-          >
-            {dept.dataSource}
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+            {dept.owner} · {dept.frequency}
           </div>
         </div>
+        {important && <SrcState status={dept.status} />}
+      </div>
 
-        {/* Reports list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginBottom: 18 }}>
-          {dept.reports.map((r) => (
-            <ReportRow key={r.name} report={r} />
-          ))}
-        </div>
+      {/* Data source strip */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          margin: '0 16px',
+          padding: '9px 11px',
+          background: 'var(--surface2)',
+          border: '1px solid var(--fable-line-soft, var(--border))',
+          borderRadius: 7,
+        }}
+      >
+        <span style={{ fontSize: 12, color: 'var(--text2)', fontWeight: 500 }}>{dept.dataSource}</span>
+        {!important && <SrcState status={dept.status} />}
+      </div>
 
-        {/* Footer action */}
-        {dept.href ? (
-          <div
-            style={{
-              marginTop: 'auto',
-              width: '100%',
-              padding: '12px 14px',
-              borderRadius: 10,
-              background: color,
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: 700,
-              letterSpacing: '0.3px',
-              textAlign: 'center',
-              boxShadow: hovered ? `0 8px 22px ${color}66` : `0 2px 10px ${color}33`,
-              transition: 'box-shadow 200ms ease',
-            }}
-          >
-            View Reports →
+      {/* Reports — dimmed list, live rows highlighted */}
+      <div style={{ padding: '11px 16px 4px', flex: 1 }}>
+        {important ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 22 }}>
+            <div>
+              {visible.slice(0, 4).map(r => (
+                <ReportRow key={r.name} report={r} />
+              ))}
+            </div>
+            <div>
+              {visible.slice(4).map(r => (
+                <ReportRow key={r.name} report={r} />
+              ))}
+              {more > 0 && (
+                <div style={{ fontSize: 11.5, color: 'var(--text3)', padding: '5px 0 2px', ...NUM }}>
+                  + {more} more
+                </div>
+              )}
+            </div>
           </div>
         ) : (
-          <div
-            style={{
-              marginTop: 'auto',
-              width: '100%',
-              padding: '12px 14px',
-              borderRadius: 10,
-              background: 'var(--surface2)',
-              border: `1px solid ${PALETTE.border}`,
-              color: PALETTE.text3,
-              fontSize: 13,
-              fontWeight: 600,
-              textAlign: 'center',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 7,
-            }}
-          >
-            <Icon name="lock" size={12} color={PALETTE.text3} /> Connect
-          </div>
+          <>
+            {visible.map(r => (
+              <ReportRow key={r.name} report={r} />
+            ))}
+            {more > 0 && (
+              <div style={{ fontSize: 11.5, color: 'var(--text3)', padding: '5px 0 2px', ...NUM }}>
+                + {more} more
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Footer — tally + plain text link */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '11px 16px',
+          borderTop: '1px solid var(--fable-line-soft, var(--border))',
+          marginTop: 8,
+        }}
+      >
+        <span style={{ fontSize: 11.5, color: 'var(--text3)', ...NUM }}>
+          <b style={{ color: liveCount > 0 ? 'var(--fable-ok)' : 'var(--text)', fontWeight: 600 }}>{liveCount}</b>{' '}
+          of {dept.reports.length} live
+        </span>
+        {dept.href && (
+          <span className="fb-dept-link" style={{ fontSize: 12, fontWeight: 550, color: 'var(--text)' }}>
+            View Reports →
+          </span>
         )}
       </div>
     </div>
@@ -651,40 +522,35 @@ function DeptCard({ dept, important = false }: { dept: Department; important?: b
 }
 
 function MiniReportCard({ card }: { card: MiniCard }) {
-  const [hovered, setHovered] = useState(false)
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="fb-rise"
       style={{
-        position: 'relative',
-        background: PALETTE.card,
-        backgroundImage: `${GRID_BG}`,
-        backgroundSize: '22px 22px',
-        border: `1px solid ${hovered ? `${card.badge}44` : PALETTE.border}`,
-        borderRadius: 14,
-        padding: '18px 20px',
-        overflow: 'hidden',
-        transition: 'border-color 180ms ease, box-shadow 220ms ease, transform 220ms ease',
-        boxShadow: hovered ? `0 14px 30px -10px ${card.badge}44` : '0 1px 3px rgba(0,0,0,0.07)',
-        transform: hovered ? 'translateY(-3px)' : 'translateY(0)',
+        border: '1px solid var(--fable-line, var(--border))',
+        borderRadius: 'var(--fable-radius)',
+        background: 'var(--surface)',
+        padding: '15px 16px',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-        <IconBadge icon={card.icon} color={card.badge} size={40} />
-        <span
-          style={{
-            fontSize: 15,
-            fontWeight: 700,
-            color: PALETTE.text,
-            letterSpacing: '-0.2px',
-          }}
-        >
-          {card.title}
+      <h3
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          color: 'var(--text)',
+          letterSpacing: '-0.05px',
+          margin: 0,
+        }}
+      >
+        <span style={{ color: 'var(--text2)', display: 'inline-flex' }}>
+          <Icon name={card.icon} size={15} />
         </span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {card.items.map((item) => (
+        {card.title}
+      </h3>
+      <div style={{ marginTop: 10 }}>
+        {card.items.map(item => (
           <ReportRow key={item.name} report={item} />
         ))}
       </div>
@@ -692,30 +558,31 @@ function MiniReportCard({ card }: { card: MiniCard }) {
   )
 }
 
+// Data source chip — border + gray dot for not connected. Gray means
+// inactive, not error.
 function DataSourcePill({ name, status }: { name: string; status: Status }) {
   const connected = status !== 'red'
-  const c = STATUS_COLOR[status]
   return (
-    <div
+    <span
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 10,
-        padding: '10px 15px',
+        gap: 8,
+        border: `1px solid ${connected ? '#CBE3D4' : 'var(--fable-line, var(--border))'}`,
         borderRadius: 999,
-        background: 'var(--surface2)',
-        border: `1px solid ${PALETTE.border}`,
-        opacity: connected ? 1 : 0.85,
+        padding: '6px 12px',
+        fontSize: 12,
+        fontWeight: 500,
+        color: connected ? 'var(--text)' : 'var(--text2)',
+        background: 'var(--surface)',
       }}
     >
-      <StatusDot status={status} size={7} glow={status === 'green'} />
-      <span style={{ fontSize: 13, fontWeight: 600, color: connected ? PALETTE.text : PALETTE.text2 }}>
-        {name}
-      </span>
-      <span style={{ fontSize: 11, fontWeight: 600, color: c, opacity: 0.85, letterSpacing: '0.2px' }}>
+      <StatusDot status={status} />
+      {name}
+      <span style={{ fontSize: 11, color: STATE_TEXT_COLOR[status], fontWeight: 550 }}>
         {STATUS_LABEL[status]}
       </span>
-    </div>
+    </span>
   )
 }
 
@@ -726,6 +593,8 @@ function DataSourcePill({ name, status }: { name: string; status: Status }) {
 // status bar, and CCFOS AI lives in a floating button + drawer bottom-right.
 
 // Drawer palette — CSS variables so it adapts to light/dark mode with the app.
+const AI_ACCENT = '#B5121B' // fable red (hex needed for alpha suffix tricks)
+
 const D = {
   bg: 'var(--surface)',
   surface: 'var(--surface2)',
@@ -735,22 +604,21 @@ const D = {
   text: 'var(--text)',
   text2: 'var(--text2)',
   text3: 'var(--text3)',
-  green: '#34D399',
-  red: '#F87171',
-  accent: '#F59E0B',
+  accent: AI_ACCENT,
 }
 
-// Inline status-bar data — compact single-row system snapshot
-const STATUS_ITEMS: { emoji: string; text: string }[] = [
-  { emoji: '⚡', text: '0/5 Departments' },
-  { emoji: '📊', text: '1 Live' },
-  { emoji: '🟢', text: 'Customer Journey Active' },
+// Inline status-bar data — compact single-row system snapshot.
+// Semantic tones only: 'ok' = live/green, 'off' = neutral gray.
+const STATUS_ITEMS: { tone: 'ok' | 'off'; text: string }[] = [
+  { tone: 'off', text: '0 of 5 departments connected' },
+  { tone: 'ok', text: '1 report live' },
+  { tone: 'ok', text: 'Customer Journey active' },
 ]
 
-const RECOMMENDED_ACTIONS: { text: string; accent: string }[] = [
-  { text: 'Connect QuickBooks', accent: '#10B981' },
-  { text: 'Get CRM from Jeff', accent: '#3B82F6' },
-  { text: 'Check BuilderTrend', accent: '#F59E0B' },
+const RECOMMENDED_ACTIONS: { text: string }[] = [
+  { text: 'Connect QuickBooks' },
+  { text: 'Get CRM from Jeff' },
+  { text: 'Check BuilderTrend' },
 ]
 
 const AI_GREETING =
@@ -770,9 +638,9 @@ function SystemInsightsBar() {
   return (
     <div
       style={{
-        background: 'var(--surface2)',
-        border: `1px solid ${PALETTE.border}`,
-        borderRadius: 12,
+        background: 'var(--surface)',
+        border: '1px solid var(--fable-line, var(--border))',
+        borderRadius: 'var(--fable-radius)',
         padding: '12px 18px',
         marginBottom: 20,
         display: 'flex',
@@ -785,24 +653,41 @@ function SystemInsightsBar() {
         {STATUS_ITEMS.map((item, i) => (
           <span key={item.text} style={{ display: 'inline-flex', alignItems: 'center' }}>
             {i > 0 && (
-              <span style={{ color: PALETTE.border, margin: '0 14px', fontSize: 13 }}>|</span>
+              <span style={{ color: 'var(--fable-line, var(--border))', margin: '0 14px', fontSize: 13 }}>|</span>
             )}
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ fontSize: 13, lineHeight: 1 }}>{item.emoji}</span>
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: PALETTE.text }}>{item.text}</span>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: item.tone === 'ok' ? 'var(--fable-ok)' : 'var(--border2)',
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ fontSize: 12.5, fontWeight: 550, color: 'var(--text)', ...NUM }}>{item.text}</span>
             </span>
           </span>
         ))}
       </div>
 
-      {/* Row 2 — recommended actions */}
+      {/* Row 2 — recommended actions as plain text links */}
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 18 }}>
-        {RECOMMENDED_ACTIONS.map((a) => (
+        {RECOMMENDED_ACTIONS.map(a => (
           <span
             key={a.text}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: PALETTE.text2 }}
+            className="fb-action-link"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 500,
+              color: 'var(--text2)',
+              cursor: 'pointer',
+            }}
           >
-            <span style={{ color: a.accent, fontWeight: 700 }}>→</span>
+            <span style={{ color: 'var(--text3)' }}>→</span>
             {a.text}
           </span>
         ))}
@@ -870,8 +755,8 @@ function FloatingCCFOSAI() {
           zIndex: 60,
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          padding: '12px 18px',
+          gap: 9,
+          padding: '12px 19px 12px 15px',
           borderRadius: 999,
           background: 'var(--charcoal)',
           color: '#fff',
@@ -879,7 +764,7 @@ function FloatingCCFOSAI() {
           cursor: 'pointer',
           fontFamily: 'var(--font-geist), sans-serif',
           fontSize: 13,
-          fontWeight: 700,
+          fontWeight: 600,
           letterSpacing: '0.2px',
           boxShadow: btnHover
             ? '0 12px 30px -6px rgba(0,0,0,0.45)'
@@ -888,7 +773,16 @@ function FloatingCCFOSAI() {
           transition: 'transform 160ms ease, box-shadow 160ms ease',
         }}
       >
-        <span style={{ fontSize: 15, lineHeight: 1 }}>💬</span>
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: '50%',
+            background: 'var(--fable-red)',
+            flexShrink: 0,
+            animation: 'ccfosPulse 2.2s ease-out infinite',
+          }}
+        />
         CCFOS AI
       </button>
 
@@ -1117,7 +1011,7 @@ function FloatingCCFOSAI() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   background: input.trim() && !thinking ? D.accent : D.surface,
-                  color: input.trim() && !thinking ? '#0f0f0f' : D.text3,
+                  color: input.trim() && !thinking ? '#fff' : D.text3,
                   border: 'none',
                   cursor: !input.trim() || thinking ? 'not-allowed' : 'pointer',
                   transition: 'background 150ms ease',
@@ -1145,232 +1039,192 @@ function FloatingCCFOSAI() {
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function CommandCenterPage() {
+  const connectedCount = DATA_SOURCES.filter(s => s.status !== 'red').length
+
   return (
     <>
       <style>{`
-        @keyframes caskSheen { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-        @keyframes caskPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.55); }
-          50% { box-shadow: 0 0 0 5px rgba(16,185,129,0); }
-        }
-        @keyframes caskDotBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
         @keyframes ccfosSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes ccfosPulse {
+          0% { box-shadow: 0 0 0 0 rgba(181,18,27,0.45); }
+          70% { box-shadow: 0 0 0 6px rgba(181,18,27,0); }
+          100% { box-shadow: 0 0 0 0 rgba(181,18,27,0); }
+        }
+        .fb-dept:hover { border-color: var(--border2) !important; }
+        .fb-dept:hover .fb-dept-link { text-decoration: underline; text-underline-offset: 3px; }
+        .fb-action-link:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+        @media (prefers-reduced-motion: no-preference) {
+          .fb-rise { animation: fbRise .35s ease both; }
+          @keyframes fbRise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+        }
       `}</style>
 
       {/* ── Header ─────────────────────────────────────────────── */}
       <header
         style={{
-          position: 'relative',
           flexShrink: 0,
-          background: PALETTE.header,
-          borderBottom: `1px solid ${PALETTE.border}`,
-          overflow: 'hidden',
+          background: 'var(--white)',
+          borderBottom: '1px solid var(--fable-line, var(--border))',
         }}
       >
-        {/* multi-department accent line */}
         <div
           style={{
-            height: 2,
-            background: 'linear-gradient(90deg, #3B82F6, #F59E0B, #10B981, #8B5CF6, #F59E0B)',
-          }}
-        />
-        {/* animated sheen */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundImage:
-              'linear-gradient(110deg, transparent 32%, rgba(200,49,26,0.12) 47%, rgba(245,158,11,0.07) 55%, transparent 70%)',
-            backgroundSize: '220% 100%',
-            animation: 'caskSheen 14s linear infinite',
-            pointerEvents: 'none',
-          }}
-        />
-        {/* radial glow */}
-        <div
-          style={{
-            position: 'absolute',
-            top: -140,
-            left: '26%',
-            width: 460,
-            height: 320,
-            background: 'radial-gradient(circle, rgba(200,49,26,0.18), transparent 70%)',
-            pointerEvents: 'none',
-          }}
-        />
-        {/* grain */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundImage: GRAIN,
-            opacity: 0.5,
-            mixBlendMode: 'overlay',
-            pointerEvents: 'none',
-          }}
-        />
-
-        <div
-          style={{
-            position: 'relative',
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-end',
             justifyContent: 'space-between',
             gap: 24,
-            padding: '28px 40px 30px',
+            padding: '24px 40px',
           }}
         >
           <div>
             <h1
               style={{
-                fontFamily: 'var(--font-instrument), Georgia, serif',
-                lineHeight: 1.05,
-                color: PALETTE.text,
-                letterSpacing: '-2px',
+                fontFamily: SERIF,
+                fontWeight: 500,
+                fontSize: 30,
+                letterSpacing: '-0.45px',
+                lineHeight: 1.15,
+                color: 'var(--text)',
                 margin: 0,
               }}
             >
-              <span style={{ display: 'block', fontSize: 64, fontWeight: 700 }}>CCFOS</span>
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: 22,
-                  fontWeight: 400,
-                  letterSpacing: '-0.3px',
-                  color: PALETTE.text2,
-                  marginTop: 4,
-                }}
-              >
-                CASK Construction Financial Operating System
-              </span>
+              CCFOS
             </h1>
-            <p
-              style={{
-                margin: '12px 0 0',
-                fontSize: 12,
-                fontWeight: 500,
-                letterSpacing: '2.5px',
-                textTransform: 'uppercase',
-                color: PALETTE.text3,
-              }}
-            >
-              One System&nbsp;·&nbsp;One Source of Truth&nbsp;·&nbsp;One Company
-            </p>
+            <div style={{ color: 'var(--text2)', fontSize: 13.5, marginTop: 6 }}>
+              CASK Construction Financial Operating System
+            </div>
+            <div style={{ color: 'var(--text3)', fontSize: 12.5, marginTop: 3 }}>
+              One system, one source of truth —{' '}
+              <b style={{ fontWeight: 600, color: 'var(--text2)' }}>49 reports</b> across five departments.
+            </div>
           </div>
 
-          {/* 0 Connected badge — prominent */}
-          <div
+          {/* Connected badge — neutral border style, gray dot + number */}
+          <span
             style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: 14,
-              padding: '12px 20px',
-              borderRadius: 12,
-              background: 'rgba(239,68,68,0.07)',
-              border: '1px solid rgba(239,68,68,0.28)',
-              boxShadow: '0 0 30px rgba(239,68,68,0.12)',
+              gap: 8,
+              border: '1px solid var(--fable-line, var(--border))',
+              background: 'var(--surface)',
+              borderRadius: 99,
+              padding: '7px 14px',
+              fontSize: 12.5,
+              fontWeight: 550,
+              color: 'var(--text)',
               flexShrink: 0,
+              ...NUM,
             }}
           >
             <span
               style={{
-                width: 9,
-                height: 9,
+                width: 7,
+                height: 7,
                 borderRadius: '50%',
-                background: '#EF4444',
-                boxShadow: '0 0 10px #EF4444',
-                animation: 'caskDotBlink 1.8s ease-in-out infinite',
+                background: connectedCount > 0 ? 'var(--fable-ok)' : 'var(--border2)',
+                flexShrink: 0,
               }}
             />
-            <span
-              style={{
-                fontFamily: 'var(--font-geist), sans-serif',
-                fontSize: 28,
-                fontWeight: 700,
-                color: PALETTE.text,
-                lineHeight: 1,
-                letterSpacing: '-1px',
-              }}
-            >
-              0
-            </span>
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '1.5px',
-                textTransform: 'uppercase',
-                color: '#EF4444',
-              }}
-            >
+            <b style={{ fontWeight: 650 }}>{connectedCount}</b>
+            <span style={{ color: 'var(--text3)', fontSize: 11, fontWeight: 600, letterSpacing: '0.8px', textTransform: 'uppercase' }}>
               Connected
             </span>
-          </div>
+          </span>
         </div>
       </header>
 
       {/* ── Body ───────────────────────────────────────────────── */}
       <div
         className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in"
-        style={{ background: PALETTE.page, position: 'relative' }}
+        style={{ background: 'var(--bg)' }}
       >
-        {/* faint page grain */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundImage: GRAIN,
-            opacity: 0.22,
-            mixBlendMode: 'overlay',
-            pointerEvents: 'none',
-          }}
-        />
-
-        <div style={{ position: 'relative', padding: '32px 40px 56px' }}>
+        <div style={{ padding: '30px 40px 90px', maxWidth: 1180 }}>
           {/* Inline System Insights status bar */}
           <SystemInsightsBar />
 
-          {/* Stats strip */}
+          {/* Stats — joined hairline grid, same pattern as Dashboard */}
           <div
+            className="fb-rise"
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(4, 1fr)',
-              background: PALETTE.card,
-              border: `1px solid ${PALETTE.border}`,
-              borderRadius: 16,
+              gap: 1,
+              background: 'var(--fable-line, var(--border))',
+              border: '1px solid var(--fable-line, var(--border))',
+              borderRadius: 'var(--fable-radius)',
               overflow: 'hidden',
-              marginBottom: 36,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
+              marginBottom: 30,
             }}
           >
-            {STATS.map((s, i) => (
-              <StatSegment key={s.label} stat={s} index={i} />
+            {STATS.map(s => (
+              <div key={s.label} style={{ background: 'var(--surface)', padding: '16px 18px 14px' }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase',
+                    color: 'var(--text3)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {s.label}
+                </div>
+                <div
+                  style={{
+                    fontSize: 26,
+                    fontWeight: 650,
+                    letterSpacing: '-0.5px',
+                    lineHeight: 1,
+                    color: 'var(--text)',
+                    marginTop: 8,
+                    ...NUM,
+                  }}
+                >
+                  {s.value}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11.5,
+                    color: s.noteOk ? 'var(--fable-ok)' : 'var(--text3)',
+                    fontWeight: s.noteOk ? 550 : 400,
+                    marginTop: 9,
+                  }}
+                >
+                  {s.note}
+                </div>
+              </div>
             ))}
           </div>
 
           {/* Row 1 — Sales & Marketing, Operations, Finance */}
-          <div style={{ marginBottom: 34 }}>
+          <div style={{ marginBottom: 30 }}>
             <SectionHeader title="Departments" subtitle="Reporting owners & data feeds" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
-              {DEPARTMENTS.map((d) => (
-                <DeptCard key={d.name} dept={d} />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 items-stretch">
+              {DEPARTMENTS.map(d => (
+                <div key={d.name} className="fb-rise" style={{ height: '100%' }}>
+                  <DeptCard dept={d} />
+                </div>
               ))}
             </div>
           </div>
 
           {/* Row 2 — Human Resources + Executive Command Center */}
-          <div style={{ marginBottom: 34 }}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-stretch">
-              <DeptCard dept={HR_DEPT} />
-              <DeptCard dept={EXEC_DEPT} important />
+          <div style={{ marginBottom: 30 }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-stretch">
+              <div className="fb-rise" style={{ height: '100%' }}>
+                <DeptCard dept={HR_DEPT} />
+              </div>
+              <div className="fb-rise" style={{ height: '100%' }}>
+                <DeptCard dept={EXEC_DEPT} important />
+              </div>
             </div>
           </div>
 
           {/* Row 3 — Standard Reports, Automated Alerts, Ad-Hoc Analysis */}
-          <div style={{ marginBottom: 34 }}>
+          <div style={{ marginBottom: 30 }}>
             <SectionHeader title="Outputs" subtitle="Reports, alerts & analysis" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-start">
-              {MINI_CARDS.map((c) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 items-start">
+              {MINI_CARDS.map(c => (
                 <MiniReportCard key={c.title} card={c} />
               ))}
             </div>
@@ -1378,31 +1232,24 @@ export default function CommandCenterPage() {
 
           {/* Row 4 — Data Sources */}
           <div>
-            <SectionHeader title="Data Sources" />
+            <SectionHeader
+              title="Data Sources"
+              subtitle={`${connectedCount} of ${DATA_SOURCES.length} connected`}
+            />
             <div
+              className="fb-rise"
               style={{
-                position: 'relative',
-                background: PALETTE.card,
-                backgroundImage: GRID_BG,
-                backgroundSize: '22px 22px',
-                border: `1px solid ${PALETTE.border}`,
-                borderRadius: 16,
-                padding: '24px 26px',
-                overflow: 'hidden',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
+                border: '1px solid var(--fable-line, var(--border))',
+                borderRadius: 'var(--fable-radius)',
+                background: 'var(--surface)',
+                padding: '16px 18px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-                <IconBadge icon="database" color="#64748B" size={34} />
-                <div style={{ fontSize: 16, fontWeight: 700, color: PALETTE.text, letterSpacing: '-0.2px' }}>
-                  Connected Systems
-                </div>
+              <div style={{ fontSize: 12.5, color: 'var(--text3)', marginBottom: 13 }}>
+                Every system feeds CCFOS. Connect a source and its reports come online automatically.
               </div>
-              <div style={{ fontSize: 13, color: PALETTE.text3, marginBottom: 18, marginLeft: 46 }}>
-                All systems feed CCFOS — the CASK Construction Financial Operating System
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                {DATA_SOURCES.map((s) => (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {DATA_SOURCES.map(s => (
                   <DataSourcePill key={s.name} name={s.name} status={s.status} />
                 ))}
               </div>
