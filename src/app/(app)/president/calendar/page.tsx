@@ -1152,88 +1152,27 @@ export default function CalendarPage() {
     }
     setAddTimeError('')
     setSaving(true)
-    console.log('[add-event] handleSave triggered', form)
 
-    const supabase = createClient()
+    // Compute start/end ISO strings (needed for webhook datetime conversion)
+    const startISO = form.isAllDay
+      ? new Date(`${form.date}T00:00:00`).toISOString()
+      : etToISO(form.date, form.startTime)
+    const endISO = form.endTime ? etToISO(form.date, form.endTime) : null
 
-    // Build the list of occurrence dates (single, frequency-stepped, or day-of-week based)
-    const isIndefinite = form.isRecurring && form.repeatUntilMode === 'indefinitely'
-    const effectiveFrequency = (isIndefinite || form.frequency === 'Custom') ? 'Weekly' : form.frequency
-    let effectiveRepeatUntil = form.repeatUntil
-    if (isIndefinite && form.date) {
-      const [iy, im, id2] = form.date.split('-').map(Number)
-      const endDt = new Date(Date.UTC(iy, im - 1 + 12, id2, 12, 0, 0))
-      effectiveRepeatUntil = endDt.toISOString().split('T')[0]
-    }
-    const dates = buildOccurrenceDates(form.date, form.isRecurring, effectiveRepeatUntil, effectiveFrequency, form.recurringDays)
-    const isRecurring = form.isRecurring && dates.length > 1
-    const recurringId = isRecurring && typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : null
-    const recurringDays = isRecurring && form.recurringDays.length > 0 ? form.recurringDays : null
-
-    const payloads = dates.map(d => {
-      const startISO = form.isAllDay
-        ? new Date(`${d}T00:00:00`).toISOString()
-        : etToISO(d, form.startTime)
-      const endISO = form.endTime ? etToISO(d, form.endTime) : null
-      return {
-        event_id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        title: form.title,
-        start_time: startISO,
-        end_time: endISO,
-        organizer: form.organizer || null,
-        location: form.location || null,
-        meeting_link: form.teamsLink || null,
-        is_all_day: form.isAllDay,
-        user_email: 'c.noonan@caskconstruction.com',
-        attendees: [],
-        recurring_id: recurringId,
-        is_recurring: isRecurring,
-        recurring_days: recurringDays,
-        recurring_indefinite: isIndefinite && isRecurring ? true : null,
-      }
-    })
-    console.log('[add-event] inserting into calendar_events:', payloads)
-
-    let { data, error } = await supabase.from('calendar_events').insert(payloads).select()
-
-    // Graceful fallback if the recurring columns haven't been added to the table yet.
-    if (error && /recurring_id|is_recurring|recurring_days|recurring_indefinite|schema cache|column/i.test(error.message)) {
-      console.warn('[add-event] recurring columns missing — retrying without them. Run the migration to enable grouping.')
-      const stripped = payloads.map(p => {
-        const clone: Record<string, unknown> = { ...p }
-        delete clone.recurring_id
-        delete clone.is_recurring
-        delete clone.recurring_days
-        delete clone.recurring_indefinite
-        return clone
-      })
-      const res = await supabase.from('calendar_events').insert(stripped).select()
-      data = res.data
-      error = res.error
-    }
-    console.log('[add-event] insert result — data:', data, ' error:', error)
-
-    setSaving(false)
-
-    if (error) {
-      console.error('[add-event] Supabase insert failed:', error.message, error.details, error.hint)
-      setSaveToast({ message: `Failed to save: ${error.message}`, type: 'error' })
-      setTimeout(() => setSaveToast(null), 5000)
-      return
-    }
+    const toET = (iso: string) =>
+      new Date(iso)
+        .toLocaleString("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+        .replace(/(\d+)\/(\d+)\/(\d+),\s(\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6")
 
     const makeWebhookUrl = process.env.NEXT_PUBLIC_MAKE_CALENDAR_WEBHOOK_URL
-    if (makeWebhookUrl && data?.[0]) {
-      fetch(makeWebhookUrl, {
+    if (makeWebhookUrl) {
+      await fetch(makeWebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: data[0].id,
           title: form.title,
-          start_time: new Date(payloads[0].start_time).toISOString().slice(0, 19),
-          end_time: payloads[0].end_time ? new Date(payloads[0].end_time).toISOString().slice(0, 19) : '',
+          start_time: toET(startISO),
+          end_time: endISO ? toET(endISO) : '',
           location: form.location || '',
           notes: '',
         })
@@ -1241,12 +1180,22 @@ export default function CalendarPage() {
     }
 
     setShowAddModal(false)
+    setAddTimeError('')
     setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntilMode: 'date', repeatUntil: '', recurringDays: [] })
-    setSaveToast({
-      message: payloads.length > 1 ? `Added ${payloads.length} events to calendar` : 'Event added to calendar',
-      type: 'success',
-    })
-    setTimeout(() => setSaveToast(null), 3500)
+    setSaveToast({ message: 'Creating event…', type: 'success' })
+
+    await new Promise<void>(resolve => setTimeout(resolve, 8000))
+
+    const supabase = createClient()
+    const { data: freshData } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .gte('start_time', new Date().toISOString())
+      .order('start_time', { ascending: true })
+    if (freshData) setEvents(freshData as CalendarEvent[])
+
+    setSaveToast(null)
+    setSaving(false)
   }
 
   function openEdit(event: CalendarEvent) {
