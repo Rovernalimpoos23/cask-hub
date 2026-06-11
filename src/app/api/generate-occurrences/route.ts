@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     recurring_frequency,
     recurring_days,
     recurring_indefinite,
-    event_id,
+    event_id: crypto.randomUUID(),
     meeting_link: null,
   }))
 
