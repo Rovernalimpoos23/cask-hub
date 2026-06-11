@@ -50,6 +50,8 @@ export async function POST(req: NextRequest) {
     event_id,
   } = await req.json()
 
+  console.log('Generate occurrences — received times:', { start_time, end_time })
+
   const start = parseNaive(start_time)
   if (!start) {
     return NextResponse.json({ error: 'Invalid start_time' }, { status: 400 })
@@ -110,6 +112,8 @@ export async function POST(req: NextRequest) {
     event_id: crypto.randomUUID(),
     meeting_link: null,
   }))
+
+  console.log('Generate occurrences — first occurrence before insert:', occurrences[0])
 
   try {
     const supabase = createClient()
