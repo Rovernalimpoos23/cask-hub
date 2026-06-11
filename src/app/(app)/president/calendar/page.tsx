@@ -1164,9 +1164,48 @@ export default function CalendarPage() {
         .toLocaleString("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
         .replace(/(\d+)\/(\d+)\/(\d+),\s(\d+):(\d+):(\d+)/, "$3-$1-$2T$4:$5:$6")
 
+    // STEP 1 — One recurring_id ties all generated occurrences + the Make.com event together.
+    const recurringId = crypto.randomUUID()
+    const isIndefinite = form.repeatUntilMode === 'indefinitely'
+    const mappedDays = (form.recurringDays || []).map(day => {
+      const map: Record<string, string> = {
+        'Mon': 'monday',
+        'Tue': 'tuesday',
+        'Wed': 'wednesday',
+        'Thu': 'thursday',
+        'Fri': 'friday',
+        'Sat': 'saturday',
+        'Sun': 'sunday'
+      }
+      return map[day] || day.toLowerCase()
+    })
+
+    // STEP 2 — For recurring events, generate all occurrences via Claude first.
+    if (form.isRecurring) {
+      setSaveToast({ message: 'Generating occurrences…', type: 'success' })
+      await fetch('/api/generate-occurrences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: form.title,
+          start_time: toET(startISO),
+          end_time: toET(endISO),
+          location: form.location || '',
+          is_recurring: form.isRecurring,
+          recurring_frequency: form.frequency,
+          recurring_days: mappedDays,
+          recurring_indefinite: isIndefinite,
+          recurring_until: form.repeatUntil || null,
+          recurring_id: recurringId,
+          event_id: recurringId
+        })
+      }).catch(console.error)
+    }
+
+    // STEP 3 — Fire Make.com webhook (Outlook sync), tagged with recurring_id.
     const makeWebhookUrl = process.env.NEXT_PUBLIC_MAKE_CALENDAR_WEBHOOK_URL
     if (makeWebhookUrl) {
-      const isIndefinite = form.repeatUntilMode === 'indefinitely'
+      if (form.isRecurring) setSaveToast({ message: 'Syncing to Outlook…', type: 'success' })
       console.log('[Add Event] form state before webhook:', form)
       await fetch(makeWebhookUrl, {
         method: 'POST',
@@ -1178,20 +1217,10 @@ export default function CalendarPage() {
           location: form.location || '',
           is_recurring: form.isRecurring || false,
           recurring_frequency: form.frequency || null,
-          recurring_days: (form.recurringDays || []).map(day => {
-            const map: Record<string, string> = {
-              'Mon': 'monday',
-              'Tue': 'tuesday',
-              'Wed': 'wednesday',
-              'Thu': 'thursday',
-              'Fri': 'friday',
-              'Sat': 'saturday',
-              'Sun': 'sunday'
-            }
-            return map[day] || day.toLowerCase()
-          }),
+          recurring_days: mappedDays,
           recurring_indefinite: isIndefinite,
-          recurring_until: isIndefinite ? null : (form.repeatUntil || null)
+          recurring_until: isIndefinite ? null : (form.repeatUntil || null),
+          recurring_id: recurringId
         })
       }).catch(console.error)
     }
@@ -1199,8 +1228,9 @@ export default function CalendarPage() {
     setShowAddModal(false)
     setAddTimeError('')
     setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntilMode: 'date', repeatUntil: '', recurringDays: [] })
-    setSaveToast({ message: 'Creating event…', type: 'success' })
+    if (!form.isRecurring) setSaveToast({ message: 'Creating event…', type: 'success' })
 
+    // STEP 4 — Wait for Make.com / occurrence generation to land, then refresh.
     await new Promise<void>(resolve => setTimeout(resolve, 8000))
 
     const supabase = createClient()
