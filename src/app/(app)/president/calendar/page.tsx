@@ -1166,15 +1166,32 @@ export default function CalendarPage() {
 
     const makeWebhookUrl = process.env.NEXT_PUBLIC_MAKE_CALENDAR_WEBHOOK_URL
     if (makeWebhookUrl) {
+      const isIndefinite = form.repeatUntilMode === 'indefinitely'
+      console.log('[Add Event] form state before webhook:', form)
       await fetch(makeWebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: form.title,
           start_time: toET(startISO),
-          end_time: endISO ? toET(endISO) : '',
+          end_time: toET(endISO),
           location: form.location || '',
-          notes: '',
+          is_recurring: form.isRecurring || false,
+          recurring_frequency: form.frequency || null,
+          recurring_days: (form.recurringDays || []).map(day => {
+            const map: Record<string, string> = {
+              'Mon': 'monday',
+              'Tue': 'tuesday',
+              'Wed': 'wednesday',
+              'Thu': 'thursday',
+              'Fri': 'friday',
+              'Sat': 'saturday',
+              'Sun': 'sunday'
+            }
+            return map[day] || day.toLowerCase()
+          }),
+          recurring_indefinite: isIndefinite,
+          recurring_until: isIndefinite ? null : (form.repeatUntil || null)
         })
       }).catch(console.error)
     }
