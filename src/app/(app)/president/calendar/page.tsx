@@ -1189,7 +1189,7 @@ export default function CalendarPage() {
         body: JSON.stringify({
           title: form.title,
           start_time: toET(startISO),
-          end_time: toET(endISO),
+          end_time: endISO ? toET(endISO) : '',
           location: form.location || '',
           is_recurring: form.isRecurring,
           recurring_frequency: form.frequency,
