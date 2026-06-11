@@ -101,8 +101,8 @@ export async function POST(req: NextRequest) {
   // Whitelist the exact columns for the calendar_events insert.
   const occurrences = starts.map(occStart => ({
     title,
-    start_time: formatNaive(occStart),
-    end_time: hasEnd ? formatNaive(new Date(occStart.getTime() + durationMs)) : null,
+    start_time: formatNaive(occStart) + '-04:00',
+    end_time: hasEnd ? formatNaive(new Date(occStart.getTime() + durationMs)) + '-04:00' : null,
     location: location || '',
     is_recurring: true,
     recurring_id,
