@@ -1021,21 +1021,457 @@ function FloatingCalendarAI() {
   )
 }
 
+interface AddEventFormData {
+  title: string
+  date: string
+  startTime: string
+  endTime: string
+  organizer: string
+  location: string
+  teamsLink: string
+  isAllDay: boolean
+  isRecurring: boolean
+  frequency: 'Daily' | 'Weekly' | 'Monthly' | 'Custom'
+  repeatUntilMode: 'date' | 'indefinitely'
+  repeatUntil: string
+  recurringDays: string[]
+}
+
+const EMPTY_ADD_EVENT_FORM: AddEventFormData = {
+  title: '', date: '', startTime: '', endTime: '',
+  organizer: '', location: '', teamsLink: '', isAllDay: false,
+  isRecurring: false, frequency: 'Weekly',
+  repeatUntilMode: 'date', repeatUntil: '', recurringDays: [],
+}
+
+// Add Event modal — owns its own local form state so typing only re-renders this
+// modal, not the whole calendar page. It just collects form data; the parent does
+// the actual save (webhook + Supabase) via onSave(formData).
+function AddEventModal({ isOpen, onClose, onSave, saving }: {
+  isOpen: boolean
+  onClose: () => void
+  onSave: (formData: AddEventFormData) => void
+  saving: boolean
+}) {
+  const [form, setForm] = useState<AddEventFormData>(EMPTY_ADD_EVENT_FORM)
+  const [addTimeError, setAddTimeError] = useState('')
+
+  // Reset local form whenever the modal closes, so the next open starts clean.
+  useEffect(() => {
+    if (!isOpen) { setForm(EMPTY_ADD_EVENT_FORM); setAddTimeError('') }
+  }, [isOpen])
+
+  if (!isOpen) return null
+
+  function handleSaveClick() {
+    if (!form.title || !form.date || (!form.isAllDay && !form.startTime)) return
+    if (!form.isAllDay && form.startTime && form.endTime && form.endTime <= form.startTime) {
+      setAddTimeError('End time must be after start time')
+      return
+    }
+    setAddTimeError('')
+    onSave(form)
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 14,
+          width: 480,
+          maxWidth: 'calc(100vw - 32px)',
+          maxHeight: 'calc(100vh - 64px)',
+          overflowY: 'auto',
+          animation: 'modalFadeIn 180ms ease',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px',
+          borderBottom: '1px solid var(--border)',
+        }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Add Calendar Event</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>Manually add an event to the calendar</div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--text3)', padding: 4, borderRadius: 6,
+              display: 'flex', alignItems: 'center',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Form */}
+        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* All Day toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>All Day Event</label>
+            <button
+              onClick={() => setForm(f => ({ ...f, isAllDay: !f.isAllDay }))}
+              style={{
+                width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                background: form.isAllDay ? 'var(--red)' : 'var(--border2)',
+                position: 'relative', transition: 'background 150ms ease',
+              }}
+            >
+              <div style={{
+                position: 'absolute', top: 3, left: form.isAllDay ? 21 : 3,
+                width: 16, height: 16, borderRadius: '50%', background: 'white',
+                transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
+            </button>
+          </div>
+
+          {/* Title */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+              Title <span style={{ color: 'var(--red)' }}>*</span>
+            </label>
+            <input
+              type="text"
+              value={form.title}
+              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="Event title"
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8,
+                border: '1px solid var(--border2)', background: 'var(--surface2)',
+                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {/* Date */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+              Date <span style={{ color: 'var(--red)' }}>*</span>
+            </label>
+            <input
+              type="date"
+              value={form.date}
+              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8,
+                border: '1px solid var(--border2)', background: 'var(--surface2)',
+                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {/* Start / End Time */}
+          {!form.isAllDay && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    Start Time <span style={{ color: 'var(--red)' }}>*</span>
+                  </label>
+                  <input
+                    type="time"
+                    value={form.startTime}
+                    onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
+                    style={{
+                      width: '100%', padding: '9px 12px', borderRadius: 8,
+                      border: '1px solid var(--border2)', background: 'var(--surface2)',
+                      color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                      outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    End Time
+                  </label>
+                  <input
+                    type="time"
+                    value={form.endTime}
+                    onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))}
+                    style={{
+                      width: '100%', padding: '9px 12px', borderRadius: 8,
+                      border: '1px solid var(--border2)', background: 'var(--surface2)',
+                      color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                      outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
+                Enter time in ET (Florida time)
+              </div>
+            </>
+          )}
+
+          {/* Organizer */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+              Organizer
+            </label>
+            <input
+              type="text"
+              value={form.organizer}
+              onChange={e => setForm(f => ({ ...f, organizer: e.target.value }))}
+              placeholder="Calin Noonan"
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8,
+                border: '1px solid var(--border2)', background: 'var(--surface2)',
+                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {/* Location */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+              Location
+            </label>
+            <input
+              type="text"
+              value={form.location}
+              onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+              placeholder="Conference room, address, etc."
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8,
+                border: '1px solid var(--border2)', background: 'var(--surface2)',
+                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {/* Teams Link */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+              Teams Link
+            </label>
+            <input
+              type="url"
+              value={form.teamsLink}
+              onChange={e => setForm(f => ({ ...f, teamsLink: e.target.value }))}
+              placeholder="https://teams.microsoft.com/..."
+              style={{
+                width: '100%', padding: '9px 12px', borderRadius: 8,
+                border: '1px solid var(--border2)', background: 'var(--surface2)',
+                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {/* Recurring toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>Recurring Event</label>
+            <button
+              onClick={() => setForm(f => ({ ...f, isRecurring: !f.isRecurring }))}
+              style={{
+                width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                background: form.isRecurring ? 'var(--red)' : 'var(--border2)',
+                position: 'relative', transition: 'background 150ms ease',
+              }}
+            >
+              <div style={{
+                position: 'absolute', top: 3, left: form.isRecurring ? 21 : 3,
+                width: 16, height: 16, borderRadius: '50%', background: 'white',
+                transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }} />
+            </button>
+          </div>
+
+          {/* Recurring options */}
+          {form.isRecurring && (
+            <>
+              {/* STEP 1 — FREQUENCY */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Frequency
+                </label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {(['Daily', 'Weekly', 'Monthly', 'Custom'] as const).map(freq => {
+                    const active = form.frequency === freq
+                    return (
+                      <button
+                        key={freq}
+                        type="button"
+                        onClick={() => setForm(f => ({
+                          ...f,
+                          frequency: freq,
+                          recurringDays: freq !== 'Custom' ? [] : f.recurringDays,
+                        }))}
+                        style={{
+                          padding: '7px 14px', borderRadius: 8,
+                          fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                          background: active ? 'var(--charcoal)' : 'transparent',
+                          color: active ? 'white' : 'var(--text2)',
+                          border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border2)'}`,
+                          transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                        }}
+                      >
+                        {freq === 'Custom' ? 'Custom Days' : freq}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Day picker — only when Custom Days selected */}
+              {form.frequency === 'Custom' && (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    Repeat On
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {WEEKDAYS.map(w => {
+                      const active = form.recurringDays.includes(w.label)
+                      return (
+                        <button
+                          key={w.label}
+                          type="button"
+                          onClick={() => setForm(f => ({
+                            ...f,
+                            recurringDays: active
+                              ? f.recurringDays.filter(d => d !== w.label)
+                              : [...f.recurringDays, w.label],
+                          }))}
+                          style={{
+                            padding: '6px 13px', borderRadius: 8,
+                            fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                            background: active ? 'var(--red)' : 'transparent',
+                            color: active ? 'white' : 'var(--text2)',
+                            border: `1px solid ${active ? 'var(--red)' : 'var(--border2)'}`,
+                            transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                          }}
+                        >
+                          {w.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 2 — REPEAT UNTIL */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Repeat Until
+                </label>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                  {(['date', 'indefinitely'] as const).map(mode => {
+                    const active = form.repeatUntilMode === mode
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, repeatUntilMode: mode }))}
+                        style={{
+                          padding: '7px 14px', borderRadius: 8,
+                          fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                          background: active ? 'var(--charcoal)' : 'transparent',
+                          color: active ? 'white' : 'var(--text2)',
+                          border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border2)'}`,
+                          transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                        }}
+                      >
+                        {mode === 'date' ? 'Pick a Date' : 'Indefinitely ∞'}
+                      </button>
+                    )
+                  })}
+                </div>
+                {form.repeatUntilMode === 'date' ? (
+                  <input
+                    type="date"
+                    value={form.repeatUntil}
+                    onChange={e => setForm(f => ({ ...f, repeatUntil: e.target.value }))}
+                    style={{
+                      width: '100%', padding: '9px 12px', borderRadius: 8,
+                      border: '1px solid var(--border2)', background: 'var(--surface2)',
+                      color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                      outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                ) : (
+                  <div style={{
+                    padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--purple-border)', background: 'var(--surface2)',
+                    fontSize: 13, fontWeight: 600, color: '#7c3aed',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    ↻ Repeats forever (generates 12 months)
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+          padding: '14px 20px',
+          borderTop: '1px solid var(--border)',
+        }}>
+          {addTimeError && (
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--red)', fontWeight: 500 }}>
+              {addTimeError}
+            </span>
+          )}
+          <button
+            onClick={onClose}
+            style={{
+              padding: '8px 16px', borderRadius: 8,
+              background: 'none', border: '1px solid var(--border2)',
+              color: 'var(--text2)', fontSize: 13, fontWeight: 500,
+              fontFamily: 'inherit', cursor: 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSaveClick}
+            disabled={saving || !form.title || !form.date || (!form.isAllDay && !form.startTime)}
+            style={{
+              padding: '8px 18px', borderRadius: 8,
+              background: 'var(--red)', color: 'white',
+              border: 'none', fontSize: 13, fontWeight: 600,
+              fontFamily: 'inherit', cursor: 'pointer',
+              opacity: (saving || !form.title || !form.date || (!form.isAllDay && !form.startTime)) ? 0.5 : 1,
+              transition: 'opacity 150ms ease',
+            }}
+          >
+            {saving ? 'Saving…' : 'Add Event'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [, setTick] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [addTimeError, setAddTimeError] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveToast, setSaveToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-  const [form, setForm] = useState({
-    title: '', date: '', startTime: '', endTime: '',
-    organizer: '', location: '', teamsLink: '', isAllDay: false,
-    isRecurring: false, frequency: 'Weekly' as 'Daily' | 'Weekly' | 'Monthly' | 'Custom',
-    repeatUntilMode: 'date' as 'date' | 'indefinitely',
-    repeatUntil: '', recurringDays: [] as string[],
-  })
   const [agenda, setAgenda] = useState<{ title: string; content: string; loading: boolean } | null>(null)
 
   // Edit event state
@@ -1144,20 +1580,15 @@ export default function CalendarPage() {
     return new Date(guess.getTime() + diffMs).toISOString()
   }
 
-  async function handleSave() {
-    if (!form.title || !form.date || (!form.isAllDay && !form.startTime)) return
-    if (!form.isAllDay && form.startTime && form.endTime && form.endTime <= form.startTime) {
-      setAddTimeError('End time must be after start time')
-      return
-    }
-    setAddTimeError('')
+  async function handleSave(formData: AddEventFormData) {
+    if (!formData.title || !formData.date || (!formData.isAllDay && !formData.startTime)) return
     setSaving(true)
 
     // Compute start/end ISO strings (needed for webhook datetime conversion)
-    const startISO = form.isAllDay
-      ? new Date(`${form.date}T00:00:00`).toISOString()
-      : etToISO(form.date, form.startTime)
-    const endISO = form.endTime ? etToISO(form.date, form.endTime) : null
+    const startISO = formData.isAllDay
+      ? new Date(`${formData.date}T00:00:00`).toISOString()
+      : etToISO(formData.date, formData.startTime)
+    const endISO = formData.endTime ? etToISO(formData.date, formData.endTime) : null
 
     const toET = (iso: string) =>
       new Date(iso)
@@ -1166,8 +1597,8 @@ export default function CalendarPage() {
 
     // STEP 1 — One recurring_id ties all generated occurrences + the Make.com event together.
     const recurringId = crypto.randomUUID()
-    const isIndefinite = form.repeatUntilMode === 'indefinitely'
-    const mappedDays = (form.recurringDays || []).map(day => {
+    const isIndefinite = formData.repeatUntilMode === 'indefinitely'
+    const mappedDays = (formData.recurringDays || []).map(day => {
       const map: Record<string, string> = {
         'Mon': 'monday',
         'Tue': 'tuesday',
@@ -1181,21 +1612,21 @@ export default function CalendarPage() {
     })
 
     // STEP 2 — For recurring events, generate all occurrences via Claude first.
-    if (form.isRecurring) {
+    if (formData.isRecurring) {
       setSaveToast({ message: 'Generating occurrences…', type: 'success' })
       await fetch('/api/generate-occurrences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: form.title,
+          title: formData.title,
           start_time: toET(startISO),
           end_time: endISO ? toET(endISO) : '',
-          location: form.location || '',
-          is_recurring: form.isRecurring,
-          recurring_frequency: form.frequency,
+          location: formData.location || '',
+          is_recurring: formData.isRecurring,
+          recurring_frequency: formData.frequency,
           recurring_days: mappedDays,
           recurring_indefinite: isIndefinite,
-          recurring_until: form.repeatUntil || null,
+          recurring_until: formData.repeatUntil || null,
           recurring_id: recurringId,
           event_id: recurringId
         })
@@ -1205,30 +1636,28 @@ export default function CalendarPage() {
     // STEP 3 — Fire Make.com webhook (Outlook sync), tagged with recurring_id.
     const makeWebhookUrl = process.env.NEXT_PUBLIC_MAKE_CALENDAR_WEBHOOK_URL
     if (makeWebhookUrl) {
-      if (form.isRecurring) setSaveToast({ message: 'Syncing to Outlook…', type: 'success' })
-      console.log('[Add Event] form state before webhook:', form)
+      if (formData.isRecurring) setSaveToast({ message: 'Syncing to Outlook…', type: 'success' })
+      console.log('[Add Event] form state before webhook:', formData)
       await fetch(makeWebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: form.title,
+          title: formData.title,
           start_time: toET(startISO),
           end_time: endISO ? toET(endISO) : '',
-          location: form.location || '',
-          is_recurring: form.isRecurring || false,
-          recurring_frequency: form.frequency || null,
+          location: formData.location || '',
+          is_recurring: formData.isRecurring || false,
+          recurring_frequency: formData.frequency || null,
           recurring_days: mappedDays,
           recurring_indefinite: isIndefinite,
-          recurring_until: isIndefinite ? null : (form.repeatUntil || null),
+          recurring_until: isIndefinite ? null : (formData.repeatUntil || null),
           recurring_id: recurringId
         })
       }).catch(console.error)
     }
 
     setShowAddModal(false)
-    setAddTimeError('')
-    setForm({ title: '', date: '', startTime: '', endTime: '', organizer: '', location: '', teamsLink: '', isAllDay: false, isRecurring: false, frequency: 'Weekly', repeatUntilMode: 'date', repeatUntil: '', recurringDays: [] })
-    if (!form.isRecurring) setSaveToast({ message: 'Creating event…', type: 'success' })
+    if (!formData.isRecurring) setSaveToast({ message: 'Creating event…', type: 'success' })
 
     // STEP 4 — Wait for Make.com / occurrence generation to land, then refresh.
     await new Promise<void>(resolve => setTimeout(resolve, 8000))
@@ -1662,396 +2091,12 @@ export default function CalendarPage() {
       )}
 
       {/* Add Event Modal */}
-      {showAddModal && (
-        <div
-          onClick={() => { setShowAddModal(false); setAddTimeError('') }}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 14,
-              width: 480,
-              maxWidth: 'calc(100vw - 32px)',
-              maxHeight: 'calc(100vh - 64px)',
-              overflowY: 'auto',
-              animation: 'modalFadeIn 180ms ease',
-            }}
-          >
-            {/* Header */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '16px 20px',
-              borderBottom: '1px solid var(--border)',
-            }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Add Calendar Event</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>Manually add an event to the calendar</div>
-              </div>
-              <button
-                onClick={() => { setShowAddModal(false); setAddTimeError('') }}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--text3)', padding: 4, borderRadius: 6,
-                  display: 'flex', alignItems: 'center',
-                }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
-            </div>
-
-            {/* Form */}
-            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-              {/* All Day toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>All Day Event</label>
-                <button
-                  onClick={() => setForm(f => ({ ...f, isAllDay: !f.isAllDay }))}
-                  style={{
-                    width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
-                    background: form.isAllDay ? 'var(--red)' : 'var(--border2)',
-                    position: 'relative', transition: 'background 150ms ease',
-                  }}
-                >
-                  <div style={{
-                    position: 'absolute', top: 3, left: form.isAllDay ? 21 : 3,
-                    width: 16, height: 16, borderRadius: '50%', background: 'white',
-                    transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                  }} />
-                </button>
-              </div>
-
-              {/* Title */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Title <span style={{ color: 'var(--red)' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.title}
-                  onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Event title"
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {/* Date */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Date <span style={{ color: 'var(--red)' }}>*</span>
-                </label>
-                <input
-                  type="date"
-                  value={form.date}
-                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {/* Start / End Time */}
-              {!form.isAllDay && (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        Start Time <span style={{ color: 'var(--red)' }}>*</span>
-                      </label>
-                      <input
-                        type="time"
-                        value={form.startTime}
-                        onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
-                        style={{
-                          width: '100%', padding: '9px 12px', borderRadius: 8,
-                          border: '1px solid var(--border2)', background: 'var(--surface2)',
-                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                          outline: 'none', boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        End Time
-                      </label>
-                      <input
-                        type="time"
-                        value={form.endTime}
-                        onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))}
-                        style={{
-                          width: '100%', padding: '9px 12px', borderRadius: 8,
-                          border: '1px solid var(--border2)', background: 'var(--surface2)',
-                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                          outline: 'none', boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
-                    Enter time in ET (Florida time)
-                  </div>
-                </>
-              )}
-
-              {/* Organizer */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Organizer
-                </label>
-                <input
-                  type="text"
-                  value={form.organizer}
-                  onChange={e => setForm(f => ({ ...f, organizer: e.target.value }))}
-                  placeholder="Calin Noonan"
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {/* Location */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Location
-                </label>
-                <input
-                  type="text"
-                  value={form.location}
-                  onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                  placeholder="Conference room, address, etc."
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {/* Teams Link */}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Teams Link
-                </label>
-                <input
-                  type="url"
-                  value={form.teamsLink}
-                  onChange={e => setForm(f => ({ ...f, teamsLink: e.target.value }))}
-                  placeholder="https://teams.microsoft.com/..."
-                  style={{
-                    width: '100%', padding: '9px 12px', borderRadius: 8,
-                    border: '1px solid var(--border2)', background: 'var(--surface2)',
-                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                    outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {/* Recurring toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>Recurring Event</label>
-                <button
-                  onClick={() => setForm(f => ({ ...f, isRecurring: !f.isRecurring }))}
-                  style={{
-                    width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
-                    background: form.isRecurring ? 'var(--red)' : 'var(--border2)',
-                    position: 'relative', transition: 'background 150ms ease',
-                  }}
-                >
-                  <div style={{
-                    position: 'absolute', top: 3, left: form.isRecurring ? 21 : 3,
-                    width: 16, height: 16, borderRadius: '50%', background: 'white',
-                    transition: 'left 150ms ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                  }} />
-                </button>
-              </div>
-
-              {/* Recurring options */}
-              {form.isRecurring && (
-                <>
-                  {/* STEP 1 — FREQUENCY */}
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                      Frequency
-                    </label>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {(['Daily', 'Weekly', 'Monthly', 'Custom'] as const).map(freq => {
-                        const active = form.frequency === freq
-                        return (
-                          <button
-                            key={freq}
-                            type="button"
-                            onClick={() => setForm(f => ({
-                              ...f,
-                              frequency: freq,
-                              recurringDays: freq !== 'Custom' ? [] : f.recurringDays,
-                            }))}
-                            style={{
-                              padding: '7px 14px', borderRadius: 8,
-                              fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                              background: active ? 'var(--charcoal)' : 'transparent',
-                              color: active ? 'white' : 'var(--text2)',
-                              border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border2)'}`,
-                              transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
-                            }}
-                          >
-                            {freq === 'Custom' ? 'Custom Days' : freq}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Day picker — only when Custom Days selected */}
-                  {form.frequency === 'Custom' && (
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        Repeat On
-                      </label>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {WEEKDAYS.map(w => {
-                          const active = form.recurringDays.includes(w.label)
-                          return (
-                            <button
-                              key={w.label}
-                              type="button"
-                              onClick={() => setForm(f => ({
-                                ...f,
-                                recurringDays: active
-                                  ? f.recurringDays.filter(d => d !== w.label)
-                                  : [...f.recurringDays, w.label],
-                              }))}
-                              style={{
-                                padding: '6px 13px', borderRadius: 8,
-                                fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                                background: active ? 'var(--red)' : 'transparent',
-                                color: active ? 'white' : 'var(--text2)',
-                                border: `1px solid ${active ? 'var(--red)' : 'var(--border2)'}`,
-                                transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
-                              }}
-                            >
-                              {w.label}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* STEP 2 — REPEAT UNTIL */}
-                  <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                      Repeat Until
-                    </label>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                      {(['date', 'indefinitely'] as const).map(mode => {
-                        const active = form.repeatUntilMode === mode
-                        return (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => setForm(f => ({ ...f, repeatUntilMode: mode }))}
-                            style={{
-                              padding: '7px 14px', borderRadius: 8,
-                              fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                              background: active ? 'var(--charcoal)' : 'transparent',
-                              color: active ? 'white' : 'var(--text2)',
-                              border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border2)'}`,
-                              transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
-                            }}
-                          >
-                            {mode === 'date' ? 'Pick a Date' : 'Indefinitely ∞'}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    {form.repeatUntilMode === 'date' ? (
-                      <input
-                        type="date"
-                        value={form.repeatUntil}
-                        onChange={e => setForm(f => ({ ...f, repeatUntil: e.target.value }))}
-                        style={{
-                          width: '100%', padding: '9px 12px', borderRadius: 8,
-                          border: '1px solid var(--border2)', background: 'var(--surface2)',
-                          color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                          outline: 'none', boxSizing: 'border-box',
-                        }}
-                      />
-                    ) : (
-                      <div style={{
-                        padding: '9px 12px', borderRadius: 8,
-                        border: '1px solid var(--purple-border)', background: 'var(--surface2)',
-                        fontSize: 13, fontWeight: 600, color: '#7c3aed',
-                        display: 'flex', alignItems: 'center', gap: 6,
-                      }}>
-                        ↻ Repeats forever (generates 12 months)
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
-              padding: '14px 20px',
-              borderTop: '1px solid var(--border)',
-            }}>
-              {addTimeError && (
-                <span style={{ flex: 1, fontSize: 12, color: 'var(--red)', fontWeight: 500 }}>
-                  {addTimeError}
-                </span>
-              )}
-              <button
-                onClick={() => { setShowAddModal(false); setAddTimeError('') }}
-                style={{
-                  padding: '8px 16px', borderRadius: 8,
-                  background: 'none', border: '1px solid var(--border2)',
-                  color: 'var(--text2)', fontSize: 13, fontWeight: 500,
-                  fontFamily: 'inherit', cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || !form.title || !form.date || (!form.isAllDay && !form.startTime)}
-                style={{
-                  padding: '8px 18px', borderRadius: 8,
-                  background: 'var(--red)', color: 'white',
-                  border: 'none', fontSize: 13, fontWeight: 600,
-                  fontFamily: 'inherit', cursor: 'pointer',
-                  opacity: (saving || !form.title || !form.date || (!form.isAllDay && !form.startTime)) ? 0.5 : 1,
-                  transition: 'opacity 150ms ease',
-                }}
-              >
-                {saving ? 'Saving…' : 'Add Event'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AddEventModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSave={handleSave}
+        saving={saving}
+      />
 
       {/* Edit Event Modal */}
       {editEvent && (
