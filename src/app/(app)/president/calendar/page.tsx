@@ -644,6 +644,47 @@ function EventRow({ event, onEdit, onDelete }: { event: CalendarEvent; onEdit: (
   )
 }
 
+// Flat, fully-clickable result row used by the search view.
+function SearchResultRow({ event, onEdit }: { event: CalendarEvent; onEdit: (event: CalendarEvent) => void }) {
+  const [hovered, setHovered] = useState(false)
+  const borderColor = getEventBorderColor(event)
+
+  return (
+    <div
+      onClick={() => onEdit(event)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '12px 16px', cursor: 'pointer',
+        background: hovered ? 'var(--surface-hover)' : 'transparent',
+        transition: 'background 150ms ease',
+      }}
+    >
+      <div style={{ width: 3, height: 34, borderRadius: 2, background: borderColor, flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
+          {event.title}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+          {new Date(event.start_time).toLocaleDateString('en-US', {
+            timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric',
+          })}
+          {!event.is_all_day && ` · ${formatTimeRange(event.start_time, event.end_time)}`}
+          {event.organizer && ` · ${event.organizer}`}
+        </div>
+      </div>
+      <svg
+        width="14" height="14" viewBox="0 0 24 24" fill="none"
+        stroke="var(--text3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        style={{ flexShrink: 0, opacity: hovered ? 1 : 0.35, transition: 'opacity 150ms ease' }}
+      >
+        <polyline points="9 18 15 12 9 6" />
+      </svg>
+    </div>
+  )
+}
+
 // ── Shimmer Skeleton ─────────────────────────────────────────────────
 
 function Shimmer({ h, radius = 8 }: { h: number; radius?: number }) {
@@ -1842,6 +1883,7 @@ function AddEventModal({ isOpen, onClose, onSave, saving }: {
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
   const [, setTick] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1919,6 +1961,22 @@ export default function CalendarPage() {
     return d >= dayAfterTomorrowStr && d <= weekEndStr
   })
   const upcomingEvents = events.filter(e => toDateStr(e.start_time) > weekEndStr)
+
+  // Search — filters the already-loaded events by title, organizer, location, attendees (case-insensitive)
+  const trimmedQuery = searchQuery.trim().toLowerCase()
+  const isSearching = trimmedQuery.length > 0
+  const searchResults = useMemo(() => {
+    if (!trimmedQuery) return []
+    return events.filter(e => {
+      const haystack = [
+        e.title ?? '',
+        e.organizer ?? '',
+        e.location ?? '',
+        ...normalizeAttendees(e.attendees),
+      ].join(' ').toLowerCase()
+      return haystack.includes(trimmedQuery)
+    })
+  }, [events, trimmedQuery])
 
   // Group this week by day
   const thisWeekByDay: Record<string, CalendarEvent[]> = {}
@@ -2310,6 +2368,57 @@ export default function CalendarPage() {
 
       <div className="flex-1 overflow-y-auto p-7 animate-page-in">
 
+        {/* Search bar */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ position: 'relative', maxWidth: 520 }}>
+            <span style={{
+              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+              display: 'flex', color: 'var(--text3)', pointerEvents: 'none',
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </span>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search events..."
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '10px 36px',
+                borderRadius: 8, border: '1px solid var(--border)',
+                background: 'var(--surface)', color: 'var(--text)',
+                fontSize: 13, fontFamily: 'inherit', outline: 'none',
+                transition: 'border-color 150ms ease',
+              }}
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+              onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                title="Clear search"
+                style={{
+                  position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: 'var(--surface2)', border: 'none',
+                  color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
+                  transition: 'color 150ms ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)' }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Stats row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 32 }}>
           <StatTile value={todayEvents.length} label="Today" sublabel="meetings" accent="var(--red)" />
@@ -2324,6 +2433,41 @@ export default function CalendarPage() {
             <Shimmer h={76} />
             <Shimmer h={76} />
           </div>
+        ) : isSearching ? (
+          <>
+            {/* SEARCH RESULTS */}
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text3)', marginBottom: 14 }}>
+              {searchResults.length} {searchResults.length === 1 ? 'event' : 'events'} found
+            </div>
+            {searchResults.length === 0 ? (
+              <div style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                justifyContent: 'center', paddingTop: 48, gap: 8, color: 'var(--text3)',
+              }}>
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3 }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text2)' }}>No events found</div>
+                <div style={{ fontSize: 13, color: 'var(--text3)' }}>Nothing matches “{searchQuery.trim()}”</div>
+              </div>
+            ) : (
+              <div style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 10, overflow: 'hidden',
+              }}>
+                {searchResults.map((e, i) => (
+                  <div key={e.id}>
+                    {i > 0 && (
+                      <div style={{ height: 1, background: 'var(--border)', margin: '0 16px' }} />
+                    )}
+                    <SearchResultRow event={e} onEdit={openEdit} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         ) : (
           <>
             {/* TODAY */}
