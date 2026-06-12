@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
 import { TopBar, PillRed } from '@/components/ui'
 
@@ -1021,6 +1021,43 @@ function FloatingCalendarAI() {
   )
 }
 
+interface Attendee {
+  name: string
+  email: string
+}
+
+// CASK team roster for the Add Event attendee picker.
+const CASK_TEAM: Attendee[] = [
+  { name: 'Calin Noonan', email: 'c.noonan@caskconstruction.com' },
+  { name: 'Kai Mapoy', email: 'k.mapoy@caskconstruction.com' },
+  { name: 'Chad Holman', email: 'c.holman@caskconstruction.com' },
+  { name: 'Hazel Mae', email: 'h.mae@caskconstruction.com' },
+  { name: 'Kaitlyn Grunenberg', email: 'k.grunenberg@caskconstruction.com' },
+  { name: 'Bryan Turnquist', email: 'b.turnquist@caskconstruction.com' },
+  { name: 'Cooper Hermansen', email: 'c.hermansen@caskconstruction.com' },
+  { name: 'Daniel Berube', email: 'd.berube@caskconstruction.com' },
+  { name: 'Doug Mertens', email: 'd.mertens@caskconstruction.com' },
+  { name: 'Eric Bressler', email: 'e.bressler@caskconstruction.com' },
+  { name: 'Jasmen Pangandaman', email: 'j.pangandaman@caskconstruction.com' },
+  { name: 'Jasmin Salangsang', email: 'j.salangsang@caskconstruction.com' },
+  { name: 'Jeff Azcona', email: 'j.azcona@caskconstruction.com' },
+  { name: 'Jessica Zientarski', email: 'j.zientarski@caskconstruction.com' },
+  { name: 'Joseph Estelloso', email: 'j.estelloso@caskconstruction.com' },
+  { name: 'Kelly Cuffel', email: 'k.cuffel@caskconstruction.com' },
+  { name: 'Kevin Balmaceda', email: 'k.balmaceda@caskconstruction.com' },
+  { name: 'Lamont Gilyot', email: 'l.gilyot@caskconstruction.com' },
+  { name: 'Leonilo Abbu Jr.', email: 'l.abbu@caskconstruction.com' },
+  { name: 'Mark Curry', email: 'm.curry@caskconstruction.com' },
+  { name: 'Matteo Carpani', email: 'm.carpani@caskconstruction.com' },
+  { name: 'Peter Deutelmoser', email: 'p.deutelmoser@caskconstruction.com' },
+  { name: 'Precious Mae', email: 'p.mae@caskconstruction.com' },
+  { name: 'Scott Pfaff', email: 's.pfaff@caskconstruction.com' },
+  { name: 'Shannon Halvorsen', email: 's.halvorsen@caskconstruction.com' },
+  { name: 'Tim Ritschel', email: 't.ritschel@caskconstruction.com' },
+]
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 interface AddEventFormData {
   title: string
   date: string
@@ -1050,16 +1087,98 @@ const EMPTY_ADD_EVENT_FORM: AddEventFormData = {
 function AddEventModal({ isOpen, onClose, onSave, saving }: {
   isOpen: boolean
   onClose: () => void
-  onSave: (formData: AddEventFormData) => void
+  onSave: (formData: AddEventFormData, attendees: Attendee[]) => void
   saving: boolean
 }) {
   const [form, setForm] = useState<AddEventFormData>(EMPTY_ADD_EVENT_FORM)
   const [addTimeError, setAddTimeError] = useState('')
 
+  // Attendees live in their OWN local state — kept separate from the main form so
+  // adding/removing pills never touches the form payload until Save.
+  const [attendees, setAttendees] = useState<Attendee[]>([])
+  const [teamQuery, setTeamQuery] = useState('')
+  const [teamDropdownOpen, setTeamDropdownOpen] = useState(false)
+  const [emailMode, setEmailMode] = useState(false)
+  const [emailInput, setEmailInput] = useState('')
+  const [attendeeError, setAttendeeError] = useState('')
+  const attendeeBoxRef = useRef<HTMLDivElement>(null)
+
   // Reset local form whenever the modal closes, so the next open starts clean.
   useEffect(() => {
-    if (!isOpen) { setForm(EMPTY_ADD_EVENT_FORM); setAddTimeError('') }
+    if (!isOpen) {
+      setForm(EMPTY_ADD_EVENT_FORM)
+      setAddTimeError('')
+      setAttendees([])
+      setTeamQuery('')
+      setTeamDropdownOpen(false)
+      setEmailMode(false)
+      setEmailInput('')
+      setAttendeeError('')
+    }
   }, [isOpen])
+
+  // Close the attendee dropdown when clicking anywhere outside it.
+  useEffect(() => {
+    if (!teamDropdownOpen) return
+    function onDocClick(e: MouseEvent) {
+      if (attendeeBoxRef.current && !attendeeBoxRef.current.contains(e.target as Node)) {
+        setTeamDropdownOpen(false)
+        setEmailMode(false)
+        setEmailInput('')
+        setTeamQuery('')
+        setAttendeeError('')
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [teamDropdownOpen])
+
+  // Roster sorted alphabetically once; cheap filter happens per keystroke.
+  const sortedTeam = useMemo(
+    () => [...CASK_TEAM].sort((a, b) => a.name.localeCompare(b.name)),
+    [],
+  )
+  const filteredTeam = useMemo(() => {
+    const q = teamQuery.trim().toLowerCase()
+    if (!q) return sortedTeam
+    return sortedTeam.filter(m => m.name.toLowerCase().includes(q))
+  }, [sortedTeam, teamQuery])
+
+  function isSelected(email: string) {
+    return attendees.some(a => a.email.toLowerCase() === email.toLowerCase())
+  }
+
+  function addAttendee(att: Attendee): boolean {
+    if (attendees.length >= 10) { setAttendeeError('Maximum of 10 attendees'); return false }
+    if (isSelected(att.email)) { setAttendeeError('Attendee already added'); return false }
+    setAttendees(list => [...list, att])
+    setAttendeeError('')
+    return true
+  }
+
+  function closeDropdown() {
+    setTeamDropdownOpen(false)
+    setEmailMode(false)
+    setEmailInput('')
+    setTeamQuery('')
+  }
+
+  function addTeamMember(member: Attendee) {
+    if (isSelected(member.email)) return
+    if (addAttendee(member)) closeDropdown()
+  }
+
+  function addExternalEmail() {
+    const email = emailInput.trim()
+    if (!email) return
+    if (!EMAIL_RE.test(email)) { setAttendeeError('Enter a valid email address'); return }
+    if (addAttendee({ name: email, email })) closeDropdown()
+  }
+
+  function removeAttendee(email: string) {
+    setAttendees(list => list.filter(a => a.email !== email))
+    setAttendeeError('')
+  }
 
   if (!isOpen) return null
 
@@ -1070,7 +1189,7 @@ function AddEventModal({ isOpen, onClose, onSave, saving }: {
       return
     }
     setAddTimeError('')
-    onSave(form)
+    onSave(form, attendees)
   }
 
   return (
@@ -1088,9 +1207,9 @@ function AddEventModal({ isOpen, onClose, onSave, saving }: {
           background: 'var(--surface)',
           border: '1px solid var(--border)',
           borderRadius: 14,
-          width: 480,
+          width: 768,
           maxWidth: 'calc(100vw - 32px)',
-          maxHeight: 'calc(100vh - 64px)',
+          maxHeight: '90vh',
           overflowY: 'auto',
           animation: 'modalFadeIn 180ms ease',
         }}
@@ -1119,10 +1238,10 @@ function AddEventModal({ isOpen, onClose, onSave, saving }: {
           </button>
         </div>
 
-        {/* Form */}
+        {/* Form — row-based layout so everything fits without scrolling */}
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* All Day toggle */}
+          {/* ROW 1 — All Day toggle (full width) */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text2)' }}>All Day Event</label>
             <button
@@ -1141,142 +1260,339 @@ function AddEventModal({ isOpen, onClose, onSave, saving }: {
             </button>
           </div>
 
-          {/* Title */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-              Title <span style={{ color: 'var(--red)' }}>*</span>
-            </label>
-            <input
-              type="text"
-              value={form.title}
-              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-              placeholder="Event title"
-              style={{
-                width: '100%', padding: '9px 12px', borderRadius: 8,
-                border: '1px solid var(--border2)', background: 'var(--surface2)',
-                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                outline: 'none', boxSizing: 'border-box',
-              }}
-            />
+          {/* ROW 2 — Title | Organizer */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {/* Title */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                Title <span style={{ color: 'var(--red)' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={form.title}
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="Event title"
+                style={{
+                  width: '100%', padding: '9px 12px', borderRadius: 8,
+                  border: '1px solid var(--border2)', background: 'var(--surface2)',
+                  color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            {/* Organizer */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                Organizer
+              </label>
+              <input
+                type="text"
+                value={form.organizer}
+                onChange={e => setForm(f => ({ ...f, organizer: e.target.value }))}
+                placeholder="Calin Noonan"
+                style={{
+                  width: '100%', padding: '9px 12px', borderRadius: 8,
+                  border: '1px solid var(--border2)', background: 'var(--surface2)',
+                  color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
           </div>
 
-          {/* Date */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-              Date <span style={{ color: 'var(--red)' }}>*</span>
-            </label>
-            <input
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              style={{
-                width: '100%', padding: '9px 12px', borderRadius: 8,
-                border: '1px solid var(--border2)', background: 'var(--surface2)',
-                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                outline: 'none', boxSizing: 'border-box',
-              }}
-            />
+          {/* ROW 3 — Date | Location */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {/* Date */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                Date <span style={{ color: 'var(--red)' }}>*</span>
+              </label>
+              <input
+                type="date"
+                value={form.date}
+                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                style={{
+                  width: '100%', padding: '9px 12px', borderRadius: 8,
+                  border: '1px solid var(--border2)', background: 'var(--surface2)',
+                  color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            {/* Location */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                Location
+              </label>
+              <input
+                type="text"
+                value={form.location}
+                onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                placeholder="Conference room, address, etc."
+                style={{
+                  width: '100%', padding: '9px 12px', borderRadius: 8,
+                  border: '1px solid var(--border2)', background: 'var(--surface2)',
+                  color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
           </div>
 
-          {/* Start / End Time */}
-          {!form.isAllDay && (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                    Start Time <span style={{ color: 'var(--red)' }}>*</span>
-                  </label>
-                  <input
-                    type="time"
-                    value={form.startTime}
-                    onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
-                    style={{
-                      width: '100%', padding: '9px 12px', borderRadius: 8,
-                      border: '1px solid var(--border2)', background: 'var(--surface2)',
-                      color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                      outline: 'none', boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                    End Time
-                  </label>
-                  <input
-                    type="time"
-                    value={form.endTime}
-                    onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))}
-                    style={{
-                      width: '100%', padding: '9px 12px', borderRadius: 8,
-                      border: '1px solid var(--border2)', background: 'var(--surface2)',
-                      color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                      outline: 'none', boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
+          {/* ROW 4 — Start Time | End Time | Teams Link */}
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+              {!form.isAllDay && (
+                <>
+                  {/* Start Time */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Start Time <span style={{ color: 'var(--red)' }}>*</span>
+                    </label>
+                    <input
+                      type="time"
+                      value={form.startTime}
+                      onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                  {/* End Time */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      End Time
+                    </label>
+                    <input
+                      type="time"
+                      value={form.endTime}
+                      onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '9px 12px', borderRadius: 8,
+                        border: '1px solid var(--border2)', background: 'var(--surface2)',
+                        color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+              {/* Teams Link */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Teams Link
+                </label>
+                <input
+                  type="url"
+                  value={form.teamsLink}
+                  onChange={e => setForm(f => ({ ...f, teamsLink: e.target.value }))}
+                  placeholder="https://teams.microsoft.com/..."
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 8,
+                    border: '1px solid var(--border2)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
               </div>
+            </div>
+            {!form.isAllDay && (
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>
                 Enter time in ET (Florida time)
               </div>
-            </>
-          )}
-
-          {/* Organizer */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-              Organizer
-            </label>
-            <input
-              type="text"
-              value={form.organizer}
-              onChange={e => setForm(f => ({ ...f, organizer: e.target.value }))}
-              placeholder="Calin Noonan"
-              style={{
-                width: '100%', padding: '9px 12px', borderRadius: 8,
-                border: '1px solid var(--border2)', background: 'var(--surface2)',
-                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                outline: 'none', boxSizing: 'border-box',
-              }}
-            />
+            )}
           </div>
 
-          {/* Location */}
+          {/* ROW 5 — Attendees | Recurring */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22, alignItems: 'start' }}>
+
+          {/* Attendees */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-              Location
+              Attendees <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
             </label>
-            <input
-              type="text"
-              value={form.location}
-              onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-              placeholder="Conference room, address, etc."
-              style={{
-                width: '100%', padding: '9px 12px', borderRadius: 8,
-                border: '1px solid var(--border2)', background: 'var(--surface2)',
-                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                outline: 'none', boxSizing: 'border-box',
-              }}
-            />
+
+            {/* Add Attendees dropdown */}
+            <div ref={attendeeBoxRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setTeamDropdownOpen(o => !o)
+                  setEmailMode(false)
+                  setEmailInput('')
+                  setTeamQuery('')
+                  setAttendeeError('')
+                }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 7,
+                  padding: '9px 14px', borderRadius: 8,
+                  background: 'transparent', border: '1px solid var(--border2)',
+                  color: 'var(--text2)', fontSize: 13, fontWeight: 600,
+                  fontFamily: 'inherit', cursor: 'pointer',
+                  transition: 'border-color 150ms ease, color 150ms ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--text3)'; e.currentTarget.style.color = 'var(--text)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text2)' }}
+              >
+                + Add Attendees
+                <span style={{ fontSize: 10, opacity: 0.7 }}>▼</span>
+              </button>
+
+              {teamDropdownOpen && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 20,
+                  width: 280, maxWidth: 'calc(100% + 60px)',
+                  background: 'var(--surface)', border: '1px solid var(--border2)',
+                  borderRadius: 10, boxShadow: '0 10px 30px -8px rgba(0,0,0,0.32)',
+                  overflow: 'hidden',
+                }}>
+                  {/* Search input */}
+                  <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={teamQuery}
+                      onChange={e => setTeamQuery(e.target.value)}
+                      placeholder="Search team..."
+                      style={{
+                        width: '100%', padding: '4px 2px', border: 'none',
+                        background: 'transparent', color: 'var(--text)',
+                        fontSize: 13, fontFamily: 'inherit', outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  {/* Team list */}
+                  <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                    {filteredTeam.length === 0 ? (
+                      <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text3)' }}>
+                        No matches
+                      </div>
+                    ) : filteredTeam.map(member => {
+                      const selected = isSelected(member.email)
+                      return (
+                        <button
+                          key={member.email}
+                          type="button"
+                          disabled={selected}
+                          onClick={() => addTeamMember(member)}
+                          style={{
+                            display: 'block', width: '100%', textAlign: 'left',
+                            padding: '8px 12px', border: 'none', background: 'transparent',
+                            fontSize: 13, fontFamily: 'inherit',
+                            color: selected ? 'var(--text3)' : 'var(--text)',
+                            opacity: selected ? 0.45 : 1,
+                            cursor: selected ? 'default' : 'pointer',
+                            transition: 'background 120ms ease',
+                          }}
+                          onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'var(--surface-hover)' }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                        >
+                          {member.name}
+                          {selected && <span style={{ marginLeft: 6, fontSize: 11 }}>· added</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Divider + external email option */}
+                  <div style={{ borderTop: '1px solid var(--border)' }}>
+                    {emailMode ? (
+                      <div style={{ padding: '8px 10px' }}>
+                        <input
+                          type="email"
+                          autoFocus
+                          value={emailInput}
+                          onChange={e => { setEmailInput(e.target.value); if (attendeeError) setAttendeeError('') }}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addExternalEmail() } }}
+                          placeholder="email@example.com, then Enter"
+                          style={{
+                            width: '100%', padding: '7px 10px', borderRadius: 7,
+                            border: '1px solid var(--border2)', background: 'var(--surface2)',
+                            color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+                            outline: 'none', boxSizing: 'border-box',
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setEmailMode(true); setAttendeeError('') }}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left',
+                          padding: '9px 12px', border: 'none', background: 'transparent',
+                          fontSize: 13, fontStyle: 'italic', color: 'var(--text3)',
+                          fontFamily: 'inherit', cursor: 'pointer',
+                          transition: 'background 120ms ease',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-hover)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                      >
+                        ＋ Add external email
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {attendeeError && (
+              <div style={{ fontSize: 11, color: 'var(--red)', fontWeight: 500, marginTop: 6 }}>
+                {attendeeError}
+              </div>
+            )}
+
+            {/* Selected attendee pills */}
+            {attendees.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                {attendees.map(att => (
+                  <span
+                    key={att.email}
+                    title={att.email}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      background: 'var(--charcoal)', color: 'white',
+                      fontSize: 12,
+                      padding: '4px 6px 4px 10px', borderRadius: 14,
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, color: 'white' }}>{att.name}</span>
+                    {att.email !== att.name && (
+                      <>
+                        <span style={{ color: 'rgba(255,255,255,0.4)' }}>·</span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>{att.email}</span>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeAttendee(att.email)}
+                      title="Remove attendee"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                        background: 'rgba(255,255,255,0.16)', border: 'none',
+                        color: 'white', cursor: 'pointer', padding: 0, lineHeight: 1,
+                        transition: 'background 120ms ease',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.32)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)' }}
+                    >
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Teams Link */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-              Teams Link
-            </label>
-            <input
-              type="url"
-              value={form.teamsLink}
-              onChange={e => setForm(f => ({ ...f, teamsLink: e.target.value }))}
-              placeholder="https://teams.microsoft.com/..."
-              style={{
-                width: '100%', padding: '9px 12px', borderRadius: 8,
-                border: '1px solid var(--border2)', background: 'var(--surface2)',
-                color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
-                outline: 'none', boxSizing: 'border-box',
-              }}
-            />
-          </div>
+          {/* Recurring cell (Row 5, right) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
           {/* Recurring toggle */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1421,6 +1737,12 @@ function AddEventModal({ isOpen, onClose, onSave, saving }: {
               </div>
             </>
           )}
+
+          {/* end Recurring cell */}
+          </div>
+
+          {/* end ROW 5 */}
+          </div>
         </div>
 
         {/* Footer */}
@@ -1580,7 +1902,7 @@ export default function CalendarPage() {
     return new Date(guess.getTime() + diffMs).toISOString()
   }
 
-  async function handleSave(formData: AddEventFormData) {
+  async function handleSave(formData: AddEventFormData, attendees: Attendee[]) {
     if (!formData.title || !formData.date || (!formData.isAllDay && !formData.startTime)) return
     setSaving(true)
 
@@ -1651,7 +1973,8 @@ export default function CalendarPage() {
           recurring_days: mappedDays,
           recurring_indefinite: isIndefinite,
           recurring_until: isIndefinite ? null : (formData.repeatUntil || null),
-          recurring_id: recurringId
+          recurring_id: recurringId,
+          attendees: attendees
         })
       }).catch(console.error)
     }
