@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { TopBar, PillGreen } from '@/components/ui'
+import { createClient } from '@/lib/supabase'
 
 // ── Floating Agenda AI — palette + chat config ───────────────────────
 const ACCENT = '#c8311a' // CASK red
@@ -74,6 +75,45 @@ function FloatingAgendaAI() {
   const [thinking, setThinking] = useState(false)
   const [btnHover, setBtnHover] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
+  const userEmailRef = useRef('')
+
+  useEffect(() => {
+    async function loadHistory() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user?.email) return
+      userEmailRef.current = user.email
+      const { data: history } = await supabase
+        .from('chat_history')
+        .select('role, content')
+        .eq('user_email', user.email)
+        .eq('page_context', '/generate')
+        .order('created_at', { ascending: true })
+        .limit(50)
+      if (history && history.length > 0) {
+        setMessages(history as PanelMsg[])
+      }
+    }
+    loadHistory()
+  }, [])
+
+  function saveMessage(role: string, content: string) {
+    if (!userEmailRef.current) return
+    createClient()
+      .from('chat_history')
+      .insert({ user_email: userEmailRef.current, page_context: '/generate', role, content })
+      .then(({ error }) => { if (error) console.error('[chat history] save error:', error.message) })
+  }
+
+  async function clearHistory() {
+    if (!userEmailRef.current) return
+    await createClient()
+      .from('chat_history')
+      .delete()
+      .eq('user_email', userEmailRef.current)
+      .eq('page_context', '/generate')
+    setMessages([{ role: 'assistant', content: AI_GREETING }])
+  }
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -84,6 +124,7 @@ function FloatingAgendaAI() {
     if (!msg || thinking) return
     const next: PanelMsg[] = [...messages, { role: 'user', content: msg }]
     setMessages(next)
+    saveMessage('user', msg)
     setInput('')
     setThinking(true)
     try {
@@ -97,7 +138,9 @@ function FloatingAgendaAI() {
       })
       if (!res.ok) throw new Error(`API error ${res.status}`)
       const data = await res.json()
-      setMessages([...next, { role: 'assistant', content: data.content || 'No response.' }])
+      const aiContent = data.content || 'No response.'
+      setMessages([...next, { role: 'assistant', content: aiContent }])
+      saveMessage('assistant', aiContent)
     } catch {
       setMessages([...next, { role: 'assistant', content: 'Connection error. Please try again.' }])
     } finally {
@@ -209,6 +252,14 @@ function FloatingAgendaAI() {
                 Agenda AI
               </span>
             </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              onClick={clearHistory}
+              title="Clear chat history"
+              style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', padding: '5px 9px', borderRadius: 20, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              Clear
+            </button>
             <button
               onClick={() => setOpen(false)}
               title="Close"
@@ -239,6 +290,7 @@ function FloatingAgendaAI() {
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
+            </span>
           </div>
 
           {/* Feed */}
