@@ -29,7 +29,7 @@ const NAV_SECTIONS = [
     items: [
       { href: '/president/overview', icon: '▤', label: "President's Meeting Agendas", locked: false },
       { href: '/president/calendar', icon: '📅', label: "President's Calendar", locked: false },
-      { href: '/daily-meetings', icon: '🗓', label: 'Daily Meetings', locked: false },
+      { href: '/daily-meetings', icon: '🗓', label: 'Daily Meetings Recap', locked: false },
     ],
   },
   {

@@ -413,7 +413,7 @@ export default function DailyMeetingsPage() {
 
   return (
     <>
-      <TopBar title="Daily Meetings" subtitle="President's Workflow">
+      <TopBar title="Daily Meetings Recap" subtitle="President's Workflow">
         <PillGreen>Claude AI Active</PillGreen>
         <PillRed>{meetings.length} meetings recorded</PillRed>
         <button
@@ -447,7 +447,7 @@ export default function DailyMeetingsPage() {
             className="font-serif text-[26px] font-normal tracking-[-0.5px] leading-[1.1]"
             style={{ color: 'var(--text)' }}
           >
-            Daily Meetings
+            Daily Meetings Recap
           </h1>
           <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
             {loading

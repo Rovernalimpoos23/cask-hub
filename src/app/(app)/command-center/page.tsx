@@ -590,7 +590,7 @@ function DataSourcePill({ name, status }: { name: string; status: Status }) {
 //
 // The shared right-hand AI panel is hidden on this route (see layout.tsx),
 // so the page runs full-width. System Insights now lives inline as a compact
-// status bar, and CCFOS AI lives in a floating button + drawer bottom-right.
+// status bar, and CASK OS AI lives in a floating button + drawer bottom-right.
 
 // Drawer palette — CSS variables so it adapts to light/dark mode with the app.
 const AI_ACCENT = '#B5121B' // fable red (hex needed for alpha suffix tricks)
@@ -622,7 +622,7 @@ const RECOMMENDED_ACTIONS: { text: string }[] = [
 ]
 
 const AI_GREETING =
-  "CCFOS AI online. I have context on all 5 departments, their connection status, and the roadmap. Ask what to connect next, who owns a report, or what's live."
+  "CASK OS AI online. I have context on all 5 departments, their connection status, and the roadmap. Ask what to connect next, who owns a report, or what's live."
 
 const QUICK_PROMPTS = ['What needs connecting?', "What's live now?", 'Department owners']
 
@@ -696,7 +696,7 @@ function SystemInsightsBar() {
   )
 }
 
-function FloatingCCFOSAI() {
+function FloatingCASKOSAI() {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<PanelMsg[]>([{ role: 'assistant', content: AI_GREETING }])
   const [input, setInput] = useState('')
@@ -783,7 +783,7 @@ function FloatingCCFOSAI() {
             animation: 'ccfosPulse 2.2s ease-out infinite',
           }}
         />
-        CCFOS AI
+        CASK OS AI
       </button>
 
       {/* Chat drawer — slides up from bottom-right */}
@@ -840,7 +840,7 @@ function FloatingCCFOSAI() {
                   color: '#fff',
                 }}
               >
-                CCFOS AI
+                CASK OS AI
               </span>
             </span>
             <button
@@ -895,7 +895,7 @@ function FloatingCCFOSAI() {
                     marginBottom: 5,
                   }}
                 >
-                  {m.role === 'user' ? 'You' : 'CCFOS AI'}
+                  {m.role === 'user' ? 'You' : 'CASK OS AI'}
                 </div>
                 <div
                   style={{
@@ -923,7 +923,7 @@ function FloatingCCFOSAI() {
                     marginBottom: 5,
                   }}
                 >
-                  CCFOS AI
+                  CASK OS AI
                 </div>
                 <div style={{ fontSize: 12.5, color: D.text3, fontStyle: 'italic' }}>Analyzing…</div>
               </div>
@@ -1088,10 +1088,10 @@ export default function CommandCenterPage() {
                 margin: 0,
               }}
             >
-              CCFOS
+              CASK OS
             </h1>
             <div style={{ color: 'var(--text2)', fontSize: 13.5, marginTop: 6 }}>
-              CASK Construction Financial Operating System
+              CASK Construction Operating System
             </div>
             <div style={{ color: 'var(--text3)', fontSize: 12.5, marginTop: 3 }}>
               One system, one source of truth —{' '}
@@ -1246,7 +1246,7 @@ export default function CommandCenterPage() {
               }}
             >
               <div style={{ fontSize: 12.5, color: 'var(--text3)', marginBottom: 13 }}>
-                Every system feeds CCFOS. Connect a source and its reports come online automatically.
+                Every system feeds CASK OS. Connect a source and its reports come online automatically.
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {DATA_SOURCES.map(s => (
@@ -1258,8 +1258,8 @@ export default function CommandCenterPage() {
         </div>
       </div>
 
-      {/* Floating CCFOS AI button + chat drawer — bottom-right, this page only */}
-      <FloatingCCFOSAI />
+      {/* Floating CASK OS AI button + chat drawer — bottom-right, this page only */}
+      <FloatingCASKOSAI />
     </>
   )
 }
