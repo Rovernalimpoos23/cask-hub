@@ -1051,6 +1051,7 @@ const CASK_TEAM: Attendee[] = [
   { name: 'Matteo Carpani', email: 'm.carpani@caskconstruction.com' },
   { name: 'Peter Deutelmoser', email: 'p.deutelmoser@caskconstruction.com' },
   { name: 'Precious Mae', email: 'p.mae@caskconstruction.com' },
+  { name: 'Rovern Alimpoos', email: 'r.alimpoos@caskconstruction.com' },
   { name: 'Scott Pfaff', email: 's.pfaff@caskconstruction.com' },
   { name: 'Shannon Halvorsen', email: 's.halvorsen@caskconstruction.com' },
   { name: 'Tim Ritschel', email: 't.ritschel@caskconstruction.com' },
