@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase'
 import { TopBar, PillRed } from '@/components/ui'
 
@@ -1177,11 +1178,12 @@ const EMPTY_ADD_EVENT_FORM: AddEventFormData = {
 // Add Event modal — owns its own local form state so typing only re-renders this
 // modal, not the whole calendar page. It just collects form data; the parent does
 // the actual save (webhook + Supabase) via onSave(formData).
-function AddEventModal({ isOpen, onClose, onSave, saving }: {
+function AddEventModal({ isOpen, onClose, onSave, saving, initialDate }: {
   isOpen: boolean
   onClose: () => void
   onSave: (formData: AddEventFormData, attendees: Attendee[]) => void
   saving: boolean
+  initialDate?: string
 }) {
   const [form, setForm] = useState<AddEventFormData>(EMPTY_ADD_EVENT_FORM)
   const [addTimeError, setAddTimeError] = useState('')
@@ -1209,6 +1211,11 @@ function AddEventModal({ isOpen, onClose, onSave, saving }: {
       setAttendeeError('')
     }
   }, [isOpen])
+
+  // Pre-fill the date when the modal is opened from a calendar day cell.
+  useEffect(() => {
+    if (isOpen && initialDate) setForm(f => ({ ...f, date: initialDate }))
+  }, [isOpen, initialDate])
 
   // Close the attendee dropdown when clicking anywhere outside it.
   useEffect(() => {
@@ -1880,12 +1887,612 @@ function AddEventModal({ isOpen, onClose, onSave, saving }: {
   )
 }
 
+// ── Calendar Grid View ───────────────────────────────────────────────
+
+const CASK_RED = '#c8311a'
+const FRAUNCES = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Event color by link type: Teams = purple, Outlook = blue, no link = CASK red.
+function eventColor(event: CalendarEvent): string {
+  const link = event.meeting_link ?? ''
+  if (link.includes('teams.microsoft.com')) return '#7c3aed'
+  if (link.includes('outlook.office')) return '#3B82F6'
+  return CASK_RED
+}
+
+interface DayCell {
+  dateStr: string
+  day: number
+  inMonth: boolean
+  isToday: boolean
+  events: CalendarEvent[]
+}
+
+// Build a 6×7 month grid. Dates are anchored at UTC noon so extracting the
+// Y-M-D string is DST-safe; events/today are bucketed by their Eastern-Time date.
+function buildMonthGrid(year: number, month: number, events: CalendarEvent[], todayStr: string): DayCell[] {
+  const firstUTC = new Date(Date.UTC(year, month, 1, 12, 0, 0))
+  const startDow = firstUTC.getUTCDay() // 0=Sun … 6=Sat
+  const gridStart = new Date(firstUTC)
+  gridStart.setUTCDate(gridStart.getUTCDate() - startDow)
+
+  const byDate: Record<string, CalendarEvent[]> = {}
+  for (const e of events) {
+    const d = toDateStr(e.start_time)
+    ;(byDate[d] ??= []).push(e)
+  }
+
+  const cells: DayCell[] = []
+  for (let i = 0; i < 42; i++) {
+    const cur = new Date(gridStart)
+    cur.setUTCDate(cur.getUTCDate() + i)
+    const dateStr = cur.toISOString().split('T')[0]
+    const evs = (byDate[dateStr] ?? []).slice().sort((a, b) => a.start_time.localeCompare(b.start_time))
+    cells.push({
+      dateStr,
+      day: cur.getUTCDate(),
+      inMonth: cur.getUTCMonth() === month,
+      isToday: dateStr === todayStr,
+      events: evs,
+    })
+  }
+  return cells
+}
+
+function DayCellView({ cell, index, onShowDetails, onAddOnDate }: {
+  cell: DayCell
+  index: number
+  onShowDetails: (event: CalendarEvent, anchor: DOMRect) => void
+  onAddOnDate: (dateStr: string) => void
+}) {
+  const [hovered, setHovered] = useState(false)
+  const [popup, setPopup] = useState<{ top: number; left: number } | null>(null)
+  const visible = cell.events.slice(0, 2)
+  const extra = cell.events.length - visible.length
+
+  return (
+    <div
+      onClick={() => onAddOnDate(cell.dateStr)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: 'relative',
+        minHeight: 106,
+        padding: 6,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+        borderRight: '1px solid var(--border)',
+        borderBottom: '1px solid var(--border)',
+        background: cell.isToday
+          ? 'rgba(200,49,26,0.06)'
+          : hovered ? 'var(--surface-hover)' : 'transparent',
+        opacity: cell.inMonth ? 1 : 0.4,
+        cursor: 'pointer',
+        overflow: 'hidden',
+        transition: 'background 150ms ease',
+      }}
+    >
+      {/* Day number + hover add button */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 22 }}>
+        <span
+          style={cell.isToday ? {
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            minWidth: 22, height: 22, padding: '0 6px', borderRadius: 999,
+            background: CASK_RED, color: '#fff', fontSize: 12, fontWeight: 700,
+          } : {
+            fontSize: 12, fontWeight: 600, padding: '0 3px',
+            color: cell.inMonth ? 'var(--text2)' : 'var(--text3)',
+          }}
+        >
+          {cell.day}
+        </span>
+        {hovered && (
+          <button
+            onClick={e => { e.stopPropagation(); onAddOnDate(cell.dateStr) }}
+            title="Add event on this day"
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 18, height: 18, borderRadius: 5, border: 'none', cursor: 'pointer',
+              background: 'var(--surface2)', color: 'var(--text2)',
+              fontFamily: 'inherit', fontSize: 14, lineHeight: 1,
+            }}
+          >
+            +
+          </button>
+        )}
+      </div>
+
+      {/* Event blocks — charcoal w/ purple dot = has Teams; CASK red = regular event */}
+      {visible.map(ev => (
+        <button
+          key={ev.id}
+          onClick={e => { e.stopPropagation(); onShowDetails(ev, e.currentTarget.getBoundingClientRect()) }}
+          title={ev.title}
+          style={{
+            display: 'block', width: '100%', textAlign: 'left',
+            border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            fontSize: 11, fontWeight: 600, lineHeight: 1.3,
+            padding: '3px 7px', borderRadius: 5,
+            background: eventColor(ev),
+            color: '#fff',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            animation: 'calEventFadeIn 240ms ease both',
+            animationDelay: `${Math.min(index, 41) * 12}ms`,
+            transition: 'opacity 150ms ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+        >
+          {ev.title}
+        </button>
+      ))}
+      {extra > 0 && (
+        <button
+          onClick={e => {
+            e.stopPropagation()
+            const r = e.currentTarget.getBoundingClientRect()
+            setPopup({
+              top: Math.min(r.bottom + 6, window.innerHeight - 24),
+              left: Math.max(8, Math.min(r.left, window.innerWidth - 248)),
+            })
+          }}
+          style={{
+            textAlign: 'left', border: 'none', background: 'transparent',
+            fontSize: 10.5, fontWeight: 700, color: 'var(--text3)',
+            padding: '1px 4px', cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'color 150ms ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text3)' }}
+        >
+          +{extra} more
+        </button>
+      )}
+
+      {/* "+X more" popup — full day agenda, click a row to edit, click outside to close */}
+      {popup && createPortal(
+        <div
+          onClick={() => setPopup(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 10050 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'fixed', top: popup.top, left: popup.left,
+              width: 236, maxHeight: 320, overflowY: 'auto',
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, boxShadow: '0 14px 36px -10px rgba(0,0,0,0.4)',
+              padding: 6, fontFamily: 'inherit',
+            }}
+          >
+            <div style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: '0.8px',
+              textTransform: 'uppercase', color: 'var(--text3)',
+              padding: '6px 8px 8px',
+            }}>
+              {new Date(cell.dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {cell.events.length} events
+            </div>
+            {cell.events.map(ev => (
+              <button
+                key={ev.id}
+                onClick={e => { setPopup(null); onShowDetails(ev, e.currentTarget.getBoundingClientRect()) }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                  padding: '7px 8px', borderRadius: 6, border: 'none', background: 'transparent',
+                  cursor: 'pointer', fontFamily: 'inherit', transition: 'background 150ms ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-hover)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: eventColor(ev), flexShrink: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', flexShrink: 0, minWidth: 56 }}>
+                  {ev.is_all_day ? 'All day' : formatTime(ev.start_time)}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ev.title}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  )
+}
+
+// Build a human label for a recurring event, e.g. "Repeats every Tuesday".
+const DAY_FULL: Record<string, string> = {
+  mon: 'Monday', monday: 'Monday', tue: 'Tuesday', tuesday: 'Tuesday',
+  wed: 'Wednesday', wednesday: 'Wednesday', thu: 'Thursday', thursday: 'Thursday',
+  fri: 'Friday', friday: 'Friday', sat: 'Saturday', saturday: 'Saturday',
+  sun: 'Sunday', sunday: 'Sunday',
+}
+function recurrenceLabel(event: CalendarEvent): string {
+  const days = (event.recurring_days ?? []) as string[]
+  if (days.length > 0) {
+    const names = days.map(d => DAY_FULL[d.toLowerCase()] ?? d)
+    return `Repeats every ${names.join(', ')}`
+  }
+  return event.recurring_indefinite ? 'Repeats indefinitely' : 'Recurring event'
+}
+
+const teamsIconSvg = (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+)
+
+// Outlook-style event detail card. Rendered to document.body so the day cell's
+// overflow + the grid's animation transform can't clip or mis-position it.
+function EventDetailsPopup({ event, anchor, onClose, onEdit, onDelete }: {
+  event: CalendarEvent
+  anchor: DOMRect
+  onClose: () => void
+  onEdit: (event: CalendarEvent) => void
+  onDelete: (event: CalendarEvent) => void
+}) {
+  const WIDTH = 320
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1280
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+
+  const spaceBelow = vh - anchor.bottom
+  const placeBelow = spaceBelow >= 300 || spaceBelow >= anchor.top
+  const left = Math.max(12, Math.min(anchor.left, vw - WIDTH - 12))
+  const arrowLeft = Math.max(18, Math.min(anchor.left + anchor.width / 2 - left, WIDTH - 26))
+
+  const posStyle: React.CSSProperties = placeBelow
+    ? { top: anchor.bottom + 10 }
+    : { bottom: vh - anchor.top + 10 }
+  const maxHeight = placeBelow ? vh - (anchor.bottom + 10) - 16 : anchor.top - 16
+
+  const isAllDay = !!event.is_all_day
+  const attendees = normalizeAttendees(event.attendees)
+  const teamsLink = event.meeting_link
+  const dateLabel = new Date(event.start_time).toLocaleDateString('en-US', {
+    timeZone: 'America/New_York', weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric',
+  })
+  const timeLabel = isAllDay ? 'All day' : formatTimeRange(event.start_time, event.end_time)
+
+  const iconBtnStyle: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    width: 26, height: 26, borderRadius: 6, border: '1px solid transparent',
+    background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit',
+    transition: 'border-color 150ms ease, color 150ms ease',
+  }
+  const actionBtnStyle: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 7,
+    fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+    border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text2)',
+    transition: 'border-color 150ms ease, color 150ms ease',
+  }
+
+  function DetailRow({ icon, children }: { icon: string; children: React.ReactNode }) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <span style={{ fontSize: 14, lineHeight: '20px', flexShrink: 0, width: 18, textAlign: 'center' }}>{icon}</span>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text2)', lineHeight: 1.45 }}>{children}</div>
+      </div>
+    )
+  }
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 10060 }}>
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          position: 'fixed', left, width: WIDTH, ...posStyle, maxHeight,
+          display: 'flex', flexDirection: 'column',
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderLeft: `4px solid ${eventColor(event)}`,
+          borderRadius: 12, boxShadow: '0 18px 48px -12px rgba(0,0,0,0.45)',
+          fontFamily: 'inherit', animation: 'calPopupIn 160ms ease both',
+        }}
+      >
+        {/* Arrow pointing at the event */}
+        <div style={{
+          position: 'absolute', left: arrowLeft, width: 10, height: 10,
+          transform: 'rotate(45deg)', background: 'var(--surface)',
+          ...(placeBelow
+            ? { top: -6, borderLeft: '1px solid var(--border)', borderTop: '1px solid var(--border)' }
+            : { bottom: -6, borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }),
+        }} />
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '14px 14px 12px' }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, color: 'var(--text)', lineHeight: 1.3 }}>
+            {event.title}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+            {event.web_link && (
+              <button
+                onClick={() => window.open(event.web_link!, '_blank', 'noopener,noreferrer')}
+                title="Open in Outlook"
+                style={iconBtnStyle}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              title="Close"
+              style={iconBtnStyle}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div style={{ height: 1, background: 'var(--border)' }} />
+
+        {/* Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px' }}>
+          {teamsLink && (
+            <a
+              href={teamsLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 13px', borderRadius: 7,
+                fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                background: '#7c3aed', color: '#fff', border: 'none', textDecoration: 'none',
+                transition: 'opacity 150ms ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+            >
+              {teamsIconSvg} Join Teams
+            </a>
+          )}
+          <button
+            onClick={() => { onClose(); onEdit(event) }}
+            style={actionBtnStyle}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => { onClose(); onDelete(event) }}
+            style={actionBtnStyle}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#fecaca'; e.currentTarget.style.color = '#ef4444' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
+          >
+            Delete
+          </button>
+        </div>
+
+        <div style={{ height: 1, background: 'var(--border)' }} />
+
+        {/* Details */}
+        <div style={{ overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <DetailRow icon="🕐">
+            <div style={{ color: 'var(--text)', fontWeight: 600 }}>{dateLabel} · {timeLabel}</div>
+            {event.is_recurring && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 12, color: '#7c3aed' }}>
+                ↻ {recurrenceLabel(event)}
+              </div>
+            )}
+          </DetailRow>
+
+          {event.location && (
+            <DetailRow icon="📍">{event.location}</DetailRow>
+          )}
+
+          {event.organizer && (
+            <DetailRow icon="👤">{event.organizer}</DetailRow>
+          )}
+
+          {attendees.length > 0 && (
+            <DetailRow icon="👥">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {attendees.map((name, i) => (
+                  <span key={`${name}-${i}`}>{name}</span>
+                ))}
+              </div>
+            </DetailRow>
+          )}
+
+          {teamsLink && (
+            <DetailRow icon="🔗">
+              <a
+                href={teamsLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                style={{ color: '#7c3aed', textDecoration: 'none', wordBreak: 'break-all', fontSize: 12 }}
+              >
+                {teamsLink}
+              </a>
+            </DetailRow>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function CalendarGridView({ events, onEventClick, onAddOnDate, onDeleteEvent }: {
+  events: CalendarEvent[]
+  onEventClick: (event: CalendarEvent) => void
+  onAddOnDate: (dateStr: string) => void
+  onDeleteEvent: (event: CalendarEvent) => void
+}) {
+  const [detail, setDetail] = useState<{ event: CalendarEvent; anchor: DOMRect } | null>(null)
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const [viewYear, setViewYear] = useState(() => Number(todayStr.split('-')[0]))
+  const [viewMonth, setViewMonth] = useState(() => Number(todayStr.split('-')[1]) - 1)
+  const [enterFrom, setEnterFrom] = useState<'left' | 'right'>('right')
+  const [animKey, setAnimKey] = useState(0)
+
+  function shiftMonth(delta: number) {
+    setEnterFrom(delta > 0 ? 'right' : 'left')
+    setAnimKey(k => k + 1)
+    let m = viewMonth + delta
+    let y = viewYear
+    if (m < 0) { m = 11; y -= 1 }
+    if (m > 11) { m = 0; y += 1 }
+    setViewMonth(m)
+    setViewYear(y)
+  }
+
+  function goToToday() {
+    setEnterFrom('right')
+    setAnimKey(k => k + 1)
+    setViewYear(Number(todayStr.split('-')[0]))
+    setViewMonth(Number(todayStr.split('-')[1]) - 1)
+  }
+
+  const cells = useMemo(
+    () => buildMonthGrid(viewYear, viewMonth, events, todayStr),
+    [viewYear, viewMonth, events, todayStr],
+  )
+
+  const monthLabel = new Date(Date.UTC(viewYear, viewMonth, 1, 12))
+    .toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+
+  const navBtnStyle: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    width: 32, height: 32, borderRadius: 8,
+    background: 'var(--surface2)', border: '1px solid var(--border)',
+    color: 'var(--text2)', cursor: 'pointer', fontFamily: 'inherit',
+    transition: 'border-color 150ms ease, color 150ms ease',
+  }
+
+  return (
+    <div style={{
+      background: 'var(--surface)',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      overflow: 'hidden',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    }}>
+      {/* Month header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '16px 18px', borderBottom: '1px solid var(--border)',
+        background: 'linear-gradient(to bottom, var(--surface), var(--surface2))',
+      }}>
+        <div style={{
+          fontFamily: FRAUNCES, fontSize: 28, fontWeight: 600,
+          color: 'var(--text)', letterSpacing: '-0.01em', lineHeight: 1,
+        }}>
+          {monthLabel}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={() => shiftMonth(-1)}
+            title="Previous month"
+            style={navBtnStyle}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+          <button
+            onClick={goToToday}
+            style={{
+              padding: '6px 12px', borderRadius: 8,
+              background: 'var(--surface2)', border: '1px solid var(--border)',
+              color: 'var(--text2)', cursor: 'pointer', fontFamily: 'inherit',
+              fontSize: 12, fontWeight: 600,
+              transition: 'border-color 150ms ease, color 150ms ease',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
+          >
+            Today
+          </button>
+          <button
+            onClick={() => shiftMonth(1)}
+            title="Next month"
+            style={navBtnStyle}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Weekday header */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+        borderBottom: '1px solid var(--border)', background: 'var(--surface2)',
+      }}>
+        {WEEKDAY_LABELS.map(d => (
+          <div key={d} style={{
+            padding: '9px 0', textAlign: 'center',
+            fontSize: 10, fontWeight: 700, letterSpacing: '1.5px',
+            textTransform: 'uppercase', color: 'var(--text3)',
+          }}>
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* Day grid — remounts on navigation to replay the slide animation */}
+      <div
+        key={animKey}
+        style={{
+          display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+          animation: `${enterFrom === 'right' ? 'calSlideFromRight' : 'calSlideFromLeft'} 260ms ease both`,
+        }}
+      >
+        {cells.map((cell, i) => (
+          <DayCellView
+            key={cell.dateStr}
+            cell={cell}
+            index={i}
+            onShowDetails={(event, anchor) => setDetail({ event, anchor })}
+            onAddOnDate={onAddOnDate}
+          />
+        ))}
+      </div>
+
+      {detail && (
+        <EventDetailsPopup
+          event={detail.event}
+          anchor={detail.anchor}
+          onClose={() => setDetail(null)}
+          onEdit={onEventClick}
+          onDelete={onDeleteEvent}
+        />
+      )}
+    </div>
+  )
+}
+
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [, setTick] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [addInitialDate, setAddInitialDate] = useState('')
+  const [view, setView] = useState<'list' | 'calendar'>('list')
   const [saving, setSaving] = useState(false)
   const [saveToast, setSaveToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [agenda, setAgenda] = useState<{ title: string; content: string; loading: boolean } | null>(null)
@@ -1912,6 +2519,15 @@ export default function CalendarPage() {
     const id = setInterval(() => setTick(t => t + 1), 60_000)
     return () => clearInterval(id)
   }, [])
+
+  // Restore + persist the last selected view (List vs Calendar)
+  useEffect(() => {
+    const saved = localStorage.getItem('cask-calendar-view')
+    if (saved === 'calendar' || saved === 'list') setView(saved)
+  }, [])
+  useEffect(() => {
+    localStorage.setItem('cask-calendar-view', view)
+  }, [view])
 
   useEffect(() => {
     const supabase = createClient()
@@ -2132,6 +2748,12 @@ export default function CalendarPage() {
     }
   }
 
+  // Open the Add Event modal, optionally pre-filling the date (from a calendar day cell).
+  function openAdd(dateStr?: string) {
+    setAddInitialDate(dateStr ?? '')
+    setShowAddModal(true)
+  }
+
   async function handleEditSave(scope: 'one' | 'future') {
     if (!editEvent || !editForm.title || !editForm.date || (!editForm.isAllDay && !editForm.startTime)) return
     setEditSaving(true)
@@ -2348,8 +2970,30 @@ export default function CalendarPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text3)' }}>
           <CalendarIcon />
         </div>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 2,
+          background: 'var(--surface2)', border: '1px solid var(--border)',
+          borderRadius: 8, padding: 2,
+        }}>
+          {([['list', '📋 List'], ['calendar', '📅 Calendar']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '5px 11px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                background: view === key ? 'var(--charcoal)' : 'transparent',
+                color: view === key ? '#fff' : 'var(--text3)',
+                transition: 'background 150ms ease, color 150ms ease',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={() => openAdd()}
           style={{
             display: 'flex', alignItems: 'center', gap: 5,
             padding: '5px 12px', borderRadius: 7,
@@ -2368,7 +3012,8 @@ export default function CalendarPage() {
 
       <div className="flex-1 overflow-y-auto p-7 animate-page-in">
 
-        {/* Search bar */}
+        {/* Search bar (list view only) */}
+        {view === 'list' && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ position: 'relative', maxWidth: 520 }}>
             <span style={{
@@ -2418,6 +3063,7 @@ export default function CalendarPage() {
             )}
           </div>
         </div>
+        )}
 
         {/* Stats row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 32 }}>
@@ -2427,7 +3073,9 @@ export default function CalendarPage() {
           <NextMeetingTile event={nextMeeting} />
         </div>
 
-        {loading ? (
+        {view === 'calendar' ? (
+          <CalendarGridView events={events} onEventClick={openEdit} onAddOnDate={openAdd} onDeleteEvent={ev => setDeleteEvent(ev)} />
+        ) : loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <Shimmer h={20} radius={4} />
             <Shimmer h={76} />
@@ -2580,6 +3228,22 @@ export default function CalendarPage() {
         @keyframes spin {
           to { transform: rotate(360deg); }
         }
+        @keyframes calSlideFromRight {
+          from { opacity: 0; transform: translateX(26px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes calSlideFromLeft {
+          from { opacity: 0; transform: translateX(-26px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes calEventFadeIn {
+          from { opacity: 0; transform: translateY(3px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes calPopupIn {
+          from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
       `}</style>
 
       {/* Save toast */}
@@ -2615,6 +3279,7 @@ export default function CalendarPage() {
         onClose={() => setShowAddModal(false)}
         onSave={handleSave}
         saving={saving}
+        initialDate={addInitialDate}
       />
 
       {/* Edit Event Modal */}
