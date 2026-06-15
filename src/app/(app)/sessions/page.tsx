@@ -523,7 +523,7 @@ export default function SessionsPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {filtered.map(m => (
-              <MeetingCard key={m.id} meeting={m} />
+              <MeetingCard key={m.id} meeting={m} recapBadge />
             ))}
             {filtered.length === 0 && (
               <div
