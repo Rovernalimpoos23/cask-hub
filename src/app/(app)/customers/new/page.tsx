@@ -172,9 +172,6 @@ export default function NewClientSetupPage() {
     DEFAULT_PRIORITIES.map(text => ({ id: crypto.randomUUID(), text, status: 'Unresolved' as PriorityStatus }))
   )
 
-  // Teams
-  const [teamsLink, setTeamsLink] = useState('')
-
   // UI
   const [saving, setSaving] = useState(false)
   const [toast, setToast]   = useState<{ message: string; type: 'success' | 'error' } | null>(null)
@@ -223,7 +220,6 @@ export default function NewClientSetupPage() {
         personality_tags: selectedTags,
         communication_style: commStyle.trim() || null,
         key_interests: keyInterests.trim() || null,
-        teams_meeting_link: teamsLink.trim() || null,
         meetings_completed: 0,
         total_meetings: 40,
       })
@@ -266,7 +262,7 @@ export default function NewClientSetupPage() {
       setToast({ message: msg, type: 'error' })
       setSaving(false)
     }
-  }, [name, email, projectType, projectValue, location, projectAddress, startDate, owner, happiness, selectedTags, commStyle, keyInterests, teamsLink, priorities, router])
+  }, [name, email, projectType, projectValue, location, projectAddress, startDate, owner, happiness, selectedTags, commStyle, keyInterests, priorities, router])
 
   return (
     <>
@@ -429,22 +425,6 @@ export default function NewClientSetupPage() {
                   </select>
                 </div>
 
-                {/* Permanent Teams Meeting Link */}
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>Permanent Teams Meeting Link</label>
-                  <input
-                    type="url"
-                    value={teamsLink}
-                    onChange={e => setTeamsLink(e.target.value)}
-                    placeholder="https://teams.microsoft.com/l/meetup-join/..."
-                    style={inputStyle}
-                    onFocus={focusInput}
-                    onBlur={blurInput}
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                    Used for all meeting rows in the client's Journey tracker
-                  </span>
-                </div>
               </div>
             </Section>
 
