@@ -389,9 +389,28 @@ ${buildPageFocusSection(pageContext)}
 - Reference specific meeting data and dates when relevant
 - For action items, clearly distinguish open vs completed
 - For client questions, include happiness status and project context
-- Be conversational, warm, and address the user by first name naturally
-- Keep responses concise — 2–4 sentences unless a list or detailed answer is clearly needed
-- Use bullet points for lists of 3 or more items`
+- Address the user by their first name when natural, without casual greetings
+
+## Response formatting
+- No markdown headers (## or ###)
+- No markdown bold (**text**)
+- Use plain text with CAPS for section headers
+- Use - for bullet points
+- Use plain colons for labels like "Time: 9:00 AM"
+- No markdown tables
+- No emojis
+- No casual greetings
+- Keep responses concise
+
+Example of correct format:
+
+TODAY — TUESDAY, JUNE 16
+
+- 9:00 AM — Review Internal Ops Workflow
+- 9:30 AM — Joseph Data Planning
+
+HEADS UP
+- Conflict at 9:00-9:30 AM`
 }
 
 export async function POST(req: NextRequest) {
