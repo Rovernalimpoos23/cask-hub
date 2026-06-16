@@ -25,8 +25,68 @@ const BADGE_STYLES: Record<BadgeTone, { color: string; bg: string; border: strin
   green: { color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
 }
 
+// Lucide-style inline SVG paths (same icon approach as Command Center's <Icon>).
+const ICON_PATHS: Record<string, React.ReactNode> = {
+  target: (
+    <><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></>
+  ),
+  rocket: (
+    <>
+      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+      <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+    </>
+  ),
+  globe: (
+    <><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></>
+  ),
+  bookOpen: (
+    <><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></>
+  ),
+  building: (
+    <>
+      <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+      <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+      <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+      <path d="M10 6h4" /><path d="M10 10h4" /><path d="M10 14h4" /><path d="M10 18h4" />
+    </>
+  ),
+  barChart: (
+    <><line x1="12" y1="20" x2="12" y2="10" /><line x1="18" y1="20" x2="18" y2="4" /><line x1="6" y1="20" x2="6" y2="16" /></>
+  ),
+  folder: (
+    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+  ),
+}
+
+// Small rounded-square icon container — same size/radius as Command Center's
+// DeptIcon, but with a soft colored background per card.
+function CardIcon({ name, bg, color }: { name: string; bg: string; color: string }) {
+  return (
+    <div
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        background: bg,
+        display: 'grid',
+        placeItems: 'center',
+        color,
+        flexShrink: 0,
+      }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {ICON_PATHS[name]}
+      </svg>
+    </div>
+  )
+}
+
 interface NavCard {
   icon: string
+  iconBg: string
+  iconColor: string
   title: string
   description: string
   badge: string
@@ -37,7 +97,9 @@ interface NavCard {
 // Static cards. Card 7 (Documents) badge count is filled in dynamically.
 const STATIC_CARDS: NavCard[] = [
   {
-    icon: '🎯',
+    icon: 'target',
+    iconBg: '#eff6ff',
+    iconColor: '#2563eb',
     title: '1-Year Plan',
     description: 'Launch New Build Division · $10M revenue target',
     badge: '2025–2026',
@@ -45,7 +107,9 @@ const STATIC_CARDS: NavCard[] = [
     href: '/presidents-workflow/big-vision/1yr',
   },
   {
-    icon: '🚀',
+    icon: 'rocket',
+    iconBg: '#f5f3ff',
+    iconColor: '#7c3aed',
     title: '3-Year Plan',
     description: 'Dominate locally · Launch consulting arms',
     badge: '2028',
@@ -53,7 +117,9 @@ const STATIC_CARDS: NavCard[] = [
     href: '/presidents-workflow/big-vision/3yr',
   },
   {
-    icon: '🌍',
+    icon: 'globe',
+    iconBg: '#f0fdf4',
+    iconColor: '#16a34a',
     title: '5-Year Plan',
     description: 'National expansion · $1B path · Platform building',
     badge: '2030',
@@ -61,7 +127,9 @@ const STATIC_CARDS: NavCard[] = [
     href: '/presidents-workflow/big-vision/5yr',
   },
   {
-    icon: '📜',
+    icon: 'bookOpen',
+    iconBg: '#fffbeb',
+    iconColor: '#d97706',
     title: 'CASK Manifesto',
     description: 'Purpose · Community · The Modern Village',
     badge: 'Core Values',
@@ -69,7 +137,9 @@ const STATIC_CARDS: NavCard[] = [
     href: '/presidents-workflow/big-vision/manifesto',
   },
   {
-    icon: '🏗️',
+    icon: 'building',
+    iconBg: 'var(--surface2)',
+    iconColor: 'var(--text2)',
     title: 'White Paper Draft',
     description: 'ADU Division (Kait) · New Build Division (Mateo)',
     badge: 'Structure',
@@ -77,7 +147,9 @@ const STATIC_CARDS: NavCard[] = [
     href: '/presidents-workflow/big-vision/charters',
   },
   {
-    icon: '🗺️',
+    icon: 'barChart',
+    iconBg: '#f0fdfa',
+    iconColor: '#0d9488',
     title: '2, 5, 10 Year Goals',
     description: 'Blueprint for builders nationwide · $1B+ enterprise',
     badge: '2035 Vision',
@@ -128,21 +200,7 @@ function VisionNavCard({ card }: { card: NavCard }) {
       >
         {/* Icon + badge */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-          <div
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 9,
-              background: 'var(--surface2)',
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: 20,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
-          >
-            {card.icon}
-          </div>
+          <CardIcon name={card.icon} bg={card.iconBg} color={card.iconColor} />
           <Badge tone={card.badgeTone}>{card.badge}</Badge>
         </div>
 
@@ -185,7 +243,9 @@ export default function BigVisionPage() {
   }, [])
 
   const documentsCard: NavCard = {
-    icon: '📁',
+    icon: 'folder',
+    iconBg: '#fef9c3',
+    iconColor: '#a16207',
     title: 'Documents & Files',
     description: 'Source documents · Upload & reference materials',
     badge: fileCount === null ? '… files' : `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`,

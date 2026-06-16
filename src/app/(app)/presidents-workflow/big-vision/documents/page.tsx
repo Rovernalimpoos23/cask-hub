@@ -71,6 +71,27 @@ function UploadCloudIcon() {
   )
 }
 
+function TrashIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0 }}
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
+  )
+}
+
 export default function DocumentsPage() {
   const [files, setFiles] = useState<FileRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,6 +101,8 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [uploadSuccess, setUploadSuccess] = useState('')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const loadFiles = useCallback(async () => {
@@ -140,6 +163,23 @@ export default function DocumentsPage() {
     e.preventDefault()
     setDragActive(false)
     handleFile(e.dataTransfer.files?.[0])
+  }
+
+  async function handleDelete(file: FileRow) {
+    if (deletingId) return
+    if (!window.confirm(`Delete ${file.name}? This cannot be undone.`)) return
+    setDeletingId(file.id)
+    setDeleteError('')
+    try {
+      const supabase = createClient()
+      const { error: deleteErr } = await supabase.from('cask_vision_files').delete().eq('id', file.id)
+      if (deleteErr) throw deleteErr
+      await loadFiles()
+    } catch {
+      setDeleteError(`Failed to delete "${file.name}". Please try again.`)
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (
@@ -252,10 +292,39 @@ export default function DocumentsPage() {
                     View
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => handleDelete(f)}
+                  disabled={deletingId === f.id}
+                  title={`Delete ${f.name}`}
+                  aria-label={`Delete ${f.name}`}
+                  style={{
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 30,
+                    height: 30,
+                    borderRadius: 7,
+                    border: '1px solid var(--fable-line, var(--border))',
+                    background: 'var(--surface)',
+                    color: '#b91c1c',
+                    cursor: deletingId === f.id ? 'not-allowed' : 'pointer',
+                    opacity: deletingId === f.id ? 0.5 : 1,
+                    fontFamily: 'inherit',
+                    transition: 'border-color 150ms ease, background 150ms ease',
+                  }}
+                >
+                  <TrashIcon />
+                </button>
               </div>
             ))
           )}
         </div>
+      )}
+
+      {deleteError && (
+        <div style={{ marginTop: 10, fontSize: 12, color: '#b91c1c' }}>{deleteError}</div>
       )}
 
       {/* Upload zone */}
