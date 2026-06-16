@@ -27,6 +27,7 @@ const NAV_SECTIONS = [
   {
     label: "President's Workflow",
     items: [
+      { href: '/presidents-workflow/big-vision', icon: '🔭', label: 'CASK Big Vision', locked: false },
       { href: '/president/overview', icon: '▤', label: "President's Meeting Agendas", locked: false },
       { href: '/president/calendar', icon: '📅', label: "President's Calendar", locked: false },
       { href: '/daily-meetings', icon: '🗓', label: 'Daily Meetings Recap', locked: false },
