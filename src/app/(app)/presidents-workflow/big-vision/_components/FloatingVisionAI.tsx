@@ -70,6 +70,51 @@ function buildVisionSystemPrompt(rows: VisionRow[]): string {
 interface PanelMsg {
   role: 'user' | 'assistant'
   content: string
+  fileName?: string // set on user turns that carried an uploaded file (session display only)
+}
+
+// ── File upload helpers ───────────────────────────────────────────────
+const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10MB
+const UPLOAD_ACCEPT = '.pdf,.docx,image/*'
+
+// Resolve the Claude-compatible media type from a File.
+function detectMediaType(file: File): string {
+  if (file.type) {
+    if (file.type === 'application/pdf') return 'application/pdf'
+    if (file.type.startsWith('image/')) return file.type
+    if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return file.type
+  }
+  const name = file.name.toLowerCase()
+  if (name.endsWith('.pdf')) return 'application/pdf'
+  if (name.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  if (name.endsWith('.png')) return 'image/png'
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg'
+  if (name.endsWith('.gif')) return 'image/gif'
+  if (name.endsWith('.webp')) return 'image/webp'
+  return file.type || 'application/octet-stream'
+}
+
+// Read a File as pure base64 (strips the "data:...;base64," prefix).
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result !== 'string') return reject(new Error('Unexpected file reader result'))
+      const comma = result.indexOf(',')
+      resolve(comma >= 0 ? result.slice(comma + 1) : result)
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('File read failed'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function PaperclipIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  )
 }
 
 export default function FloatingVisionAI() {
@@ -86,6 +131,75 @@ export default function FloatingVisionAI() {
   const [contextLoading, setContextLoading] = useState(false)
   const [contextError, setContextError] = useState(false)
   const contextRequestedRef = useRef(false)
+
+  // File upload state (added on top of the existing chat — no change to chat logic).
+  const [attachedFile, setAttachedFile] = useState<{ file: File; name: string } | null>(null)
+  const [fileError, setFileError] = useState('')
+  const [readingFile, setReadingFile] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function onPickFile(file: File | undefined) {
+    if (!file) return
+    setFileError('')
+    if (file.size > MAX_FILE_BYTES) {
+      setFileError('File too large (max 10MB)')
+      return
+    }
+    setAttachedFile({ file, name: file.name })
+  }
+
+  function removeAttachedFile() {
+    setAttachedFile(null)
+    setFileError('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Send the attached file + question to the upload route, then clear the file.
+  async function sendWithFile(attached: { file: File; name: string }, question: string) {
+    if (thinking || contextLoading || readingFile) return
+    setFileError('')
+    setReadingFile(true)
+    let base64: string
+    let mediaType: string
+    try {
+      base64 = await readFileAsBase64(attached.file)
+      mediaType = detectMediaType(attached.file)
+    } catch {
+      setReadingFile(false)
+      setFileError('Upload failed. Please try again.')
+      return
+    }
+    setReadingFile(false)
+
+    const questionText = question.trim() || `Please analyze "${attached.name}".`
+    const next: PanelMsg[] = [...messages, { role: 'user', content: questionText, fileName: attached.name }]
+    setMessages(next)
+    saveMessage('user', questionText)
+    setInput('')
+    setAttachedFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    setThinking(true)
+    try {
+      const res = await fetch('/api/big-vision-upload-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: next.map((m) => ({ role: m.role, content: m.content })),
+          systemPrompt,
+          file: { base64, mediaType, name: attached.name },
+        }),
+      })
+      if (!res.ok) throw new Error(`API error ${res.status}`)
+      const data = await res.json()
+      const aiContent = data.content || 'No response.'
+      setMessages([...next, { role: 'assistant', content: aiContent }])
+      saveMessage('assistant', aiContent)
+    } catch {
+      setMessages([...next, { role: 'assistant', content: 'Upload failed. Please try again.' }])
+    } finally {
+      setThinking(false)
+    }
+  }
 
   // Load any saved chat history for this page once we know the user.
   useEffect(() => {
@@ -155,6 +269,11 @@ export default function FloatingVisionAI() {
   }, [messages, thinking, open])
 
   async function send(text?: string) {
+    // Upload feature added on top: when a file is attached, route through sendWithFile.
+    if (attachedFile) {
+      sendWithFile(attachedFile, text ?? input)
+      return
+    }
     const msg = (text ?? input).trim()
     if (!msg || thinking || contextLoading) return
     const next: PanelMsg[] = [...messages, { role: 'user', content: msg }]
@@ -404,13 +523,36 @@ export default function FloatingVisionAI() {
                       border: isUser ? 'none' : `1px solid ${D.border}`,
                     }}
                   >
+                    {m.fileName && (
+                      <div style={{ marginBottom: 6 }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            maxWidth: '100%',
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: isUser ? 'rgba(255,255,255,0.16)' : D.surface,
+                            border: isUser ? 'none' : `1px solid ${D.border}`,
+                          }}
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                          </svg>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.fileName}</span>
+                        </span>
+                      </div>
+                    )}
                     {m.content}
                   </div>
                 </div>
               )
             })}
 
-            {thinking && (
+            {(thinking || readingFile) && (
               <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
                 <div
                   style={{
@@ -425,7 +567,7 @@ export default function FloatingVisionAI() {
                     border: `1px solid ${D.border}`,
                   }}
                 >
-                  Analyzing…
+                  {readingFile ? 'Reading file…' : 'Analyzing…'}
                 </div>
               </div>
             )}
@@ -468,6 +610,74 @@ export default function FloatingVisionAI() {
 
           {/* Input */}
           <div style={{ padding: '10px 16px 14px', borderTop: `1px solid ${D.border}`, flexShrink: 0 }}>
+            {/* Attached-file chip */}
+            {attachedFile && (
+              <div style={{ marginBottom: 8 }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    maxWidth: '100%',
+                    padding: '4px 8px',
+                    borderRadius: 7,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: D.text2,
+                    background: D.surface,
+                    border: `1px solid ${D.border}`,
+                  }}
+                >
+                  <span style={{ color: D.text3, display: 'inline-flex', flexShrink: 0 }}>
+                    <PaperclipIcon />
+                  </span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {attachedFile.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={removeAttachedFile}
+                    title="Remove file"
+                    aria-label="Remove file"
+                    style={{
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 16,
+                      height: 16,
+                      borderRadius: 4,
+                      border: 'none',
+                      background: 'transparent',
+                      color: D.text3,
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+            )}
+            {fileError && (
+              <div style={{ marginBottom: 8, fontSize: 11, color: '#b91c1c' }}>{fileError}</div>
+            )}
+
+            {/* Hidden file input — PDF, DOCX, images only */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={UPLOAD_ACCEPT}
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                onPickFile(e.target.files?.[0])
+                e.target.value = '' // allow re-selecting the same file
+              }}
+            />
+
             <div
               style={{
                 display: 'flex',
@@ -479,11 +689,34 @@ export default function FloatingVisionAI() {
                 background: D.surface,
               }}
             >
+              {/* Attach / paperclip */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={thinking || contextLoading || readingFile}
+                title="Attach a file (PDF, DOCX, image)"
+                aria-label="Attach a file"
+                style={{
+                  flexShrink: 0,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 7,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'transparent',
+                  color: attachedFile ? D.accent : D.text3,
+                  border: 'none',
+                  cursor: thinking || contextLoading || readingFile ? 'not-allowed' : 'pointer',
+                  transition: 'color 150ms ease',
+                }}
+              >
+                <PaperclipIcon />
+              </button>
               <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={onKey}
-                placeholder={contextLoading ? 'Loading vision context…' : 'Ask about the CASK vision...'}
+                placeholder={contextLoading ? 'Loading vision context…' : attachedFile ? 'Ask a question about this file…' : 'Ask about the CASK vision...'}
                 rows={1}
                 disabled={contextLoading}
                 style={{
@@ -503,7 +736,7 @@ export default function FloatingVisionAI() {
               />
               <button
                 onClick={() => send()}
-                disabled={!input.trim() || thinking || contextLoading}
+                disabled={(!input.trim() && !attachedFile) || thinking || contextLoading || readingFile}
                 style={{
                   flexShrink: 0,
                   width: 28,
@@ -512,10 +745,10 @@ export default function FloatingVisionAI() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: input.trim() && !thinking && !contextLoading ? D.accent : D.surface,
-                  color: input.trim() && !thinking && !contextLoading ? '#fff' : D.text3,
+                  background: (input.trim() || attachedFile) && !thinking && !contextLoading && !readingFile ? D.accent : D.surface,
+                  color: (input.trim() || attachedFile) && !thinking && !contextLoading && !readingFile ? '#fff' : D.text3,
                   border: 'none',
-                  cursor: !input.trim() || thinking || contextLoading ? 'not-allowed' : 'pointer',
+                  cursor: (!input.trim() && !attachedFile) || thinking || contextLoading || readingFile ? 'not-allowed' : 'pointer',
                   transition: 'background 150ms ease',
                 }}
                 title="Send"
