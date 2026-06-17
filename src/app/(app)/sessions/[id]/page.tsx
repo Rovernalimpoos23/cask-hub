@@ -448,17 +448,10 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   }, [params.id])
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase
-      .from('action_items')
-      .select('*')
-      .eq('meeting_id', params.id)
-      .order('created_at', { ascending: true })
-      .then(({ data }) => {
-        setActionItems((data ?? []) as ActionItem[])
-        setActionItemsLoading(false)
-      })
-  }, [params.id])
+    if (!meeting) return
+    setActionItems(meeting.action_items ?? [])
+    setActionItemsLoading(false)
+  }, [meeting])
 
   async function handleToggle(id: string, done: boolean) {
     setActionItems(prev => prev.map(item => item.id === id ? { ...item, done } : item))
