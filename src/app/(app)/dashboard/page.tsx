@@ -1215,7 +1215,7 @@ export default function DashboardPage() {
             <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>{todayLabel}</div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', alignItems: 'start' }}>
             {/* Main briefing text */}
             <div style={{ padding: '18px 20px', borderRight: '1px solid var(--fable-line-soft, var(--border))' }}>
               <p
@@ -1294,6 +1294,76 @@ export default function DashboardPage() {
                 >
                   Open calendar
                 </Link>
+              </div>
+
+              {/* Recent Sessions — fills the space below the briefing buttons */}
+              <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--fable-line-soft, var(--border))' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <h3 style={{ fontSize: 10, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: 600 }}>
+                    Recent Sessions
+                  </h3>
+                  <Link
+                    href="/sessions"
+                    className="fb-all"
+                    style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none', fontWeight: 500, transition: 'color 150ms ease' }}
+                  >
+                    View all →
+                  </Link>
+                </div>
+                {loading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {[0, 1, 2].map(i => (
+                      <div key={i} className="shimmer" style={{ height: 40, borderRadius: 6 }} />
+                    ))}
+                  </div>
+                ) : (
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {recentMeetings.map(m => {
+                      const sDate = new Date(m.date + 'T00:00:00')
+                      const recapReady = (m.summary?.length ?? 0) > 0
+                      const shown = m.attendees.slice(0, 4)
+                      const extra = m.attendees.length - shown.length
+                      return (
+                        <li key={m.id}>
+                          <Link
+                            href={`/sessions/${m.id}`}
+                            className="fb-sess-item"
+                            style={{
+                              display: 'flex',
+                              gap: 12,
+                              alignItems: 'center',
+                              padding: '8px',
+                              borderRadius: 8,
+                              textDecoration: 'none',
+                              transition: 'background 150ms ease',
+                            }}
+                          >
+                            <div style={{ width: 36, flexShrink: 0, textAlign: 'center' }}>
+                              <div style={{ fontSize: 15, fontWeight: 650, lineHeight: 1, color: 'var(--text)', ...NUM }}>
+                                {sDate.getDate()}
+                              </div>
+                              <div style={{ fontSize: 9, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text3)', marginTop: 2 }}>
+                                {sDate.toLocaleString('en-US', { month: 'short' })}
+                              </div>
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 13, fontWeight: 550, color: 'var(--text)', letterSpacing: '-0.1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {m.title}
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {shown.join(', ')}{extra > 0 ? ` +${extra}` : ''}
+                              </div>
+                            </div>
+                            <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 550, color: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)' }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)' }} />
+                              {recapReady ? 'Recap ready' : 'Awaiting recap'}
+                            </span>
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
               </div>
             </div>
 
@@ -1395,10 +1465,8 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        {/* ROW 3: Open Action Items (60%) · Recent Sessions (40%) */}
-        <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 26, alignItems: 'start', marginBottom: 30 }}>
-          {/* Open action items */}
-          <section aria-label="Open action items">
+        {/* ROW 3: Open Action Items (full width) */}
+        <section aria-label="Open action items" style={{ display: 'block', marginBottom: 30 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
               <h2 style={{ fontSize: 11.5, letterSpacing: '1.4px', textTransform: 'uppercase', fontWeight: 650, color: 'var(--text)' }}>
                 Open Action Items
@@ -1627,162 +1695,6 @@ export default function DashboardPage() {
               </Link>
             )}
           </section>
-
-          {/* Recent sessions */}
-          <section aria-label="Recent sessions">
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h2 style={{ fontSize: 11.5, letterSpacing: '1.4px', textTransform: 'uppercase', fontWeight: 650, color: 'var(--text)' }}>
-                Recent Sessions
-              </h2>
-              <Link
-                href="/sessions"
-                className="fb-all"
-                style={{ fontSize: 12, color: 'var(--text2)', textDecoration: 'none', fontWeight: 500, transition: 'color 150ms ease' }}
-              >
-                View all →
-              </Link>
-            </div>
-            <div
-              className="fb-rise"
-              style={{
-                border: '1px solid var(--fable-line, var(--border))',
-                borderRadius: 'var(--fable-radius)',
-                background: 'var(--surface)',
-                overflow: 'hidden',
-              }}
-            >
-              {loading ? (
-                <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {[0, 1, 2].map(i => (
-                    <div key={i} className="shimmer" style={{ height: 54, borderRadius: 8 }} />
-                  ))}
-                </div>
-              ) : (
-                recentMeetings.map((m, i) => {
-                  const date = new Date(m.date + 'T00:00:00')
-                  const recapReady = (m.summary?.length ?? 0) > 0
-                  const shown = m.attendees.slice(0, 4)
-                  const extra = m.attendees.length - shown.length
-                  return (
-                    <Link
-                      key={m.id}
-                      href={`/sessions/${m.id}`}
-                      className="fb-sess-item"
-                      style={{
-                        display: 'flex',
-                        gap: 14,
-                        padding: '14px 16px',
-                        borderBottom:
-                          i < recentMeetings.length - 1 ? '1px solid var(--fable-line-soft, var(--border))' : 'none',
-                        cursor: 'pointer',
-                        textDecoration: 'none',
-                        transition: 'background 150ms ease',
-                      }}
-                    >
-                      <div style={{ width: 40, flexShrink: 0, textAlign: 'center', paddingTop: 1 }}>
-                        <div style={{ fontSize: 16, fontWeight: 650, lineHeight: 1, color: 'var(--text)', ...NUM }}>
-                          {date.getDate()}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 9.5,
-                            letterSpacing: '1px',
-                            textTransform: 'uppercase',
-                            color: 'var(--text3)',
-                            marginTop: 3,
-                          }}
-                        >
-                          {date.toLocaleString('en-US', { month: 'short' })}
-                        </div>
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 550, color: 'var(--text)', letterSpacing: '-0.1px' }}>
-                          {m.title}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 11.5,
-                            color: 'var(--text3)',
-                            marginTop: 3,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {shown.join(', ')}
-                          {extra > 0 ? ` +${extra}` : ''}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          marginLeft: 'auto',
-                          flexShrink: 0,
-                          alignSelf: 'center',
-                          fontSize: 11,
-                          fontWeight: 550,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          color: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)',
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: '50%',
-                            background: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)',
-                          }}
-                        />
-                        {recapReady ? 'Recap ready' : 'Awaiting recap'}
-                      </div>
-                    </Link>
-                  )
-                })
-              )}
-              <button
-                onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
-                className="fb-show-more"
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  textAlign: 'center',
-                  padding: 11,
-                  fontSize: 12.5,
-                  fontWeight: 550,
-                  color: 'var(--text2)',
-                  background: 'var(--surface2)',
-                  border: 'none',
-                  borderTop: '1px solid var(--fable-line-soft, var(--border))',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  transition: 'color 150ms ease',
-                }}
-              >
-                + New session
-              </button>
-              <Link
-                href="/sessions"
-                className="fb-show-more"
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  textAlign: 'center',
-                  padding: 11,
-                  fontSize: 12.5,
-                  fontWeight: 550,
-                  color: 'var(--text2)',
-                  textDecoration: 'none',
-                  background: 'var(--surface2)',
-                  borderTop: '1px solid var(--fable-line-soft, var(--border))',
-                  transition: 'color 150ms ease',
-                }}
-              >
-                View all →
-              </Link>
-            </div>
-          </section>
-        </div>
 
         {/* Yesterday's Meetings — moved below Row 3 (full width) */}
         {yesterdayMeetings.length > 0 && (
