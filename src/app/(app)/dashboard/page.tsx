@@ -126,6 +126,60 @@ const AI_QUICK_PROMPTS = ["What's on today?", 'My open actions', 'Next meeting']
 interface PanelMsg {
   role: 'user' | 'assistant'
   content: string
+  fileName?: string // set on user turns that carried an uploaded document (display only)
+}
+
+// ── Document upload (client-side text extraction) ────────────────────
+// Files are converted to plain text in the browser, then sent to the
+// existing /api/chat route as the next message's context — no API change.
+const MAX_FILE_BYTES = 5 * 1024 * 1024 // 5MB
+const UPLOAD_ACCEPT = '.pdf,.docx,.txt,.csv'
+
+function readPlainText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error ?? new Error('File read failed'))
+    reader.readAsText(file)
+  })
+}
+
+async function readDocxText(file: File): Promise<string> {
+  const mammoth = await import('mammoth')
+  const arrayBuffer = await file.arrayBuffer()
+  const { value } = await mammoth.extractRawText({ arrayBuffer })
+  return value
+}
+
+async function readPdfText(file: File): Promise<string> {
+  const pdfjs = await import('pdfjs-dist')
+  // Worker served as a static asset from /public (copied from pdfjs-dist/build).
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+  const data = await file.arrayBuffer()
+  const pdf = await pdfjs.getDocument({ data }).promise
+  let text = ''
+  for (let page = 1; page <= pdf.numPages; page++) {
+    const content = await (await pdf.getPage(page)).getTextContent()
+    text += content.items.map(item => ('str' in item ? item.str : '')).join(' ') + '\n'
+  }
+  return text
+}
+
+// Dispatch on extension. Throws a user-facing message for unsupported types.
+async function extractFileText(file: File): Promise<string> {
+  const name = file.name.toLowerCase()
+  if (name.endsWith('.txt') || name.endsWith('.csv')) return readPlainText(file)
+  if (name.endsWith('.docx')) return readDocxText(file)
+  if (name.endsWith('.pdf')) return readPdfText(file)
+  throw new Error('Unsupported file type')
+}
+
+function PaperclipIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  )
 }
 
 // ── Floating CASK Intelligence button + chat drawer ──────────────────
@@ -138,6 +192,28 @@ function FloatingDashboardAI() {
   const [btnHover, setBtnHover] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const userEmailRef = useRef('')
+
+  // Document upload state — added on top of the existing chat.
+  const [attachedFile, setAttachedFile] = useState<File | null>(null)
+  const [fileError, setFileError] = useState('')
+  const [readingFile, setReadingFile] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function onPickFile(file: File | undefined) {
+    setFileError('')
+    if (!file) return
+    if (file.size > MAX_FILE_BYTES) {
+      setFileError('File too large (max 5MB)')
+      return
+    }
+    setAttachedFile(file)
+  }
+
+  function removeAttachedFile() {
+    setAttachedFile(null)
+    setFileError('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
 
   useEffect(() => {
     async function loadHistory() {
@@ -181,7 +257,60 @@ function FloatingDashboardAI() {
     if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, thinking, open])
 
+  // Extract the document to text, then send it as context through /api/chat.
+  async function sendWithFile(file: File, question: string) {
+    if (thinking || readingFile) return
+    setFileError('')
+    setReadingFile(true)
+    let fileText: string
+    try {
+      fileText = await extractFileText(file)
+    } catch {
+      setReadingFile(false)
+      setFileError('Could not read this file. Try a different file.')
+      return
+    }
+    setReadingFile(false)
+
+    const displayText = question.trim() || `Please review "${file.name}".`
+    // Shown in the chat + saved to history — kept clean (no giant text blob).
+    const next: PanelMsg[] = [...messages, { role: 'user', content: displayText, fileName: file.name }]
+    setMessages(next)
+    saveMessage('user', displayText)
+    setInput('')
+    removeAttachedFile()
+    setThinking(true)
+
+    // What Claude actually receives: the document text prefixed onto this turn.
+    const apiMessages = next.map((m, i) =>
+      i === next.length - 1
+        ? { role: m.role, content: `Document content:\n${fileText}\n\nUser question: ${displayText}` }
+        : { role: m.role, content: m.content },
+    )
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: apiMessages, pageContext: '/dashboard' }),
+      })
+      if (!res.ok) throw new Error(`API error ${res.status}`)
+      const data = await res.json()
+      const aiContent = data.content || 'No response.'
+      setMessages([...next, { role: 'assistant', content: aiContent }])
+      saveMessage('assistant', aiContent)
+    } catch {
+      setMessages([...next, { role: 'assistant', content: 'Connection error. Please try again.' }])
+    } finally {
+      setThinking(false)
+    }
+  }
+
   async function send(text?: string) {
+    if (attachedFile) {
+      sendWithFile(attachedFile, text ?? input)
+      return
+    }
     const msg = (text ?? input).trim()
     if (!msg || thinking) return
     const next: PanelMsg[] = [...messages, { role: 'user', content: msg }]
@@ -391,6 +520,31 @@ function FloatingDashboardAI() {
                 >
                   {m.role === 'user' ? 'You' : 'CASK Intelligence'}
                 </div>
+                {m.fileName && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      maxWidth: '100%',
+                      padding: '3px 8px',
+                      marginBottom: 6,
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: AI_D.text2,
+                      background: AI_D.surface,
+                      border: `1px solid ${AI_D.border}`,
+                    }}
+                  >
+                    <span style={{ color: AI_D.text3, display: 'inline-flex', flexShrink: 0 }}>
+                      <PaperclipIcon />
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {m.fileName}
+                    </span>
+                  </span>
+                )}
                 <div
                   style={{
                     fontSize: 12.5,
@@ -405,7 +559,7 @@ function FloatingDashboardAI() {
               </div>
             ))}
 
-            {thinking && (
+            {(thinking || readingFile) && (
               <div style={{ padding: '11px 0' }}>
                 <div
                   style={{
@@ -419,7 +573,9 @@ function FloatingDashboardAI() {
                 >
                   CASK Intelligence
                 </div>
-                <div style={{ fontSize: 12.5, color: AI_D.text3, fontStyle: 'italic' }}>Analyzing…</div>
+                <div style={{ fontSize: 12.5, color: AI_D.text3, fontStyle: 'italic' }}>
+                  {readingFile ? 'Reading document…' : 'Analyzing…'}
+                </div>
               </div>
             )}
             <div ref={endRef} />
@@ -461,6 +617,74 @@ function FloatingDashboardAI() {
 
           {/* Input */}
           <div style={{ padding: '10px 16px 14px', borderTop: `1px solid ${AI_D.border}`, flexShrink: 0 }}>
+            {/* Attached-file chip */}
+            {attachedFile && (
+              <div style={{ marginBottom: 8 }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    maxWidth: '100%',
+                    padding: '4px 8px',
+                    borderRadius: 7,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: AI_D.text2,
+                    background: AI_D.surface,
+                    border: `1px solid ${AI_D.border}`,
+                  }}
+                >
+                  <span style={{ color: AI_D.text3, display: 'inline-flex', flexShrink: 0 }}>
+                    <PaperclipIcon />
+                  </span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {attachedFile.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={removeAttachedFile}
+                    title="Remove file"
+                    aria-label="Remove file"
+                    style={{
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 16,
+                      height: 16,
+                      borderRadius: 4,
+                      border: 'none',
+                      background: 'transparent',
+                      color: AI_D.text3,
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+            )}
+            {fileError && (
+              <div style={{ marginBottom: 8, fontSize: 11, color: '#b91c1c' }}>{fileError}</div>
+            )}
+
+            {/* Hidden file input — PDF, DOCX, TXT, CSV */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={UPLOAD_ACCEPT}
+              style={{ display: 'none' }}
+              onChange={e => {
+                onPickFile(e.target.files?.[0])
+                e.target.value = '' // allow re-selecting the same file
+              }}
+            />
+
             <div
               style={{
                 display: 'flex',
@@ -472,11 +696,34 @@ function FloatingDashboardAI() {
                 background: AI_D.surface,
               }}
             >
+              {/* Attach / paperclip */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={thinking || readingFile}
+                title="Attach a document (PDF, DOCX, TXT, CSV)"
+                aria-label="Attach a document"
+                style={{
+                  flexShrink: 0,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 7,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'transparent',
+                  color: attachedFile ? AI_D.accent : AI_D.text3,
+                  border: 'none',
+                  cursor: thinking || readingFile ? 'not-allowed' : 'pointer',
+                  transition: 'color 150ms ease',
+                }}
+              >
+                <PaperclipIcon />
+              </button>
               <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={onKey}
-                placeholder="Ask about your day, meetings, actions..."
+                placeholder={attachedFile ? 'Ask a question about this document…' : 'Ask about your day, meetings, actions...'}
                 rows={1}
                 style={{
                   flex: 1,
@@ -495,7 +742,7 @@ function FloatingDashboardAI() {
               />
               <button
                 onClick={() => send()}
-                disabled={!input.trim() || thinking}
+                disabled={(!input.trim() && !attachedFile) || thinking || readingFile}
                 style={{
                   flexShrink: 0,
                   width: 28,
@@ -504,10 +751,10 @@ function FloatingDashboardAI() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: input.trim() && !thinking ? AI_D.accent : AI_D.surface,
-                  color: input.trim() && !thinking ? '#fff' : AI_D.text3,
+                  background: (input.trim() || attachedFile) && !thinking && !readingFile ? AI_D.accent : AI_D.surface,
+                  color: (input.trim() || attachedFile) && !thinking && !readingFile ? '#fff' : AI_D.text3,
                   border: 'none',
-                  cursor: !input.trim() || thinking ? 'not-allowed' : 'pointer',
+                  cursor: (!input.trim() && !attachedFile) || thinking || readingFile ? 'not-allowed' : 'pointer',
                   transition: 'background 150ms ease',
                 }}
                 title="Send"
