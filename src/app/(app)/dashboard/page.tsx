@@ -926,11 +926,16 @@ export default function DashboardPage() {
   const loadAllActionItems = useCallback(() => {
     const supabase = createClient()
     supabase
-      .from('action_items')
-      .select('*')
+      .from('meetings')
+      .select('action_items')
+      .not('action_items', 'is', null)
+      .neq('action_items', '[]')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
-        setActionItems((data ?? []) as ActionItem[])
+        const flattened = (data ?? []).flatMap(
+          (m: { action_items: ActionItem[] | null }) => m.action_items ?? []
+        )
+        setActionItems(flattened as ActionItem[])
         setActionItemsLoading(false)
       })
   }, [])
@@ -955,10 +960,29 @@ export default function DashboardPage() {
     loadBottomActionItems()
   }, [loadAllActionItems, loadBottomActionItems])
 
-  async function handleBottomToggle(id: string, done: boolean) {
+  async function handleBottomToggle(item: ActionItem, done: boolean) {
+    const matches = (a: ActionItem) => a.task === item.task && a.owner === item.owner
+
+    // Optimistic UI — the item is filtered out of the open list once done.
+    setActionItems(prev => prev.map(a => (matches(a) ? { ...a, done } : a)))
+
     const supabase = createClient()
-    await supabase.from('action_items').update({ done }).eq('id', id)
-    loadBottomActionItems()
+
+    // 1. Find the meeting whose action_items JSON contains this item (matched by task + owner).
+    const { data } = await supabase
+      .from('meetings')
+      .select('id, action_items')
+      .not('action_items', 'is', null)
+    const rows = (data ?? []) as { id: string; action_items: ActionItem[] | null }[]
+    const target = rows.find(m => (m.action_items ?? []).some(matches))
+    if (!target) return
+
+    // 2. Update that specific item's done field within the array.
+    const updated = (target.action_items ?? []).map(a => (matches(a) ? { ...a, done } : a))
+
+    // 3. Save the updated array back to the meetings.action_items column.
+    await supabase.from('meetings').update({ action_items: updated }).eq('id', target.id)
+
     loadAllActionItems()
   }
 
@@ -1691,7 +1715,7 @@ export default function DashboardPage() {
                             role="checkbox"
                             aria-checked="false"
                             title="Mark complete"
-                            onClick={() => handleBottomToggle(item.id, true)}
+                            onClick={() => handleBottomToggle(item, true)}
                             style={{
                               width: 15,
                               height: 15,
