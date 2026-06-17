@@ -1176,6 +1176,7 @@ export default function DashboardPage() {
           />
         </div>
 
+        {/* ROW 2: Afternoon Briefing (full width) */}
         {/* Briefing — the signature element */}
         <section
           aria-label="Daily briefing"
@@ -1392,197 +1393,10 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
-
-          {/* Yesterday's Meetings — only meetings saved to Supabase (Fireflies-captured) */}
-          {yesterdayMeetings.length > 0 && (
-            <div style={{ padding: '16px 20px', borderTop: '1px solid var(--fable-line-soft, var(--border))' }}>
-              <h3
-                style={{
-                  fontSize: 10,
-                  letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  color: 'var(--text3)',
-                  fontWeight: 600,
-                  marginBottom: 10,
-                }}
-              >
-                Yesterday&apos;s Meetings
-              </h3>
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {yesterdayMeetings.map(m => (
-                  <li key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
-                    <Link
-                      href={`/sessions/${m.id}`}
-                      style={{
-                        color: 'var(--text)',
-                        textDecoration: 'none',
-                        fontWeight: 550,
-                        minWidth: 0,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {m.title}
-                    </Link>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        flexShrink: 0,
-                        fontSize: 11.5,
-                        fontWeight: 550,
-                        color: 'var(--fable-ok)',
-                      }}
-                    >
-                      ✅ Recap ready
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </section>
 
-        {/* Work area — sessions left, actions right */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: 26, alignItems: 'start' }}>
-          {/* Recent sessions */}
-          <section aria-label="Recent sessions">
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h2 style={{ fontSize: 11.5, letterSpacing: '1.4px', textTransform: 'uppercase', fontWeight: 650, color: 'var(--text)' }}>
-                Recent Sessions
-              </h2>
-              <Link
-                href="/sessions"
-                className="fb-all"
-                style={{ fontSize: 12, color: 'var(--text2)', textDecoration: 'none', fontWeight: 500, transition: 'color 150ms ease' }}
-              >
-                View all →
-              </Link>
-            </div>
-            <div
-              className="fb-rise"
-              style={{
-                border: '1px solid var(--fable-line, var(--border))',
-                borderRadius: 'var(--fable-radius)',
-                background: 'var(--surface)',
-                overflow: 'hidden',
-              }}
-            >
-              {loading ? (
-                <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {[0, 1, 2].map(i => (
-                    <div key={i} className="shimmer" style={{ height: 54, borderRadius: 8 }} />
-                  ))}
-                </div>
-              ) : (
-                recentMeetings.map((m, i) => {
-                  const date = new Date(m.date + 'T00:00:00')
-                  const recapReady = (m.summary?.length ?? 0) > 0
-                  const shown = m.attendees.slice(0, 4)
-                  const extra = m.attendees.length - shown.length
-                  return (
-                    <Link
-                      key={m.id}
-                      href={`/sessions/${m.id}`}
-                      className="fb-sess-item"
-                      style={{
-                        display: 'flex',
-                        gap: 14,
-                        padding: '14px 16px',
-                        borderBottom:
-                          i < recentMeetings.length - 1 ? '1px solid var(--fable-line-soft, var(--border))' : 'none',
-                        cursor: 'pointer',
-                        textDecoration: 'none',
-                        transition: 'background 150ms ease',
-                      }}
-                    >
-                      <div style={{ width: 40, flexShrink: 0, textAlign: 'center', paddingTop: 1 }}>
-                        <div style={{ fontSize: 16, fontWeight: 650, lineHeight: 1, color: 'var(--text)', ...NUM }}>
-                          {date.getDate()}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 9.5,
-                            letterSpacing: '1px',
-                            textTransform: 'uppercase',
-                            color: 'var(--text3)',
-                            marginTop: 3,
-                          }}
-                        >
-                          {date.toLocaleString('en-US', { month: 'short' })}
-                        </div>
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 550, color: 'var(--text)', letterSpacing: '-0.1px' }}>
-                          {m.title}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 11.5,
-                            color: 'var(--text3)',
-                            marginTop: 3,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {shown.join(', ')}
-                          {extra > 0 ? ` +${extra}` : ''}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          marginLeft: 'auto',
-                          flexShrink: 0,
-                          alignSelf: 'center',
-                          fontSize: 11,
-                          fontWeight: 550,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          color: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)',
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: '50%',
-                            background: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)',
-                          }}
-                        />
-                        {recapReady ? 'Recap ready' : 'Awaiting recap'}
-                      </div>
-                    </Link>
-                  )
-                })
-              )}
-              <button
-                onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
-                className="fb-show-more"
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  textAlign: 'center',
-                  padding: 11,
-                  fontSize: 12.5,
-                  fontWeight: 550,
-                  color: 'var(--text2)',
-                  background: 'var(--surface2)',
-                  border: 'none',
-                  borderTop: '1px solid var(--fable-line-soft, var(--border))',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  transition: 'color 150ms ease',
-                }}
-              >
-                + New session
-              </button>
-            </div>
-          </section>
-
+        {/* ROW 3: Open Action Items (60%) · Recent Sessions (40%) */}
+        <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 26, alignItems: 'start', marginBottom: 30 }}>
           {/* Open action items */}
           <section aria-label="Open action items">
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -1789,8 +1603,246 @@ export default function DashboardPage() {
                 )
               })
             )}
+
+            {/* Bottom CTA → full Action Items page */}
+            {!actionItemsLoading && ownerGroups.length > 0 && (
+              <Link
+                href="/actions"
+                className="fb-show-more"
+                style={{
+                  display: 'block',
+                  textAlign: 'center',
+                  padding: 11,
+                  fontSize: 12.5,
+                  fontWeight: 550,
+                  color: 'var(--text2)',
+                  textDecoration: 'none',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--fable-line, var(--border))',
+                  borderRadius: 'var(--fable-radius)',
+                  transition: 'color 150ms ease',
+                }}
+              >
+                Show all {openActions.length} items →
+              </Link>
+            )}
+          </section>
+
+          {/* Recent sessions */}
+          <section aria-label="Recent sessions">
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h2 style={{ fontSize: 11.5, letterSpacing: '1.4px', textTransform: 'uppercase', fontWeight: 650, color: 'var(--text)' }}>
+                Recent Sessions
+              </h2>
+              <Link
+                href="/sessions"
+                className="fb-all"
+                style={{ fontSize: 12, color: 'var(--text2)', textDecoration: 'none', fontWeight: 500, transition: 'color 150ms ease' }}
+              >
+                View all →
+              </Link>
+            </div>
+            <div
+              className="fb-rise"
+              style={{
+                border: '1px solid var(--fable-line, var(--border))',
+                borderRadius: 'var(--fable-radius)',
+                background: 'var(--surface)',
+                overflow: 'hidden',
+              }}
+            >
+              {loading ? (
+                <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="shimmer" style={{ height: 54, borderRadius: 8 }} />
+                  ))}
+                </div>
+              ) : (
+                recentMeetings.map((m, i) => {
+                  const date = new Date(m.date + 'T00:00:00')
+                  const recapReady = (m.summary?.length ?? 0) > 0
+                  const shown = m.attendees.slice(0, 4)
+                  const extra = m.attendees.length - shown.length
+                  return (
+                    <Link
+                      key={m.id}
+                      href={`/sessions/${m.id}`}
+                      className="fb-sess-item"
+                      style={{
+                        display: 'flex',
+                        gap: 14,
+                        padding: '14px 16px',
+                        borderBottom:
+                          i < recentMeetings.length - 1 ? '1px solid var(--fable-line-soft, var(--border))' : 'none',
+                        cursor: 'pointer',
+                        textDecoration: 'none',
+                        transition: 'background 150ms ease',
+                      }}
+                    >
+                      <div style={{ width: 40, flexShrink: 0, textAlign: 'center', paddingTop: 1 }}>
+                        <div style={{ fontSize: 16, fontWeight: 650, lineHeight: 1, color: 'var(--text)', ...NUM }}>
+                          {date.getDate()}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 9.5,
+                            letterSpacing: '1px',
+                            textTransform: 'uppercase',
+                            color: 'var(--text3)',
+                            marginTop: 3,
+                          }}
+                        >
+                          {date.toLocaleString('en-US', { month: 'short' })}
+                        </div>
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 550, color: 'var(--text)', letterSpacing: '-0.1px' }}>
+                          {m.title}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11.5,
+                            color: 'var(--text3)',
+                            marginTop: 3,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {shown.join(', ')}
+                          {extra > 0 ? ` +${extra}` : ''}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          marginLeft: 'auto',
+                          flexShrink: 0,
+                          alignSelf: 'center',
+                          fontSize: 11,
+                          fontWeight: 550,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          color: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: recapReady ? 'var(--fable-ok)' : 'var(--fable-warn)',
+                          }}
+                        />
+                        {recapReady ? 'Recap ready' : 'Awaiting recap'}
+                      </div>
+                    </Link>
+                  )
+                })
+              )}
+              <button
+                onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
+                className="fb-show-more"
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'center',
+                  padding: 11,
+                  fontSize: 12.5,
+                  fontWeight: 550,
+                  color: 'var(--text2)',
+                  background: 'var(--surface2)',
+                  border: 'none',
+                  borderTop: '1px solid var(--fable-line-soft, var(--border))',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  transition: 'color 150ms ease',
+                }}
+              >
+                + New session
+              </button>
+              <Link
+                href="/sessions"
+                className="fb-show-more"
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'center',
+                  padding: 11,
+                  fontSize: 12.5,
+                  fontWeight: 550,
+                  color: 'var(--text2)',
+                  textDecoration: 'none',
+                  background: 'var(--surface2)',
+                  borderTop: '1px solid var(--fable-line-soft, var(--border))',
+                  transition: 'color 150ms ease',
+                }}
+              >
+                View all →
+              </Link>
+            </div>
           </section>
         </div>
+
+        {/* Yesterday's Meetings — moved below Row 3 (full width) */}
+        {yesterdayMeetings.length > 0 && (
+          <section aria-label="Yesterday's meetings">
+            <div
+              style={{
+                border: '1px solid var(--fable-line, var(--border))',
+                borderRadius: 'var(--fable-radius)',
+                background: 'var(--surface)',
+                padding: '16px 20px',
+              }}
+            >
+              <h3
+                style={{
+                  fontSize: 10,
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  color: 'var(--text3)',
+                  fontWeight: 600,
+                  marginBottom: 10,
+                }}
+              >
+                Yesterday&apos;s Meetings
+              </h3>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {yesterdayMeetings.map(m => (
+                  <li key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
+                    <Link
+                      href={`/sessions/${m.id}`}
+                      style={{
+                        color: 'var(--text)',
+                        textDecoration: 'none',
+                        fontWeight: 550,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {m.title}
+                    </Link>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        flexShrink: 0,
+                        fontSize: 11.5,
+                        fontWeight: 550,
+                        color: 'var(--fable-ok)',
+                      }}
+                    >
+                      ✅ Recap ready
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
       </div>
 
       {/* Floating CASK Intelligence button + chat drawer — bottom-right, this page only */}

@@ -439,11 +439,20 @@ export default function ActionsPage() {
   useEffect(() => {
     const supabase = createClient()
     supabase
-      .from('action_items')
-      .select('*')
+      .from('meetings')
+      .select('id, action_items')
+      .not('action_items', 'is', null)
+      .neq('action_items', '[]')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
-        setItems((data ?? []) as ActionItem[])
+        const rows = (data ?? []) as { id: string; action_items: ActionItem[] | null }[]
+        // Flatten every meeting's action_items array into one list. The JSON items
+        // have no id, so synthesize a stable one (meeting id + index) for React keys
+        // and toggle lookups, and carry the source meeting_id for write-back.
+        const flattened = rows.flatMap(m =>
+          (m.action_items ?? []).map((a, i) => ({ ...a, id: `${m.id}:${i}`, meeting_id: m.id }))
+        )
+        setItems(flattened as ActionItem[])
         setLoading(false)
       })
   }, [])
@@ -462,12 +471,30 @@ export default function ActionsPage() {
   const completedItems = filtered.filter(a => a.done)
 
   async function handleToggle(id: string, done: boolean) {
-    setItems(prev => prev.map(item => item.id === id ? { ...item, done } : item))
+    // Optimistic UI
+    setItems(prev => prev.map(item => (item.id === id ? { ...item, done } : item)))
+
+    const target = items.find(item => item.id === id)
+    if (!target?.meeting_id) return
+
     const supabase = createClient()
+
+    // Read the source meeting's current action_items array.
+    const { data } = await supabase
+      .from('meetings')
+      .select('action_items')
+      .eq('id', target.meeting_id)
+      .single()
+    const current = (data?.action_items ?? []) as ActionItem[]
+
+    // Flip the matching item's done field (matched by task + owner), then save back.
+    const updated = current.map(a =>
+      a.task === target.task && a.owner === target.owner ? { ...a, done } : a
+    )
     const { error } = await supabase
-      .from('action_items')
-      .update({ done })
-      .eq('id', id)
+      .from('meetings')
+      .update({ action_items: updated })
+      .eq('id', target.meeting_id)
     if (error) console.error('[actions] toggle persist failed:', error)
   }
 
