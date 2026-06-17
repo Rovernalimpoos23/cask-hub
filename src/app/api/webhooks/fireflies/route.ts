@@ -39,6 +39,21 @@ function buildExtractionPrompt(): string {
 
 Today's date is ${today} (${year}). When extracting meeting dates, always use ${year} as the year unless the transcript explicitly mentions a different year. Never use years before ${year}.
 
+ACTION ITEMS EXTRACTION RULES:
+- Read the full transcript carefully
+- Extract EVERY explicit commitment made
+- Look for phrases like:
+  "I will...", "I'll...", "We need to...",
+  "Can you...", "Please...", "I'll follow up...",
+  "Let me...", "I'm going to..."
+- Assign the correct owner based on who
+  made the commitment
+- If deadline is mentioned include it
+- Include implied action items when someone
+  clearly agrees to do something
+- Never leave action_items empty if commitments
+  were made in the transcript
+
 Return this exact structure:
 {
   "title": "string (meeting title)",
