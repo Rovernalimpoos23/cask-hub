@@ -794,6 +794,7 @@ export default function DashboardPage() {
   const [bottomLoading, setBottomLoading] = useState(true)
   const [syncMins, setSyncMins] = useState(0)
   const [expandedOwners, setExpandedOwners] = useState<Record<string, boolean>>({})
+  const [yesterdayMeetings, setYesterdayMeetings] = useState<Meeting[]>([])
 
   useEffect(() => {
     const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
@@ -898,6 +899,28 @@ export default function DashboardPage() {
         setUpcomingCount(count ?? 0)
       })
 
+  }, [])
+
+  // Yesterday's Meetings — query Supabase directly (no seed fallback) so we
+  // only ever show meetings Fireflies actually captured and saved.
+  useEffect(() => {
+    const etTodayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    const [yy, mm, dd] = etTodayStr.split('-').map(Number)
+    const y = new Date(Date.UTC(yy, mm - 1, dd))
+    y.setUTCDate(y.getUTCDate() - 1)
+    const etYesterdayStr = y.toISOString().slice(0, 10)
+
+    createClient()
+      .from('meetings')
+      .select('*')
+      .eq('date', etYesterdayStr)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('[dashboard] yesterday meetings error:', error)
+          return
+        }
+        setYesterdayMeetings((data ?? []) as Meeting[])
+      })
   }, [])
 
   const loadAllActionItems = useCallback(() => {
@@ -1345,6 +1368,57 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+
+          {/* Yesterday's Meetings — only meetings saved to Supabase (Fireflies-captured) */}
+          {yesterdayMeetings.length > 0 && (
+            <div style={{ padding: '16px 20px', borderTop: '1px solid var(--fable-line-soft, var(--border))' }}>
+              <h3
+                style={{
+                  fontSize: 10,
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  color: 'var(--text3)',
+                  fontWeight: 600,
+                  marginBottom: 10,
+                }}
+              >
+                Yesterday&apos;s Meetings
+              </h3>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {yesterdayMeetings.map(m => (
+                  <li key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
+                    <Link
+                      href={`/sessions/${m.id}`}
+                      style={{
+                        color: 'var(--text)',
+                        textDecoration: 'none',
+                        fontWeight: 550,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {m.title}
+                    </Link>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        flexShrink: 0,
+                        fontSize: 11.5,
+                        fontWeight: 550,
+                        color: 'var(--fable-ok)',
+                      }}
+                    >
+                      ✅ Recap ready
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
 
         {/* Work area — sessions left, actions right */}
