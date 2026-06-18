@@ -21,17 +21,27 @@ export async function POST(req: NextRequest) {
       model: 'claude-sonnet-4-6',
       system: `You are an AI assistant for CASK Construction. Extract meeting information from this transcript and return ONLY a valid JSON object with no other text, no markdown, no backticks.
 
+Today's date is ${new Date().toISOString().split('T')[0]}. Always use the current year unless the transcript explicitly mentions a different year.
+
+ACTION ITEMS EXTRACTION RULES:
+- Read the full transcript carefully
+- Extract EVERY explicit commitment made
+- Look for phrases like: I will, I'll, Can you, Please, Let me, I'm going to
+- Assign correct owner based on who committed
+- Include deadlines if mentioned
+- Never leave action_items empty if commitments were made
+
 Return this exact structure:
 {
   "title": "string",
   "date": "YYYY-MM-DD",
-  "time_start": "string e.g. 10:00 AM",
-  "time_end": "string",
+  "time_start": "string or null e.g. 10:00 AM",
+  "time_end": "string or null",
   "attendees": ["first names only"],
   "meeting_type": "leadership or planning or coaching or education",
   "module": "ActionCOACH or President Workflow — Daily Meetings or President Workflow — Coaching Sessions or President Workflow — Department Alignment or Customer Journey — Active Clients",
   "summary": ["bullet 1", "bullet 2", "bullet 3"],
-  "action_items": [{"task": "string", "owner": "string", "due_date": "YYYY-MM-DD", "done": false}],
+  "action_items": [{"task": "string", "owner": "string", "due_date": "YYYY-MM-DD or null", "done": false}],
   "key_decisions": ["string"]
 }
 
