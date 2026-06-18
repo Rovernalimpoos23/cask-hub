@@ -269,6 +269,9 @@ export default function AddMeetingModal() {
   const [summary2, setSummary2]         = useState('')
   const [summary3, setSummary3]         = useState('')
   const [actionItems, setActionItems]   = useState<ActionItemForm[]>([newItem()])
+  const [decision1, setDecision1]       = useState('')
+  const [decision2, setDecision2]       = useState('')
+  const [decision3, setDecision3]       = useState('')
 
   // UI state
   const [saving, setSaving]         = useState(false)
@@ -322,7 +325,7 @@ export default function AddMeetingModal() {
     setTitle(''); setMeetingType('coaching'); setModule('ActionCOACH')
     setDate(new Date().toISOString().split('T')[0]); setOwner('Calin'); setTimeStart(''); setTimeEnd('')
     setAttendees([]); setTranscript(''); setSummary1(''); setSummary2(''); setSummary3('')
-    setActionItems([newItem()]); setAiSuccess(false)
+    setActionItems([newItem()]); setDecision1(''); setDecision2(''); setDecision3(''); setAiSuccess(false)
   }
 
   // ── Auto-fill from transcript ──────────────────────────────────────────────
@@ -367,6 +370,11 @@ export default function AddMeetingModal() {
           done: item.done ?? false,
         })))
       }
+      if (Array.isArray(d.key_decisions)) {
+        setDecision1(d.key_decisions[0] ?? '')
+        setDecision2(d.key_decisions[1] ?? '')
+        setDecision3(d.key_decisions[2] ?? '')
+      }
       setAiSuccess(true)
     } catch (err) {
       console.error('Auto-fill error:', err)
@@ -401,7 +409,7 @@ export default function AddMeetingModal() {
       attendees,
       full_transcript: transcript,
       summary: [summary1, summary2, summary3].filter(s => s.trim()),
-      key_decisions: [] as string[],
+      key_decisions: [decision1, decision2, decision3].filter(s => s.trim()),
       action_items: actionItems
         .filter(i => i.task.trim())
         .map(i => ({ id: i.id, task: i.task.trim(), owner: i.owner, due_date: sanitizeDate(i.due_date), done: i.done })),
@@ -782,6 +790,29 @@ export default function AddMeetingModal() {
                     [summary1, setSummary1, 'First key summary point'],
                     [summary2, setSummary2, 'Second key summary point'],
                     [summary3, setSummary3, 'Third key summary point'],
+                  ].map(([val, setter, placeholder], i) => (
+                    <input
+                      key={i}
+                      type="text"
+                      value={val as string}
+                      onChange={e => (setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)}
+                      placeholder={placeholder as string}
+                      style={inputStyle}
+                      onFocus={focusInput}
+                      onBlur={blurInput}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Key Decisions */}
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Key Decisions</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    [decision1, setDecision1, 'First key decision'],
+                    [decision2, setDecision2, 'Second key decision'],
+                    [decision3, setDecision3, 'Third key decision'],
                   ].map(([val, setter, placeholder], i) => (
                     <input
                       key={i}
