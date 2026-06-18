@@ -1,50 +1,30 @@
 'use client'
 // src/app/(app)/presidents-workflow/big-vision/page.tsx
 //
-// CASK Big Vision — hub page. Command-Center-style card grid; each card links to a
-// sub-page. No right panel (floating CASK Big Vision AI instead).
+// CASK Big Vision — hub page. Command-Center-style card grid: 4 top-level cards,
+// each opening its own sub-page grid. No right panel (floating CASK Big Vision AI
+// instead).
 //
 // TODO: The shared right-hand AIPanel still renders on this route because
-// '/presidents-workflow/big-vision' (and its sub-routes) are not listed in
-// FULL_WIDTH_ROUTES inside src/app/(app)/layout.tsx. To fully hide the right panel
-// and run full-width like Command Center, those routes must be added there — that
-// file is outside the big-vision/ folder and is intentionally left untouched.
+// '/presidents-workflow/big-vision' (and its sub-routes) are listed in
+// FULL_WIDTH_ROUTES inside src/app/(app)/layout.tsx. That file is outside the
+// big-vision/ folder and is only touched to register full-width routes.
 
-import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase'
 import FloatingVisionAI from './_components/FloatingVisionAI'
 
 const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
 
-type BadgeTone = 'gray' | 'blue' | 'green'
-
-const BADGE_STYLES: Record<BadgeTone, { color: string; bg: string; border: string }> = {
-  gray: { color: 'var(--text3)', bg: 'var(--surface2)', border: 'var(--fable-line, var(--border))' },
-  blue: { color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
-  green: { color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
-}
-
-// Lucide-style inline SVG paths (same icon approach as Command Center's <Icon>).
+// ── Icons (Lucide-style; stroke = currentColor so they tint) ─────────────
 const ICON_PATHS: Record<string, React.ReactNode> = {
-  target: (
-    <><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></>
-  ),
-  rocket: (
+  layers: (
     <>
-      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
-      <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
-      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+      <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+      <path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" />
+      <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" />
     </>
   ),
-  globe: (
-    <><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></>
-  ),
-  bookOpen: (
-    <><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></>
-  ),
-  building: (
+  building2: (
     <>
       <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
       <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
@@ -52,39 +32,75 @@ const ICON_PATHS: Record<string, React.ReactNode> = {
       <path d="M10 6h4" /><path d="M10 10h4" /><path d="M10 14h4" /><path d="M10 18h4" />
     </>
   ),
-  barChart: (
-    <><line x1="12" y1="20" x2="12" y2="10" /><line x1="18" y1="20" x2="18" y2="4" /><line x1="6" y1="20" x2="6" y2="16" /></>
+  star: (
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
   ),
-  folder: (
-    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-  ),
-  calendarDays: (
+  palette: (
     <>
-      <path d="M8 2v4" /><path d="M16 2v4" />
-      <rect width="18" height="18" x="3" y="4" rx="2" />
-      <path d="M3 10h18" />
-      <path d="M8 14h.01" /><path d="M12 14h.01" /><path d="M16 14h.01" />
-      <path d="M8 18h.01" /><path d="M12 18h.01" /><path d="M16 18h.01" />
+      <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+      <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+      <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+      <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2Z" />
     </>
   ),
 }
 
-// Small rounded-square icon container — same size/radius as Command Center's
-// DeptIcon, but with a soft colored background per card.
+interface CardDef {
+  icon: string
+  iconBg: string
+  iconColor: string
+  title: string
+  subtitle: string
+  bullets: string[]
+  more?: number
+  href?: string
+}
+
+const CARDS: CardDef[] = [
+  {
+    icon: 'layers',
+    iconBg: '#eff6ff',
+    iconColor: '#2563eb',
+    title: 'The Big Vision',
+    subtitle: 'Core strategy & foundation',
+    bullets: ['CASK Manifesto', 'White Paper Draft', '2, 5, 10 Year Goals', '1-Year Plan'],
+    more: 3,
+    href: '/presidents-workflow/big-vision/the-big-vision',
+  },
+  {
+    icon: 'building2',
+    iconBg: '#fff7ed',
+    iconColor: '#ea580c',
+    title: 'Department Alignment',
+    subtitle: 'Goals · 1:1s · DISC Assessments',
+    bullets: ['Sales & Marketing', 'Human Resources', 'Finance', 'Operations'],
+    more: 2,
+    href: '/presidents-workflow/big-vision/department-alignment',
+  },
+  {
+    icon: 'star',
+    iconBg: '#fefce8',
+    iconColor: '#ca8a04',
+    title: 'PIT',
+    subtitle: 'Personal Improvement Targets',
+    bullets: [],
+    href: '/presidents-workflow/big-vision/pit',
+  },
+  {
+    icon: 'palette',
+    iconBg: '#f5f3ff',
+    iconColor: '#7c3aed',
+    title: 'Design Center',
+    subtitle: 'Design files · Client presentations',
+    bullets: [],
+    href: '/presidents-workflow/big-vision/design-center',
+  },
+]
+
 function CardIcon({ name, bg, color }: { name: string; bg: string; color: string }) {
   return (
-    <div
-      style={{
-        width: 32,
-        height: 32,
-        borderRadius: 8,
-        background: bg,
-        display: 'grid',
-        placeItems: 'center',
-        color,
-        flexShrink: 0,
-      }}
-    >
+    <div style={{ width: 32, height: 32, borderRadius: 8, background: bg, display: 'grid', placeItems: 'center', color, flexShrink: 0 }}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         {ICON_PATHS[name]}
       </svg>
@@ -92,188 +108,64 @@ function CardIcon({ name, bg, color }: { name: string; bg: string; color: string
   )
 }
 
-interface NavCard {
-  icon: string
-  iconBg: string
-  iconColor: string
-  title: string
-  description: string
-  badge: string
-  badgeTone: BadgeTone
-  href: string
-}
-
-// Static cards. Card 7 (Documents) badge count is filled in dynamically.
-const STATIC_CARDS: NavCard[] = [
-  {
-    icon: 'target',
-    iconBg: '#eff6ff',
-    iconColor: '#2563eb',
-    title: '1-Year Plan',
-    description: 'Launch New Build Division · $10M revenue target',
-    badge: '2025–2026',
-    badgeTone: 'gray',
-    href: '/presidents-workflow/big-vision/1yr',
-  },
-  {
-    icon: 'rocket',
-    iconBg: '#f5f3ff',
-    iconColor: '#7c3aed',
-    title: '3-Year Plan',
-    description: 'Dominate locally · Launch consulting arms',
-    badge: '2028',
-    badgeTone: 'gray',
-    href: '/presidents-workflow/big-vision/3yr',
-  },
-  {
-    icon: 'globe',
-    iconBg: '#f0fdf4',
-    iconColor: '#16a34a',
-    title: '5-Year Plan',
-    description: 'National expansion · $1B path · Platform building',
-    badge: '2030',
-    badgeTone: 'gray',
-    href: '/presidents-workflow/big-vision/5yr',
-  },
-  {
-    icon: 'bookOpen',
-    iconBg: '#fffbeb',
-    iconColor: '#d97706',
-    title: 'CASK Manifesto',
-    description: 'Purpose · Community · The Modern Village',
-    badge: 'Core Values',
-    badgeTone: 'blue',
-    href: '/presidents-workflow/big-vision/manifesto',
-  },
-  {
-    icon: 'building',
-    iconBg: 'var(--surface2)',
-    iconColor: 'var(--text2)',
-    title: 'White Paper Draft',
-    description: 'ADU Division (Kait) · New Build Division (Mateo)',
-    badge: 'Structure',
-    badgeTone: 'gray',
-    href: '/presidents-workflow/big-vision/charters',
-  },
-  {
-    icon: 'barChart',
-    iconBg: '#f0fdfa',
-    iconColor: '#0d9488',
-    title: '2, 5, 10 Year Goals',
-    description: 'Blueprint for builders nationwide · $1B+ enterprise',
-    badge: '2035 Vision',
-    badgeTone: 'green',
-    href: '/presidents-workflow/big-vision/roadmap',
-  },
-  {
-    icon: 'calendarDays',
-    iconBg: '#FEE2E2',
-    iconColor: '#dc2626',
-    title: 'Overall Meeting Outline',
-    description: 'Yearly · Quarterly · Monthly meeting structure',
-    badge: 'Structure',
-    badgeTone: 'gray',
-    href: '/presidents-workflow/big-vision/meeting-cadence',
-  },
-]
-
-function Badge({ tone, children }: { tone: BadgeTone; children: React.ReactNode }) {
-  const s = BADGE_STYLES[tone]
+function Bullet({ text }: { text: string }) {
   return (
-    <span
-      style={{
-        flexShrink: 0,
-        fontSize: 10.5,
-        fontWeight: 600,
-        letterSpacing: '0.2px',
-        padding: '3px 9px',
-        borderRadius: 999,
-        color: s.color,
-        background: s.bg,
-        border: `1px solid ${s.border}`,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {children}
-    </span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--border2)', flexShrink: 0 }} />
+      <span style={{ fontSize: 12, color: 'var(--text3)' }}>{text}</span>
+    </div>
   )
 }
 
-function VisionNavCard({ card }: { card: NavCard }) {
-  return (
-    <Link href={card.href} style={{ textDecoration: 'none', color: 'inherit', display: 'block', height: '100%' }}>
-      <div
-        className="bv-card"
-        style={{
-          border: '1px solid var(--fable-line, var(--border))',
-          borderRadius: 'var(--fable-radius)',
-          background: 'var(--surface)',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 13,
-          padding: '18px',
-          cursor: 'pointer',
-          transition: 'border-color 150ms ease',
-        }}
-      >
-        {/* Icon + badge */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-          <CardIcon name={card.icon} bg={card.iconBg} color={card.iconColor} />
-          <Badge tone={card.badgeTone}>{card.badge}</Badge>
-        </div>
-
-        {/* Title + description */}
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.1px' }}>
-            {card.title}
-          </div>
-          <div style={{ fontSize: 12.5, color: 'var(--text3)', marginTop: 4, lineHeight: 1.5 }}>
-            {card.description}
-          </div>
-        </div>
-
-        {/* Footer link */}
-        <div className="bv-card-link" style={{ marginTop: 'auto', fontSize: 12, fontWeight: 550, color: 'var(--text)' }}>
-          Open →
+function GridCard({ card }: { card: CardDef }) {
+  const inner = (
+    <div
+      className="bv-card"
+      style={{
+        border: '1px solid var(--fable-line, var(--border))',
+        borderRadius: 'var(--fable-radius)',
+        background: 'var(--surface)',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 18,
+        cursor: card.href ? 'pointer' : 'default',
+        transition: 'border-color 150ms ease',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+        <CardIcon name={card.icon} bg={card.iconBg} color={card.iconColor} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.1px' }}>{card.title}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text3)', marginTop: 2 }}>{card.subtitle}</div>
         </div>
       </div>
+
+      <div style={{ marginTop: 13 }}>
+        {card.bullets.map((b) => (
+          <Bullet key={b} text={b} />
+        ))}
+        {card.more ? (
+          <div style={{ fontSize: 11.5, color: 'var(--text3)', padding: '5px 0 2px' }}>+ {card.more} more</div>
+        ) : null}
+      </div>
+
+      <div style={{ marginTop: 'auto', paddingTop: 13 }}>
+        <span className="bv-card-link" style={{ fontSize: 12, fontWeight: 550, color: 'var(--text)' }}>
+          Open →
+        </span>
+      </div>
+    </div>
+  )
+
+  return (
+    <Link href={card.href!} style={{ textDecoration: 'none', color: 'inherit', display: 'block', height: '100%' }}>
+      {inner}
     </Link>
   )
 }
 
 export default function BigVisionPage() {
-  const [fileCount, setFileCount] = useState<number | null>(null)
-
-  useEffect(() => {
-    let active = true
-    async function loadCount() {
-      const supabase = createClient()
-      const { count } = await supabase
-        .from('cask_vision_files')
-        .select('*', { count: 'exact', head: true })
-      if (!active) return
-      setFileCount(count ?? 0)
-    }
-    loadCount()
-    return () => {
-      active = false
-    }
-  }, [])
-
-  const documentsCard: NavCard = {
-    icon: 'folder',
-    iconBg: '#fef9c3',
-    iconColor: '#a16207',
-    title: 'Documents & Files',
-    description: 'Source documents · Upload & reference materials',
-    badge: fileCount === null ? '… files' : `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`,
-    badgeTone: 'gray',
-    href: '/presidents-workflow/big-vision/documents',
-  }
-
-  const cards: NavCard[] = [...STATIC_CARDS, documentsCard]
-
   return (
     <>
       <style>{`
@@ -327,10 +219,10 @@ export default function BigVisionPage() {
 
       {/* ── Body ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
-        <div style={{ padding: '30px 40px 90px', maxWidth: 1180 }}>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 items-stretch">
-            {cards.map((card) => (
-              <VisionNavCard key={card.href} card={card} />
+        <div style={{ padding: '30px 40px 90px', maxWidth: 880 }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-stretch">
+            {CARDS.map((card) => (
+              <GridCard key={card.href} card={card} />
             ))}
           </div>
         </div>
