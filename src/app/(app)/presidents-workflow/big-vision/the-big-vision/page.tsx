@@ -196,7 +196,7 @@ function GridCard({ card }: { card: CardDef }) {
 
 export default function TheBigVisionPage() {
   return (
-    <VisionSubPageShell title="The Big Vision" subtitle="Core strategy & foundation">
+    <VisionSubPageShell title="The Big Vision" subtitle="Core strategy & foundation" fullWidth>
       <style>{`
         .bv-card:hover { border-color: var(--border2) !important; }
         .bv-card:hover .bv-card-link { text-decoration: underline; text-underline-offset: 3px; }

@@ -13,10 +13,12 @@ const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
 export default function VisionSubPageShell({
   title,
   subtitle,
+  fullWidth = false,
   children,
 }: {
   title: string
   subtitle?: string
+  fullWidth?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -68,7 +70,7 @@ export default function VisionSubPageShell({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
-        <div style={{ padding: '30px 40px 90px', maxWidth: 980 }}>
+        <div style={{ padding: '30px 40px 90px', maxWidth: fullWidth ? '100%' : 980 }}>
           <style>{`.bv-back:hover { color: var(--text); }`}</style>
           {children}
         </div>

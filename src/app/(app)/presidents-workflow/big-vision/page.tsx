@@ -219,7 +219,7 @@ export default function BigVisionPage() {
 
       {/* ── Body ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
-        <div style={{ padding: '30px 40px 90px', maxWidth: 880 }}>
+        <div style={{ padding: '30px 40px 90px' }}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-stretch">
             {CARDS.map((card) => (
               <GridCard key={card.href} card={card} />

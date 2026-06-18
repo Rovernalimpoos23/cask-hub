@@ -161,7 +161,7 @@ function GridCard({ card }: { card: CardDef }) {
 
 export default function DepartmentAlignmentPage() {
   return (
-    <VisionSubPageShell title="Department Alignment" subtitle="Goals · 1:1s · DISC Assessments">
+    <VisionSubPageShell title="Department Alignment" subtitle="Goals · 1:1s · DISC Assessments" fullWidth>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 items-stretch">
         {CARDS.map((card) => (
           <GridCard key={card.title} card={card} />
