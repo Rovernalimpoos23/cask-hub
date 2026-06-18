@@ -58,6 +58,15 @@ const ICON_PATHS: Record<string, React.ReactNode> = {
   folder: (
     <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
   ),
+  calendarDays: (
+    <>
+      <path d="M8 2v4" /><path d="M16 2v4" />
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M3 10h18" />
+      <path d="M8 14h.01" /><path d="M12 14h.01" /><path d="M16 14h.01" />
+      <path d="M8 18h.01" /><path d="M12 18h.01" /><path d="M16 18h.01" />
+    </>
+  ),
 }
 
 // Small rounded-square icon container — same size/radius as Command Center's
@@ -155,6 +164,16 @@ const STATIC_CARDS: NavCard[] = [
     badge: '2035 Vision',
     badgeTone: 'green',
     href: '/presidents-workflow/big-vision/roadmap',
+  },
+  {
+    icon: 'calendarDays',
+    iconBg: '#FEE2E2',
+    iconColor: '#dc2626',
+    title: 'Overall Meeting Outline',
+    description: 'Yearly · Quarterly · Monthly meeting structure',
+    badge: 'Structure',
+    badgeTone: 'gray',
+    href: '/presidents-workflow/big-vision/meeting-cadence',
   },
 ]
 
