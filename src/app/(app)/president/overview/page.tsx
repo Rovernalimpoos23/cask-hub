@@ -41,7 +41,7 @@ const FREQ = {
 type Freq = keyof typeof FREQ
 
 interface PersonItem { name: string }
-interface SubSubItem { title: string; personItems?: PersonItem[]; modalKey?: string }
+interface SubSubItem { title: string; personItems?: PersonItem[]; modalKey?: string; link?: string }
 interface SubItem { title: string; subItems?: SubSubItem[]; modalKey?: string; personItems?: PersonItem[] }
 interface MeetingLevel { title: string; freq: Freq; subItems?: SubItem[]; modalKey?: string }
 
@@ -74,6 +74,7 @@ const LEVELS: MeetingLevel[] = [
           { title: 'DISC' },
           { title: 'Team Alignment – Hitting Our $20M Goal', modalKey: 'team-alignment' },
           { title: 'Department Roles and Responsibilities', modalKey: 'dept-roles' },
+          { title: 'Cross-Department Financial Meeting – June 2026', link: 'https://rxpbrpsfuraqcqlyxvnl.supabase.co/storage/v1/object/public/cask-vision-docs/1781788578326_CASK_Department_Meeting_Prep.pdf' },
         ],
       },
     ],
@@ -2461,6 +2462,26 @@ function LevelCard({ level }: { level: MeetingLevel }) {
                             >
                               View File
                             </button>
+                          )}
+                          {subsub.link && (
+                            <a
+                              href={subsub.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="shrink-0 inline-flex items-center text-[10.5px] font-semibold px-2 py-0.5 rounded-[4px] transition-opacity"
+                              style={{
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                fontFamily: 'inherit',
+                                cursor: 'pointer',
+                                textDecoration: 'none',
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.opacity = '0.7' }}
+                              onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                            >
+                              View File
+                            </a>
                           )}
                         </div>
                       )
