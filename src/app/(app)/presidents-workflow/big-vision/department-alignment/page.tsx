@@ -5,6 +5,7 @@
 // Coming Soon (grayed, no route) for now. Wrapped in the shared Big Vision
 // sub-page shell (back button + header + floating CASK Big Vision AI).
 
+import Link from 'next/link'
 import VisionSubPageShell from '../_components/VisionSubPageShell'
 
 const ICON_PATHS: Record<string, React.ReactNode> = {
@@ -68,6 +69,7 @@ const CARDS: CardDef[] = [
     title: 'Sales & Marketing',
     subtitle: 'Jeff Azcona · Weekly / Monthly',
     bullets: ['Pipeline goals', 'Revenue targets', 'Lead conversion', 'Marketing strategy'],
+    href: '/presidents-workflow/big-vision/department-alignment/sales-marketing',
   },
   {
     icon: 'users',
@@ -76,6 +78,7 @@ const CARDS: CardDef[] = [
     title: 'Human Resources',
     subtitle: 'Team · Monthly',
     bullets: ['Hiring pipeline', 'Employee roster', 'Training compliance', 'Retention'],
+    href: '/presidents-workflow/big-vision/department-alignment/human-resources',
   },
   {
     icon: 'dollarSign',
@@ -84,6 +87,7 @@ const CARDS: CardDef[] = [
     title: 'Finance',
     subtitle: 'Lamont Gilyot · Weekly / Monthly',
     bullets: ['Cash flow', 'P&L Statement', 'Budget vs Actual', '13-Week cash flow'],
+    href: '/presidents-workflow/big-vision/department-alignment/finance',
   },
   {
     icon: 'settings',
@@ -92,6 +96,7 @@ const CARDS: CardDef[] = [
     title: 'Operations',
     subtitle: 'Matteo Carpani · Weekly',
     bullets: ['WIP Report', 'Project profitability', 'PM Scorecards', 'Budget vs Actual'],
+    href: '/presidents-workflow/big-vision/department-alignment/operations',
   },
   {
     icon: 'userCheck',
@@ -123,7 +128,7 @@ function Bullet({ text }: { text: string }) {
 }
 
 function GridCard({ card }: { card: CardDef }) {
-  return (
+  const inner = (
     <div
       className="bv-card"
       style={{
@@ -134,8 +139,9 @@ function GridCard({ card }: { card: CardDef }) {
         display: 'flex',
         flexDirection: 'column',
         padding: 18,
-        cursor: 'default',
-        opacity: 0.7,
+        cursor: card.href ? 'pointer' : 'default',
+        transition: 'border-color 150ms ease',
+        opacity: card.href ? 1 : 0.7,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
@@ -153,15 +159,33 @@ function GridCard({ card }: { card: CardDef }) {
       </div>
 
       <div style={{ marginTop: 'auto', paddingTop: 13 }}>
-        <span style={{ fontSize: 12, fontWeight: 550, color: 'var(--text3)' }}>Coming Soon</span>
+        {card.href ? (
+          <span className="bv-card-link" style={{ fontSize: 12, fontWeight: 550, color: 'var(--text)' }}>
+            Open →
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, fontWeight: 550, color: 'var(--text3)' }}>Coming Soon</span>
+        )}
       </div>
     </div>
+  )
+
+  return card.href ? (
+    <Link href={card.href} style={{ textDecoration: 'none', color: 'inherit', display: 'block', height: '100%' }}>
+      {inner}
+    </Link>
+  ) : (
+    inner
   )
 }
 
 export default function DepartmentAlignmentPage() {
   return (
     <VisionSubPageShell title="Department Alignment" subtitle="Goals · 1:1s · DISC Assessments" fullWidth>
+      <style>{`
+        .bv-card:hover { border-color: var(--border2) !important; }
+        .bv-card:hover .bv-card-link { text-decoration: underline; text-underline-offset: 3px; }
+      `}</style>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 items-stretch">
         {CARDS.map((card) => (
           <GridCard key={card.title} card={card} />
