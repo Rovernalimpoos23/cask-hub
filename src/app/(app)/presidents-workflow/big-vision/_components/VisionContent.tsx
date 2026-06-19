@@ -1,14 +1,20 @@
 'use client'
 // src/app/(app)/presidents-workflow/big-vision/_components/VisionContent.tsx
 //
-// Fetches a single cask_vision_content row by horizon and renders it as clean,
-// readable sections — NOT a raw text wall. Content is split on "---"; within each
-// section the first line becomes a serif sub-header and the remainder is body text.
+// Fetches a single cask_vision_content row by horizon and renders the raw
+// Supabase text as clean, readable blocks — NOT a cramped text wall. Raw text
+// often arrives hard-wrapped with single \r\n line breaks that split sentences
+// mid-word, so we normalize line endings, collapse single newlines into spaces,
+// and only then split on blank lines into paragraphs. ALL-CAPS lines become
+// section headers and "-"/"•" lines become list items.
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 
-const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
+// CSS custom properties requested for this component. These project tokens are
+// not yet defined globally, so each carries a fallback to the existing token.
+const TEXT_PRIMARY = 'var(--color-text-primary, var(--text))'
+const TEXT_SECONDARY = 'var(--color-text-secondary, var(--text2))'
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
@@ -16,35 +22,81 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-interface ParsedSection {
-  heading: string
-  body: string
+type Block =
+  | { type: 'header'; text: string }
+  | { type: 'list'; items: string[] }
+  | { type: 'para'; text: string }
+  | { type: 'spacer' }
+
+// Strip light markdown noise so raw Supabase text renders cleanly.
+function clean(line: string): string {
+  return line
+    .replace(/^#+\s*/, '')
+    .replace(/\*\*/g, '')
+    .trim()
 }
 
-// Split on a line of three-or-more dashes; first line of each chunk → heading.
-function parseSections(content: string): ParsedSection[] {
-  return content
-    .split(/\n?-{3,}\n?/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((section) => {
-      const lines = section.split('\n')
-      let heading = (lines[0] ?? '').replace(/^#+\s*/, '').replace(/\*\*/g, '').trim()
-      let body = lines.slice(1).join('\n').trim()
-      // If the "heading" is really a paragraph, keep the whole chunk as body.
-      if (heading.length > 90) {
-        body = section
-        heading = ''
-      }
-      return { heading, body }
-    })
+// A line is a section header when it is entirely upper-case (and has letters).
+function isAllCaps(line: string): boolean {
+  return /[A-Z]/.test(line) && line === line.toUpperCase()
+}
+
+// Parse raw text into blocks.
+//
+// FIX 1 — fix mid-word wrapping caused by hard line breaks:
+//   1. Normalize all \r\n (and lone \r) to \n.
+//   2. Collapse single \n into spaces so broken sentences flow naturally,
+//      while preserving blank-line paragraph breaks and newlines that precede
+//      a list bullet (so multi-line lists stay intact).
+//   3. Split on \n\n to create paragraphs.
+function parseBlocks(content: string): Block[] {
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+  // Replace a single \n (one not preceded or followed by another \n) with a
+  // space, unless it directly precedes a list bullet.
+  const joined = normalized.replace(/(?<!\n)\n(?!\n|[-•])/g, ' ')
+
+  const paragraphs = joined.split(/\n{2,}/)
+  const blocks: Block[] = []
+
+  for (const rawParagraph of paragraphs) {
+    const paragraph = clean(rawParagraph)
+
+    // Empty paragraph → spacer.
+    if (!paragraph) {
+      blocks.push({ type: 'spacer' })
+      continue
+    }
+
+    // List paragraph: starts with a bullet. Preserved internal newlines (see
+    // FIX 1) separate the individual items.
+    if (/^[-•]\s+/.test(paragraph)) {
+      const items = paragraph
+        .split('\n')
+        .map((l) => clean(l).replace(/^[-•]\s+/, '').trim())
+        .filter(Boolean)
+      blocks.push({ type: 'list', items })
+      continue
+    }
+
+    // Section header: an ALL-CAPS line.
+    if (isAllCaps(paragraph)) {
+      blocks.push({ type: 'header', text: paragraph })
+      continue
+    }
+
+    blocks.push({ type: 'para', text: paragraph })
+  }
+
+  return blocks
 }
 
 export default function VisionContent({
   horizon,
-  variant = 'default',
 }: {
   horizon: string
+  // Kept for backwards-compat with existing callers; rendering is now uniform
+  // across variants, so this no longer changes the output.
   variant?: 'default' | 'statement'
 }) {
   const [content, setContent] = useState<string | null>(null)
@@ -106,9 +158,9 @@ export default function VisionContent({
     )
   }
 
-  const sections = content ? parseSections(content) : []
+  const blocks = content ? parseBlocks(content) : []
 
-  if (sections.length === 0) {
+  if (blocks.length === 0) {
     return (
       <div
         style={{
@@ -126,60 +178,100 @@ export default function VisionContent({
     )
   }
 
-  const statement = variant === 'statement'
-
   return (
     <div
       style={{
+        // FIX 2: constrain and center the content card.
+        maxWidth: 860,
+        margin: '0 auto',
         border: '1px solid var(--fable-line, var(--border))',
         borderRadius: 'var(--fable-radius)',
         background: 'var(--surface)',
         overflow: 'hidden',
       }}
     >
-      {sections.map((s, i) => (
-        <div
-          key={i}
-          style={{
-            padding: statement ? '26px 30px' : '22px 26px',
-            borderTop: i > 0 ? '1px solid var(--fable-line-soft, var(--border))' : 'none',
-          }}
-        >
-          {s.heading && (
-            <h2
-              style={{
-                fontFamily: SERIF,
-                fontSize: statement ? 22 : 18,
-                fontWeight: 600,
-                letterSpacing: '-0.3px',
-                lineHeight: 1.25,
-                color: 'var(--text)',
-                margin: s.body ? '0 0 12px' : '0',
-              }}
-            >
-              {s.heading}
-            </h2>
-          )}
-          {s.body && (
+      {/* FIX 2: generous padding — 40px top/bottom, 32px left/right. */}
+      <div style={{ padding: '40px 32px' }}>
+        {blocks.map((block, i) => {
+          if (block.type === 'header') {
+            return (
+              <span
+                key={i}
+                style={{
+                  // FIX 3: section header styling.
+                  display: 'block',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  letterSpacing: '1.5px',
+                  lineHeight: 1.4,
+                  textTransform: 'uppercase',
+                  textAlign: 'left', // FIX 4
+                  color: TEXT_SECONDARY,
+                  // No top margin for the very first block.
+                  margin: i === 0 ? '0 0 0.75rem' : '2rem 0 0.75rem',
+                }}
+              >
+                {block.text}
+              </span>
+            )
+          }
+
+          if (block.type === 'list') {
+            return (
+              <ul
+                key={i}
+                style={{
+                  // FIX 3: list items with bullet and 24px left indent.
+                  listStyle: 'disc',
+                  paddingLeft: 24,
+                  margin: '0 0 1.4rem',
+                }}
+              >
+                {block.items.map((item, j) => (
+                  <li
+                    key={j}
+                    style={{
+                      fontSize: 16,
+                      lineHeight: 2.0,
+                      color: TEXT_PRIMARY,
+                      textAlign: 'left', // FIX 4
+                      margin: '4px 0',
+                    }}
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+
+          if (block.type === 'spacer') {
+            // FIX 3: empty lines render as small spacers.
+            return <div key={i} style={{ margin: '0.5rem 0' }} />
+          }
+
+          return (
             <p
+              key={i}
               style={{
-                fontSize: statement ? 16 : 14,
-                lineHeight: statement ? 1.85 : 1.7,
-                color: 'var(--text2)',
-                whiteSpace: 'pre-wrap',
-                margin: 0,
+                // FIX 3: body text. FIX 4: left aligned.
+                fontSize: 16,
+                lineHeight: 2.0,
+                color: TEXT_PRIMARY,
+                textAlign: 'left',
+                margin: '0 0 1.4rem',
               }}
             >
-              {s.body}
+              {block.text}
             </p>
-          )}
-        </div>
-      ))}
+          )
+        })}
+      </div>
 
       {updatedAt && (
         <div
           style={{
-            padding: '14px 26px',
+            padding: '14px 32px',
             borderTop: '1px solid var(--fable-line-soft, var(--border))',
             fontSize: 11,
             color: 'var(--text3)',

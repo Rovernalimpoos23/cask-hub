@@ -13,11 +13,12 @@ const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
 export default function VisionSubPageShell({
   title,
   subtitle,
-  fullWidth = false,
   children,
 }: {
   title: string
   subtitle?: string
+  // Kept for backwards-compat with existing callers; the shell is now always
+  // full width, so this prop no longer affects layout.
   fullWidth?: boolean
   children: React.ReactNode
 }) {
@@ -70,7 +71,9 @@ export default function VisionSubPageShell({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
-        <div style={{ padding: '30px 40px 90px', maxWidth: fullWidth ? '100%' : 980 }}>
+        {/* Full width for all sub-pages — no max-width cap. Horizontal padding
+            keeps content off the edges. */}
+        <div style={{ width: '100%', padding: '30px 40px 90px' }}>
           <style>{`.bv-back:hover { color: var(--text); }`}</style>
           {children}
         </div>
