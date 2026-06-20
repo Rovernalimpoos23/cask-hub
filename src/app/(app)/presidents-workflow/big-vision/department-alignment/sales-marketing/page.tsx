@@ -11,6 +11,7 @@ export default function SalesMarketingPage() {
       oneOnOneLabel="1:1 — JEFF AZCONA"
       head="Jeff Azcona"
       discName="Jeff"
+      department="sales-marketing"
     />
   )
 }

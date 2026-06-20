@@ -11,6 +11,7 @@ export default function HumanResourcesPage() {
       oneOnOneLabel="1:1 — HR LEAD"
       head="HR Lead"
       discName="HR Lead"
+      department="human-resources"
     />
   )
 }

@@ -10,6 +10,7 @@
 
 import Link from 'next/link'
 import FloatingVisionAI from '../../_components/FloatingVisionAI'
+import DepartmentDocuments from './DepartmentDocuments'
 
 const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
 const ACCENT_RED = '#DC2626'
@@ -41,6 +42,9 @@ export interface DepartmentDetailProps {
   head: string
   // Short name used inside the DISC descriptions, e.g. "Jeff", "HR Lead".
   discName: string
+  // Department tag for the Documents section, e.g. 'sales-marketing', 'finance',
+  // 'operations', 'human-resources'. Scopes which files are read/written.
+  department: string
 }
 
 // Uppercase section label with a short red accent line — matches CASK Hub style.
@@ -180,7 +184,7 @@ function DiscCard({ head, discName }: { head: string; discName: string }) {
   )
 }
 
-export default function DepartmentDetail({ title, subtitle, oneOnOneLabel, head, discName }: DepartmentDetailProps) {
+export default function DepartmentDetail({ title, subtitle, oneOnOneLabel, head, discName, department }: DepartmentDetailProps) {
   return (
     <>
       {/* Header — mirrors the shared Big Vision shell but links back to the
@@ -251,9 +255,18 @@ export default function DepartmentDetail({ title, subtitle, oneOnOneLabel, head,
           </section>
 
           {/* SECTION 2 — 1:1 + DISC */}
-          <section>
+          <section style={{ marginBottom: 36 }}>
             <SectionLabel>{oneOnOneLabel}</SectionLabel>
             <DiscCard head={head} discName={discName} />
+          </section>
+
+          {/* SECTION 3 — Documents & Files */}
+          <section>
+            <SectionLabel>Documents &amp; Files</SectionLabel>
+            <div style={{ fontSize: 13, color: 'var(--text3)', marginTop: -6, marginBottom: 14 }}>
+              Department reference materials and reports
+            </div>
+            <DepartmentDocuments department={department} />
           </section>
         </div>
       </div>

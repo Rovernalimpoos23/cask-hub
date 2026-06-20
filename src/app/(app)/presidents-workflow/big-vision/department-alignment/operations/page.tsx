@@ -11,6 +11,7 @@ export default function OperationsPage() {
       oneOnOneLabel="1:1 — MATTEO CARPANI"
       head="Matteo Carpani"
       discName="Matteo"
+      department="operations"
     />
   )
 }

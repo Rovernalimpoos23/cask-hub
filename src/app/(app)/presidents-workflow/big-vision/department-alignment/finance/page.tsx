@@ -11,6 +11,7 @@ export default function FinancePage() {
       oneOnOneLabel="1:1 — LAMONT GILYOT"
       head="Lamont Gilyot"
       discName="Lamont"
+      department="finance"
     />
   )
 }
