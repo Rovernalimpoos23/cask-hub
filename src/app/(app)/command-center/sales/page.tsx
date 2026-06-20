@@ -9,6 +9,8 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import DailyEntryForm from './components/DailyEntryForm'
+import ExportPDF from './components/ExportPDF'
 
 const ACCENT = '#3B82F6' // brand blue (Sales & Marketing)
 const RED = '#EF4444' // below-target
@@ -248,6 +250,22 @@ function LockIcon({ size = 11, color = 'currentColor' }: { size?: number; color?
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  )
+}
+
+function PlusIcon({ size = 15, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  )
+}
+
+function DownloadIcon({ size = 15, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
     </svg>
   )
 }
@@ -1194,6 +1212,9 @@ export default function SalesDepartmentPage() {
   const [monthly, setMonthly] = useState<MonthlyFunnelRow[]>([])
   const [referrals, setReferrals] = useState<ReferralRow[]>([])
   const [pit, setPit] = useState<PitRow[]>([])
+  const [showDailyEntry, setShowDailyEntry] = useState(false)
+  const [toast, setToast] = useState('')
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   useEffect(() => {
     let active = true
@@ -1240,6 +1261,7 @@ export default function SalesDepartmentPage() {
         setReferrals(orderRows(refData, 'name', REFERRALS_ORDER))
         // Render live PIT rows (already ordered by name); fall back to seed only if empty.
         setPit((pitData as PitRow[] | null)?.length ? (pitData as PitRow[]) : PIT_SEED)
+        setLastUpdated(new Date())
       } catch {
         if (!active) return
         // Network / config failure — fall back to seeded sample data.
@@ -1253,6 +1275,7 @@ export default function SalesDepartmentPage() {
         setMonthly(MONTHLY_FUNNEL_SEED)
         setReferrals(REFERRALS_SEED)
         setPit(PIT_SEED)
+        setLastUpdated(new Date())
       } finally {
         if (active) setLoading(false)
       }
@@ -1260,6 +1283,25 @@ export default function SalesDepartmentPage() {
     load()
     return () => { active = false }
   }, [])
+
+  // Re-fetch only the KPI data (used after a daily entry is saved).
+  async function refreshKpi() {
+    try {
+      const supabase = createClient()
+      const { data } = await supabase.from('sales_kpi_data').select('metric, actual, target')
+      const kData = (data as KpiRow[] | null)?.length ? (data as KpiRow[]) : KPI_SEED
+      setKpi(orderRows(kData, 'metric', KPI_ORDER))
+      setLastUpdated(new Date())
+    } catch {
+      // Leave existing data in place on failure.
+    }
+  }
+
+  function handleDailySaved() {
+    setToast('Daily entry saved! Dashboard updated.')
+    refreshKpi()
+    window.setTimeout(() => setToast(''), 4000)
+  }
 
   const totalLeads = Number(kpi.find((k) => k.metric === 'Inquiries')?.actual ?? 0)
   const pipeline = hot.reduce((sum, h) => sum + (Number(h.proposal_amount) || 0), 0)
@@ -1320,8 +1362,13 @@ export default function SalesDepartmentPage() {
           ← Command Center
         </Link>
 
+        {/* Captured by Export to PDF — the action row (data-html2canvas-ignore) and
+            the floating Sales AI (rendered outside this div) are excluded. */}
+        <div id="sales-dashboard-content">
+
         {/* Hero banner — premium dark */}
         <div
+          id="pdf-section-header"
           style={{
             position: 'relative',
             overflow: 'hidden',
@@ -1358,12 +1405,38 @@ export default function SalesDepartmentPage() {
           </div>
         </div>
 
+        {/* Action row — Daily Entry + Export. Excluded from the PDF capture. */}
+        <div data-html2canvas-ignore style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10, marginBottom: 28 }}>
+          <button
+            type="button"
+            onClick={() => setShowDailyEntry(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '11px 18px',
+              borderRadius: 10,
+              background: 'var(--charcoal)',
+              border: '1px solid var(--charcoal)',
+              color: '#fff',
+              fontSize: 13.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            <PlusIcon size={15} color="#fff" /> Daily Entry
+          </button>
+          <ExportPDF targetId="sales-dashboard-content" />
+        </div>
+
         {loading ? (
           <DashboardSkeleton />
         ) : (
           <>
             {/* Stats strip */}
             <div
+              id="pdf-section-stats"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(2, 1fr)',
@@ -1382,8 +1455,13 @@ export default function SalesDepartmentPage() {
             </div>
 
             {/* SECTION 1 — Daily KPI Tracker */}
-            <section style={{ marginBottom: 38 }}>
+            <section id="pdf-section-kpi" style={{ marginBottom: 38 }}>
               <SectionHeader title="Daily KPI Tracker" subtitle="Are we on pace? · Updated daily · Q2 2026" />
+              {lastUpdated && (
+                <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: -8, marginBottom: 14, marginLeft: 42 }}>
+                  Last updated: {lastUpdated.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {kpi.map((r) => (
                   <KpiCard key={r.metric} row={r} />
@@ -1392,13 +1470,13 @@ export default function SalesDepartmentPage() {
             </section>
 
             {/* SECTION 2 — Hot List */}
-            <section style={{ marginBottom: 38 }}>
+            <section id="pdf-section-hotlist" style={{ marginBottom: 38 }}>
               <SectionHeader title="Hot List" subtitle={`Who's close to signing? · ${fmtMoney(pipeline)} total pipeline`} />
               <HotList rows={hot} total={pipeline} />
             </section>
 
             {/* SECTION 3 — Sales Conversions */}
-            <section style={{ marginBottom: 38 }}>
+            <section id="pdf-section-conversions" style={{ marginBottom: 38 }}>
               <SectionHeader title="Sales Conversions" subtitle="Is the funnel healthy? · QTD" />
               <div style={cardStyle}>
                 {conv.map((r, i) => (
@@ -1409,14 +1487,14 @@ export default function SalesDepartmentPage() {
             </section>
 
             {/* SECTION 4 — Rolling 120-Day Funnel */}
-            <section style={{ marginBottom: 38 }}>
+            <section id="pdf-section-funnel" style={{ marginBottom: 38 }}>
               <SectionHeader title="Rolling 120-Day Funnel" subtitle="What does the forecast say? · As of Jun 19, 2026" />
               <FunnelTable rows={funnel} />
               <Legend items={[{ color: GREEN, label: 'On / above target' }, { color: RED, label: 'Below target' }]} />
             </section>
 
             {/* SECTION 5 — Lead Sources */}
-            <section>
+            <section id="pdf-section-sources">
               <SectionHeader title="Lead Sources" subtitle={`Where are leads coming from? · QTD · ${fmtNum(totalSources)} total`} />
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {sources.map((r, i) => (
@@ -1426,7 +1504,7 @@ export default function SalesDepartmentPage() {
             </section>
 
             {/* SECTION — Current Week Progress */}
-            <section style={{ marginTop: 38 }}>
+            <section id="pdf-section-weekly" style={{ marginTop: 38 }}>
               <SectionHeader title="Current Week Progress" subtitle="Week of Jun 15–19, 2026 · How are we tracking this week?" />
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 {weekly.map((r) => (
@@ -1436,7 +1514,7 @@ export default function SalesDepartmentPage() {
             </section>
 
             {/* SECTION — Q2 NPS */}
-            <section style={{ marginTop: 38 }}>
+            <section id="pdf-section-nps" style={{ marginTop: 38 }}>
               <SectionHeader title="Q2 NPS" subtitle="Net Promoter Score · Q2 2026" />
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {nps.map((r) => (
@@ -1446,25 +1524,25 @@ export default function SalesDepartmentPage() {
             </section>
 
             {/* SECTION — Monthly Funnel Snapshot */}
-            <section style={{ marginTop: 38 }}>
+            <section id="pdf-section-monthly" style={{ marginTop: 38 }}>
               <SectionHeader title="Monthly Funnel Snapshot" subtitle="June 2026 · Current month actual vs target" />
               <MonthlyFunnelTable rows={monthly} />
             </section>
 
             {/* SECTION — Weekly Referrals Out */}
-            <section style={{ marginTop: 38 }}>
+            <section id="pdf-section-referrals" style={{ marginTop: 38 }}>
               <SectionHeader title="Weekly Referrals Out" subtitle="Week of Jun 15–19, 2026 · Priority list" />
               <ReferralList rows={referrals} />
             </section>
 
             {/* SECTION — Q2 PIT Submissions */}
-            <section style={{ marginTop: 38 }}>
+            <section id="pdf-section-pit" style={{ marginTop: 38 }}>
               <SectionHeader title="Q2 PIT Submissions" subtitle="Personal Improvement Targets · Q2 2026 submission tracker" />
               <PitTable rows={pit} />
             </section>
 
             {/* SECTION 6 — Reports */}
-            <section style={{ marginTop: 38 }}>
+            <section id="pdf-section-reports" style={{ marginTop: 38 }}>
               <SectionHeader title="Reports" subtitle="9 reports · Connect your CRM to unlock full automation" />
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
                 {REPORTS.map((r) => (
@@ -1474,10 +1552,40 @@ export default function SalesDepartmentPage() {
             </section>
           </>
         )}
+        </div>{/* end #sales-dashboard-content */}
       </div>
 
       {/* Floating Sales AI button + chat drawer — bottom-right, this page only */}
       <FloatingSalesAI />
+
+      {/* Daily Entry slide-over */}
+      <DailyEntryForm open={showDailyEntry} onClose={() => setShowDailyEntry(false)} onSaved={handleDailySaved} />
+
+      {/* Success / status toast */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 90,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '12px 18px',
+            borderRadius: 10,
+            background: GREEN,
+            color: '#fff',
+            fontSize: 13,
+            fontWeight: 700,
+            boxShadow: '0 12px 30px -8px rgba(0,0,0,0.4)',
+          }}
+        >
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff' }} />
+          {toast}
+        </div>
+      )}
     </>
   )
 }

@@ -15,6 +15,8 @@
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "geist": "^1.7.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "mammoth": "^1.12.0",
     "next": "^14.2.3",
     "pdfjs-dist": "^6.0.227",
@@ -22,7 +24,8 @@
     "react-dom": "^18",
     "react-markdown": "^10.1.0",
     "react-quill": "^2.0.0",
-    "twilio": "^6.0.2"
+    "twilio": "^6.0.2",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@types/node": "^20",
