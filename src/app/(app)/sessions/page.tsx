@@ -440,6 +440,7 @@ export default function SessionsPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [search, setSearch] = useState('')
 
   const loadMeetings = useCallback(() => {
     setLoading(true)
@@ -456,9 +457,16 @@ export default function SessionsPage() {
     return () => window.removeEventListener('cask-meeting-saved', handler)
   }, [loadMeetings, router])
 
-  const filtered = filter === 'all'
+  // Real-time search over loaded meetings — by title or attendees, case-insensitive.
+  const q = search.trim().toLowerCase()
+  const filtered = (filter === 'all'
     ? meetings
     : meetings.filter(m => m.meeting_type === filter)
+  ).filter(m => {
+    if (!q) return true
+    return m.title.toLowerCase().includes(q)
+      || (m.attendees ?? []).some(a => a.toLowerCase().includes(q))
+  })
 
   return (
     <>
@@ -501,6 +509,22 @@ export default function SessionsPage() {
           <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
             {loading ? 'Loading…' : `${meetings.length} meetings recorded`}
           </p>
+        </div>
+
+        {/* Search bar — filters loaded meetings in real time by title or attendees. */}
+        <div
+          className="flex items-center gap-2 mb-4 rounded-[8px] px-3"
+          style={{ border: '1px solid var(--border)', background: 'var(--surface)', height: 40 }}
+        >
+          <span style={{ fontSize: 14, lineHeight: 1, color: 'var(--text3)' }}>🔍</span>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search meetings..."
+            className="flex-1 bg-transparent outline-none text-[13px]"
+            style={{ color: 'var(--text)', fontFamily: 'inherit', border: 'none' }}
+          />
         </div>
 
         <FilterBar
