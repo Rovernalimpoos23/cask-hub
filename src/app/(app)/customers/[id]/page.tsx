@@ -743,574 +743,376 @@ function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
   )
 }
 
-// ── Role-based meeting checklist (NEW — additive feature) ─────────────────────
-// Self-contained salesperson checklist that renders inside eligible meeting rows.
-// Does not alter any existing meeting-row behaviour; it only adds an expandable
-// panel below the existing action buttons for the 4 seeded meeting codes.
-
-// Only these meeting codes have seeded salesperson tasks.
-const CHECKLIST_MEETING_CODES = ['PR1m', 'PR3m', 'PD1m', 'PD4m']
-// Currently only the salesperson role is surfaced.
-const CHECKLIST_ROLE = 'salesperson'
-// Render order + display labels for the timing groups.
-const CHECKLIST_TIMINGS: { key: string; label: string }[] = [
-  { key: 'before', label: 'Before' },
-  { key: 'during', label: 'During' },
-  { key: 'after', label: 'After' },
-]
-
-interface ChecklistTemplate {
-  id: string
-  meeting_code: string
-  role: string
-  timing: string
-  task_text: string
-}
-
-// State of a single per-client checklist row, keyed by meeting_code + task_text.
+// ── Role-based checklist persistence (journey_checklists) ─────────────────────
+// Per-client checkbox state. Keyed by meeting_code + role + task_text so the
+// same task text under different roles/steps never collides. We no longer track
+// the DB row id locally — toggles match rows by these columns (see
+// toggleChecklistTask), which is robust against RLS read-back quirks.
 interface ChecklistRowState {
-  id: string
   completed: boolean
 }
 
-// Build the lookup key used to match a template task to its per-client row.
-function checklistKey(meetingCode: string, taskText: string) {
-  return `${meetingCode}||${taskText}`
+// Build the lookup key used to match a workflow task to its per-client row.
+function checklistKey(meetingCode: string, role: string, taskText: string) {
+  return `${meetingCode}||${role}||${taskText}`
 }
 
-function MeetingChecklistPanel({
-  meetingCode,
-  templates,
-  checklistRows,
-  togglingKeys,
-  onToggle,
-}: {
-  meetingCode: string
-  templates: ChecklistTemplate[]
-  checklistRows: Map<string, ChecklistRowState>
-  togglingKeys: Set<string>
-  onToggle: (meetingCode: string, taskText: string, next: boolean) => void
-}) {
-  const tasks = templates.filter(t => t.meeting_code === meetingCode)
-  if (tasks.length === 0) return null
+// ── 33-step Customer Journey workflow ─────────────────────────────────────────
 
-  const total = tasks.length
-  const doneCount = tasks.filter(t => checklistRows.get(checklistKey(meetingCode, t.task_text))?.completed).length
+type WorkflowRole =
+  | 'sales_pm' | 'architect' | 'estimator'
+  | 'selection_mgr' | 'construction_pm' | 'permit_dept'
+type StepType = 'internal' | 'window' | 'customer'
+
+interface WorkflowRoleTasks { role: WorkflowRole; color: string; tasks: string[] }
+interface WorkflowStepDef {
+  step: number
+  type: StepType
+  title: string
+  subtitle: string
+  timeWindow: string | null
+  hasEmail?: boolean
+  roles: WorkflowRoleTasks[]
+}
+
+// Display names for each role used in the workflow.
+const ROLE_NAMES: Record<string, string> = {
+  sales_pm: 'Sales PM',
+  architect: 'Architect',
+  estimator: 'Estimator',
+  selection_mgr: 'Selection Manager',
+  construction_pm: 'Construction PM',
+  permit_dept: 'Permit Dept',
+}
+
+// Per-type left-bar color + badge styling.
+const STEP_TYPE_CONFIG: Record<StepType, { bar: string; label: string; badgeBg: string; badgeText: string }> = {
+  internal: { bar: '#6366f1', label: 'Internal',    badgeBg: '#eef2ff', badgeText: '#4338ca' },
+  window:   { bar: '#f59e0b', label: 'Work Window', badgeBg: '#fffbeb', badgeText: '#92400e' },
+  customer: { bar: '#ef4444', label: 'Customer',    badgeBg: '#fef2f2', badgeText: '#b91c1c' },
+}
+
+// meeting_code used to persist checklist state for a given step (e.g. "step_07").
+function stepCode(step: number) {
+  return `step_${String(step).padStart(2, '0')}`
+}
+
+const WORKFLOW_STEPS: WorkflowStepDef[] = [
+  { step: 1, type: 'internal', title: 'Internal Sales-to-Precon Pass-Off', subtitle: 'Internal meeting · handoff', timeWindow: null, roles: [] },
+  { step: 2, type: 'window', title: 'After Internal Pass-Off', subtitle: 'Work window · ½ week', timeWindow: '½ week', roles: [
+    { role: 'architect', color: '#8b5cf6', tasks: ['Create a set of plans for the alignment meeting'] }
+  ]},
+  { step: 3, type: 'window', title: 'Before Customer Alignment', subtitle: 'Work window · ½ week', timeWindow: '½ week', roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Fill Customer Journey Booklet with dates & contact info; staple business card', 'Print contract template', 'Print Contract Alignment Guide', 'Prefill timeline / contract price on the Contract Alignment Guide from the internal pass-off'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Prefill the design portion of the Alignment Meeting agenda with info from the internal pass-off', 'Print Plans and Architect Guide Agenda'] }
+  ]},
+  { step: 4, type: 'customer', title: 'Customer Alignment Meeting', subtitle: 'Customer meeting', timeWindow: null, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Present CASK and the team', 'Project Alignment Guide (purpose statement, feasibility, finance, budget update)', 'Timeline', 'Schedule next meeting'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Run through the Architect Guide Agenda', 'Inform customer about Sewer Survey'] }
+  ]},
+  { step: 5, type: 'window', title: 'After Alignment', subtitle: 'Work window · 1 week', timeWindow: '1 week', hasEmail: true, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Send recap email to customer with architect\'s portion (24 hr)'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Recap email to Sales PM (12 hr)', 'Work on 1st design set of plans', 'Send 1st design set to Estimator', 'Request sanitary survey'] }
+  ]},
+  { step: 6, type: 'window', title: 'Before 1st Design Meeting', subtitle: 'Work window · 1 week', timeWindow: '1 week', roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Review budget update'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Print Plans and Architect Guide Agenda'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Create budget update with assumption selections (Assumption Magazine), budget comparison sheet, and any clarifications needed from the architect (48 hr)', 'Send budget update to Sales PM (48 hr before)'] }
+  ]},
+  { step: 7, type: 'customer', title: '1st Design Meeting', subtitle: 'Customer meeting', timeWindow: null, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Project Alignment Guide (purpose statement, feasibility, finance, budget update)', 'Timeline', 'Schedule flag meeting & 2nd design meeting'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Present Alignment Meeting Plans', 'Run through the Architect Guide Agenda'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Join the meeting if more than 30% over their budget', 'Bring Value Engineering options to align the budget update with the customer\'s budget'] }
+  ]},
+  { step: 8, type: 'window', title: 'After 1st Design Meeting', subtitle: 'Work window · 1 week', timeWindow: '1 week', hasEmail: true, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Send recap email to customer with architect\'s portion (24 hr)'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Recap email to Sales PM (12 hr)', 'Work on 2nd design set of plans', 'Print Plans and Architect Guide Agenda'] }
+  ]},
+  { step: 9, type: 'customer', title: 'Flag Meeting', subtitle: 'Customer meeting · on site', timeWindow: null, roles: [
+    { role: 'architect', color: '#8b5cf6', tasks: ['Present 1st Design Meeting Plans', 'Run through the Architect Guide Agenda'] }
+  ]},
+  { step: 10, type: 'window', title: 'After Flag Meeting', subtitle: 'Work window · 1 week', timeWindow: '1 week', hasEmail: true, roles: [
+    { role: 'architect', color: '#8b5cf6', tasks: ['Technical recap email to customer with photos & notes (24 hr)', 'Mark up plans with technical info from flag', 'Send plans to Estimator (4 days before 2nd design meeting)'] }
+  ]},
+  { step: 11, type: 'window', title: 'Before 2nd Design Meeting', subtitle: 'Work window · 1 week', timeWindow: '1 week', roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Review budget update'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Print Plans and Architect Guide Agenda'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Create budget update with assumption selections (Assumption Magazine), budget comparison sheet, and any clarifications needed from the architect (48 hr)', 'Send budget update to Sales PM (48 hr before)'] }
+  ]},
+  { step: 12, type: 'customer', title: '2nd Design Meeting', subtitle: 'Customer meeting', timeWindow: null, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Project Alignment Guide (purpose statement, feasibility, finance, budget update)', 'Timeline', 'Schedule next meeting (possible 3rd design, or contract review + permit submission)'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Drawing questions agenda; present 2nd design set of plans'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Join the meeting if more than 30% over their budget', 'Bring Value Engineering options to align the budget update with the customer\'s budget'] }
+  ]},
+  { step: 13, type: 'window', title: 'After Last Design Meeting', subtitle: 'Work window · 1 week', timeWindow: '1 week', hasEmail: true, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Send recap email to customer with architect\'s portion (24 hr)'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Technical recap email to Sales PM', 'Prepare permit set of drawings with engineer details (bid-ready)'] }
+  ]},
+  { step: 14, type: 'window', title: 'Permit Prep & Bid', subtitle: 'Work window · 1 week', timeWindow: '1 week', roles: [
+    { role: 'architect', color: '#8b5cf6', tasks: ['Send plans to Estimator & Permit Dept', 'Energy calc and engineer sign & seal'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Send out for bid'] },
+    { role: 'permit_dept', color: '#6366f1', tasks: ['Draft permit application'] }
+  ]},
+  { step: 15, type: 'window', title: 'Permit Submission', subtitle: 'Work window · 1 week', timeWindow: '1 week', hasEmail: true, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Email customer that plans are in for permit'] },
+    { role: 'architect', color: '#8b5cf6', tasks: ['Send permit set & energy calc to Permit Dept'] },
+    { role: 'permit_dept', color: '#6366f1', tasks: ['Submit for permit', 'Email Sales PM confirming permit submission'] }
+  ]},
+  { step: 16, type: 'window', title: 'Contract Draft & Permit Tracking', subtitle: 'Work window · 1 week', timeWindow: '1 week', roles: [
+    { role: 'architect', color: '#8b5cf6', tasks: ['Create 3D walkthrough with included selections'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Draft contract and review bid; send for scope revision', 'Schedule contract review meeting with Sales PM'] },
+    { role: 'permit_dept', color: '#6366f1', tasks: ['Check permit status', 'Send RFC to Architect, Sales & Estimator', 'Resubmit for permit (own the resubmission turnaround)', 'Receive permit approval'] }
+  ]},
+  { step: 17, type: 'window', title: 'Contract Finalization', subtitle: 'Work window · 1 week', timeWindow: '1 week', roles: [
+    { role: 'estimator', color: '#f59e0b', tasks: ['Finalize contract', 'Send finalized contract to Sales PM'] }
+  ]},
+  { step: 18, type: 'internal', title: 'Contract Review — Estimator / Sales PM', subtitle: 'Internal meeting', timeWindow: null, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Review contract with Estimator'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Explain contract', 'Go through detail comparing Architect Agenda Notes, Drawing and Scope of work'] }
+  ]},
+  { step: 19, type: 'window', title: 'After Contract Review with Estimator', subtitle: 'Work window · 1 week', timeWindow: '1 week', roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Call client to confirm price alignment ahead of execution'] }
+  ]},
+  { step: 20, type: 'customer', title: 'Contract Review', subtitle: 'Customer meeting', timeWindow: null, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Review Alignment Guide', 'Review boilerplate', 'Review scope', 'Sign contract', 'Discuss timeline & schedule tentative kick-off (~6 weeks out)', 'Schedule selection meeting'] }
+  ]},
+  { step: 21, type: 'window', title: 'After Contract Review', subtitle: 'Work window · 1 week', timeWindow: '1 week', hasEmail: true, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Send recap email with executed contract (or, if unsigned, the decision made in the meeting)'] }
+  ]},
+  { step: 22, type: 'internal', title: 'Selection Internal Alignment', subtitle: 'Internal meeting · before selection meeting', timeWindow: null, roles: [
+    { role: 'estimator', color: '#f59e0b', tasks: ['Meet with Selection Manager to decide needed selections and allowances (e.g., $3.50/sqft for tile)'] },
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Update the selection template with the necessary items'] }
+  ]},
+  { step: 23, type: 'internal', title: 'Pass-Off: Estimator to Construction Manager', subtitle: 'Internal meeting', timeWindow: null, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Present customer info and purpose statement'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Run the meeting to hand off scope of work and contract info to the Construction PM'] },
+    { role: 'construction_pm', color: '#ef4444', tasks: ['Begin learning the project'] }
+  ]},
+  { step: 24, type: 'customer', title: 'Selection Meeting 1', subtitle: 'Customer meeting', timeWindow: null, roles: [
+    { role: 'architect', color: '#8b5cf6', tasks: ['Assist with walkthrough and any plan markups (set rules for when modifications carry a cost implication)'] },
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Run selection meeting', 'Schedule next meeting'] }
+  ]},
+  { step: 25, type: 'window', title: 'After Selection Meeting 1', subtitle: 'Work window · ½ week', timeWindow: '½ week', hasEmail: true, roles: [
+    { role: 'architect', color: '#8b5cf6', tasks: ['Send red markups to Construction Manager for any needed change orders'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Send email to Sales PM if we are out of price'] },
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Send recap email to customer'] }
+  ]},
+  { step: 26, type: 'window', title: 'Before Selection Meeting 2', subtitle: 'Work window · ½ week', timeWindow: '½ week', roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Contact homeowner if selections and contract price are misaligned'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Work on change order', 'Email Sales PM & Selection if modifications exceed $4k', 'Request sub card, create PO, organize field pass-off, reconcile change-order allowances before breaking ground'] },
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Email Estimator and Sales PM only if customer chooses items outside the allowance'] }
+  ]},
+  { step: 27, type: 'customer', title: 'Selection Meeting 2', subtitle: 'Customer meeting', timeWindow: null, roles: [
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Run selection meeting', 'Schedule next meeting'] }
+  ]},
+  { step: 28, type: 'window', title: 'After / Before Next Selection Meeting', subtitle: 'Work window · 1 week', timeWindow: '1 week', hasEmail: true, roles: [
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Send recap email to customer', 'Email Estimator & Sales PM only if customer chooses items outside the allowance'] }
+  ]},
+  { step: 29, type: 'customer', title: 'Selection Meeting Final', subtitle: 'Customer meeting', timeWindow: null, roles: [
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Run selection meeting', 'Schedule next meeting'] }
+  ]},
+  { step: 30, type: 'window', title: 'After Final Selection Meeting', subtitle: 'Work window · ½ week', timeWindow: '½ week', hasEmail: true, roles: [
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Send recap email to customer', 'Email Estimator & Sales PM only if customer chooses items outside the allowance'] }
+  ]},
+  { step: 31, type: 'window', title: 'Before Final Pass-Off', subtitle: 'Work window · ½ week', timeWindow: '½ week', roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Send change-order reconciliation allowance to customer for approval'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Send change-order reconciliation allowance to Sales PM', 'Internal CM-to-Super pass-off'] }
+  ]},
+  { step: 32, type: 'internal', title: 'Final Pass-Off: Estimator to Construction Manager', subtitle: 'Internal meeting', timeWindow: null, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Present customer info and purpose statement'] },
+    { role: 'estimator', color: '#f59e0b', tasks: ['Run the meeting to hand off scope of work and contract info to the Construction PM'] },
+    { role: 'selection_mgr', color: '#10b981', tasks: ['Go through the selection choices from the customer'] },
+    { role: 'construction_pm', color: '#ef4444', tasks: ['Learn as much as possible about the project'] }
+  ]},
+  { step: 33, type: 'customer', title: 'Kick-Off Meeting', subtitle: 'Customer meeting · construction begins', timeWindow: null, roles: [
+    { role: 'sales_pm', color: '#3b82f6', tasks: ['Introduce Construction Manager and Superintendent'] },
+    { role: 'construction_pm', color: '#ef4444', tasks: ['Take over and run the agenda'] }
+  ]}
+]
+
+const TOTAL_WORKFLOW_STEPS = WORKFLOW_STEPS.length
+
+// ── Workflow step card (replaces PhaseCard) ───────────────────────────────────
+
+const workflowActionBtn: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500,
+  color: 'var(--text2)', background: 'var(--white)', border: '1px solid var(--border)',
+  padding: '4px 9px', borderRadius: 5, whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'inherit',
+}
+
+function WorkflowStep({
+  step,
+  isCompleted,
+  isCurrent,
+  defaultExpanded,
+  checklistRows,
+  checklistToggling,
+  onToggleChecklist,
+  marking,
+  onMarkComplete,
+  onAction,
+}: {
+  step: WorkflowStepDef
+  isCompleted: boolean
+  isCurrent: boolean
+  defaultExpanded: boolean
+  checklistRows: Map<string, ChecklistRowState>
+  checklistToggling: Set<string>
+  onToggleChecklist: (meetingCode: string, role: string, taskText: string, next: boolean) => void
+  marking: boolean
+  onMarkComplete: (stepNumber: number, completed: boolean) => void
+  onAction: (kind: 'agenda' | 'recap' | 'email', step: WorkflowStepDef) => void
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  const cfg = STEP_TYPE_CONFIG[step.type]
+  const code = stepCode(step.step)
+  const isCustomer = step.type === 'customer'
 
   return (
     <div
       style={{
-        marginTop: 6,
-        marginBottom: 4,
-        background: 'var(--surface2)',
-        borderLeft: '2px solid var(--fable-red)',
-        borderRadius: 6,
-        padding: '10px 12px 11px',
+        borderBottom: '1px solid var(--border)',
+        // 3px colored bar by type; current step gets a red bar on the whole row.
+        borderLeft: isCurrent ? '3px solid #ef4444' : `3px solid ${cfg.bar}`,
+        background: 'var(--white)',
       }}
     >
-      {CHECKLIST_TIMINGS.map(timing => {
-        const group = tasks.filter(t => (t.timing || '').toLowerCase() === timing.key)
-        if (group.length === 0) return null
-        return (
-          <div key={timing.key} style={{ marginBottom: 9 }}>
-            <div
-              className="uppercase"
-              style={{ fontSize: 10, letterSpacing: '0.11em', color: 'var(--text3)', fontWeight: 700, marginBottom: 6 }}
-            >
-              {timing.label}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {group.map(task => {
-                const key = checklistKey(meetingCode, task.task_text)
-                const checked = checklistRows.get(key)?.completed ?? false
-                const busy = togglingKeys.has(key)
-                return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    onClick={() => { if (!busy) onToggle(meetingCode, task.task_text, !checked) }}
-                    disabled={busy}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 8,
-                      background: 'transparent',
-                      border: 'none',
-                      padding: 0,
-                      textAlign: 'left',
-                      cursor: busy ? 'wait' : 'pointer',
-                      fontFamily: 'inherit',
-                      opacity: busy ? 0.6 : 1,
-                    }}
-                  >
-                    <span
-                      className="shrink-0"
-                      style={{
-                        width: 16,
-                        height: 16,
-                        borderRadius: 4,
-                        border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)',
-                        background: checked ? 'var(--charcoal)' : 'transparent',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginTop: 1,
-                        transition: 'background 120ms ease, border-color 120ms ease',
-                      }}
-                    >
-                      {checked && (
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12.5,
-                        lineHeight: 1.4,
-                        color: 'var(--text)',
-                        opacity: checked ? 0.5 : 1,
-                        textDecoration: checked ? 'line-through' : 'none',
-                      }}
-                    >
-                      {task.task_text}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
-
-      <div style={{ fontSize: 11, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
-        {doneCount} of {total} tasks complete
-      </div>
-    </div>
-  )
-}
-
-// ── Journey phase card ────────────────────────────────────────────────────────
-
-function PhaseCard({
-  phase,
-  journeyRows,
-  markingIds,
-  onMarkComplete,
-  onOpenRecap,
-  onViewAgenda,
-  sentEmailsByCode,
-  onViewSentEmail,
-  isCurrent,
-  isDone,
-  defaultExpanded,
-  checklistTemplates,
-  checklistRows,
-  checklistToggling,
-  onToggleChecklist,
-}: {
-  phase: JourneyPhaseDef
-  journeyRows: Map<string, ClientMeetingRow>
-  markingIds: Set<string>
-  onMarkComplete: (code: string, phaseNumber: number, title: string) => void
-  onOpenRecap: (code: string, title: string) => void
-  onViewAgenda: (code: string) => void
-  sentEmailsByCode: Map<string, EmailDraft>
-  onViewSentEmail: (draft: EmailDraft) => void
-  isCurrent: boolean
-  isDone: boolean
-  defaultExpanded: boolean
-  // NEW (additive): role-based checklist data + toggle handler
-  checklistTemplates: ChecklistTemplate[]
-  checklistRows: Map<string, ChecklistRowState>
-  checklistToggling: Set<string>
-  onToggleChecklist: (meetingCode: string, taskText: string, next: boolean) => void
-}) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
-  // NEW (additive): tracks which meeting rows have their checklist panel open.
-  const [openChecklists, setOpenChecklists] = useState<Set<string>>(new Set())
-  const toggleChecklistOpen = (code: string) =>
-    setOpenChecklists(prev => {
-      const next = new Set(prev)
-      if (next.has(code)) next.delete(code)
-      else next.add(code)
-      return next
-    })
-
-  const completedInPhase = phase.meetings.filter(m => journeyRows.get(m.code)?.completed).length
-  const total = phase.meetings.length
-  const nextCode = phase.meetings.find(m => !journeyRows.get(m.code)?.completed)?.code
-  const isTodo = !isCurrent && !isDone
-
-  const markStyle: React.CSSProperties = isDone
-    ? { background: 'var(--fable-ok-soft)', border: '1.5px solid #BFDECB', color: 'var(--fable-ok)' }
-    : isCurrent
-    ? { background: 'var(--charcoal)', border: '1.5px solid var(--charcoal)', color: '#fff' }
-    : { background: 'var(--white)', border: '1.5px solid var(--border)', color: 'var(--text3)' }
-
-  return (
-    <div style={{ borderBottom: '1px solid var(--border)' }}>
-      {/* Phase header */}
+      {/* Header row — click to expand/collapse */}
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
         className="w-full text-left"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '11px 2px',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-        }}
+        style={{ display: 'flex', alignItems: 'stretch', gap: 11, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
       >
-        {/* Phase mark */}
+        {/* Step number column */}
         <span
           className="shrink-0"
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 11,
-            fontWeight: 600,
-            fontVariantNumeric: 'tabular-nums',
-            ...markStyle,
-          }}
+          style={{ width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid var(--border)', fontSize: 10, fontWeight: 700, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}
         >
-          {isDone ? '✓' : phase.number}
+          {String(step.step).padStart(2, '0')}
         </span>
 
-        {/* Label */}
+        {/* Title + subtitle */}
+        <span className="flex-1" style={{ padding: '10px 0', minWidth: 0 }}>
+          <span style={{ display: 'block', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', lineHeight: 1.3 }}>{step.title}</span>
+          <span style={{ display: 'block', fontSize: 10.5, color: 'var(--text3)', marginTop: 2 }}>{step.subtitle}</span>
+        </span>
+
+        {/* Type badge */}
         <span
-          className="flex-1 text-left"
-          style={{ fontSize: 13.5, fontWeight: isCurrent ? 600 : 500, color: isTodo ? 'var(--text2)' : 'var(--text)' }}
+          className="shrink-0 self-center"
+          style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: cfg.badgeText, background: cfg.badgeBg, padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap' }}
         >
-          {phase.label}
+          {cfg.label}
         </span>
 
-        {/* Current marker */}
-        {isCurrent && (
-          <span
-            className="uppercase shrink-0"
-            style={{ fontSize: 10, letterSpacing: '0.08em', fontWeight: 700, color: 'var(--fable-red)' }}
-          >
+        {/* Status badge */}
+        {isCompleted ? (
+          <span className="shrink-0 self-center" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap' }}>
+            Done
+          </span>
+        ) : isCurrent ? (
+          <span className="shrink-0 self-center" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--fable-red)', whiteSpace: 'nowrap' }}>
             Current
           </span>
-        )}
-
-        {/* Count */}
-        <span
-          className="shrink-0"
-          style={{
-            fontSize: 12,
-            fontVariantNumeric: 'tabular-nums',
-            color: isDone ? 'var(--fable-ok)' : 'var(--text3)',
-            fontWeight: isDone ? 600 : 400,
-          }}
-        >
-          {completedInPhase} / {total}
-        </span>
+        ) : null}
 
         {/* Chevron */}
-        <span
-          style={{
-            color: 'var(--text3)',
-            fontSize: 11,
-            transition: 'transform 200ms ease',
-            transform: expanded ? 'rotate(180deg)' : 'none',
-            flexShrink: 0,
-          }}
-        >
+        <span className="shrink-0 self-center" style={{ color: 'var(--text3)', fontSize: 11, paddingRight: 12, transition: 'transform 200ms ease', transform: expanded ? 'rotate(180deg)' : 'none' }}>
           ▾
         </span>
       </button>
 
-      {/* Meetings list */}
+      {/* Expanded body */}
       {expanded && (
-        <div style={{ padding: '0 0 12px 34px' }}>
-          {phase.meetings.map((meeting, i) => {
-            const row = journeyRows.get(meeting.code)
-            const isCompleted = row?.completed ?? false
-            const isMarking = markingIds.has(meeting.code)
-            const hasRecap = !!(row?.recap)
-            const sentEmail = meeting.type === 'email' ? sentEmailsByCode.get(meeting.code) : undefined
+        <div style={{ background: 'var(--surface2)', borderTop: '1px solid var(--border)', padding: '13px 15px 13px 43px' }}>
+          {/* Time window pill */}
+          {step.timeWindow && (
+            <div style={{ marginBottom: 11 }}>
+              <span style={{ display: 'inline-block', fontSize: 10, color: 'var(--text2)', border: '0.5px solid var(--border)', background: 'var(--white)', borderRadius: 99, padding: '2px 8px' }}>
+                ⏱ {step.timeWindow}
+              </span>
+            </div>
+          )}
 
-            const isNext = meeting.code === nextCode
-            // NEW (additive): does this meeting have a salesperson checklist?
-            const hasChecklist =
-              CHECKLIST_MEETING_CODES.includes(meeting.code) &&
-              checklistTemplates.some(t => t.meeting_code === meeting.code)
-            const checklistOpen = openChecklists.has(meeting.code)
-            const checklistTotal = checklistTemplates.filter(t => t.meeting_code === meeting.code).length
-            const checklistDone = checklistTemplates.filter(
-              t => t.meeting_code === meeting.code && checklistRows.get(checklistKey(meeting.code, t.task_text))?.completed
-            ).length
-            return (
-              <div
-                key={meeting.code}
-                style={{ transition: 'background 150ms ease' }}
-              >
-                {/* Main meeting row */}
+          {/* Role columns — one card per role */}
+          {step.roles.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+              {step.roles.map(roleBlock => (
                 <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 9,
-                    padding: '7px 0',
-                    flexWrap: 'wrap',
-                  }}
+                  key={roleBlock.role}
+                  style={{ flex: '1 1 240px', minWidth: 220, background: 'var(--white)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}
                 >
-                  {/* Status dot */}
-                  <span
-                    className="shrink-0"
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: isCompleted ? 'var(--fable-ok)' : isNext ? 'var(--fable-red)' : '#D6D5D0',
-                    }}
-                  />
+                  {/* Role header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: roleBlock.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text2)' }}>
+                      {ROLE_NAMES[roleBlock.role] ?? roleBlock.role}
+                    </span>
+                  </div>
 
-                  {/* Title */}
-                  <span
-                    className="flex-1"
-                    style={{
-                      fontSize: 13,
-                      color: isCompleted ? 'var(--text3)' : isNext ? 'var(--text)' : 'var(--text2)',
-                      fontWeight: isNext ? 600 : 400,
-                      textDecoration: isCompleted ? 'line-through' : 'none',
-                      textDecorationColor: '#CFCEC9',
-                      minWidth: 140,
-                    }}
-                  >
-                    {meeting.title}
-                  </span>
-
-                  {/* Action buttons */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      flexShrink: 0,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    {/* View Agenda — shown for meeting/internal types with content */}
-                    {meeting.type !== 'email' && AGENDAS[meeting.code] && (
-                      <button
-                        type="button"
-                        onClick={() => onViewAgenda(meeting.code)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontSize: 11,
-                          fontWeight: 500,
-                          color: 'var(--text2)',
-                          background: 'var(--surface2)',
-                          border: '1px solid var(--border)',
-                          padding: '3px 8px',
-                          borderRadius: 5,
-                          whiteSpace: 'nowrap',
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          transition: 'border-color 120ms ease, color 120ms ease',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
-                      >
-                        📋 View Agenda
-                      </button>
-                    )}
-
-                    {/* View Email — always shown for email types, regardless of sent/complete status */}
-                    {meeting.type === 'email' && AGENDAS[meeting.code] && (
-                      <button
-                        type="button"
-                        onClick={() => onViewAgenda(meeting.code)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontSize: 11,
-                          fontWeight: 500,
-                          color: 'var(--text2)',
-                          background: 'var(--surface2)',
-                          border: '1px solid var(--border)',
-                          padding: '3px 8px',
-                          borderRadius: 5,
-                          whiteSpace: 'nowrap',
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          transition: 'border-color 120ms ease, color 120ms ease',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text2)' }}
-                      >
-                        📧 View Email
-                      </button>
-                    )}
-
-                    {/* Email Sent badge + View — replaces View Email + Mark Complete */}
-                    {sentEmail && (
-                      <>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: '#166534',
-                            background: '#f0fdf4',
-                            border: '1px solid #bbf7d0',
-                            padding: '3px 8px',
-                            borderRadius: 5,
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          ✅ Email Sent
-                        </span>
+                  {/* Tasks with checkboxes (persist via existing journey_checklists) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {roleBlock.tasks.map((task, ti) => {
+                      const key = checklistKey(code, roleBlock.role, task)
+                      const checked = checklistRows.get(key)?.completed ?? false
+                      const busy = checklistToggling.has(key)
+                      return (
                         <button
+                          key={ti}
                           type="button"
-                          onClick={() => onViewSentEmail(sentEmail)}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 3,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: '#166534',
-                            background: '#f0fdf4',
-                            border: '1px solid #bbf7d0',
-                            padding: '3px 8px',
-                            borderRadius: 5,
-                            whiteSpace: 'nowrap',
-                            cursor: 'pointer',
-                            fontFamily: 'inherit',
-                            transition: 'opacity 120ms ease',
-                          }}
-                          onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
-                          onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                          onClick={() => { if (!busy) onToggleChecklist(code, roleBlock.role, task, !checked) }}
+                          disabled={busy}
+                          style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.6 : 1 }}
                         >
-                          View →
+                          <span
+                            className="shrink-0"
+                            style={{ width: 14, height: 14, borderRadius: 3, border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)', background: checked ? 'var(--charcoal)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, transition: 'background 120ms ease, border-color 120ms ease' }}
+                          >
+                            {checked && (
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                            )}
+                          </span>
+                          <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--text)', opacity: checked ? 0.5 : 1, textDecoration: checked ? 'line-through' : 'none' }}>
+                            {task}
+                          </span>
                         </button>
-                      </>
-                    )}
-
-                    {/* Mark Complete / Done — hidden when email is sent */}
-                    {!sentEmail && (
-                      <button
-                        type="button"
-                        onClick={() => onMarkComplete(meeting.code, phase.number, meeting.title)}
-                        disabled={isMarking}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: isCompleted ? '#16a34a' : 'var(--text2)',
-                          background: isCompleted ? '#f0fdf4' : 'var(--surface2, #f4f3f1)',
-                          border: `1px solid ${isCompleted ? '#bbf7d0' : 'var(--border)'}`,
-                          padding: '3px 8px',
-                          borderRadius: 5,
-                          cursor: isMarking ? 'not-allowed' : 'pointer',
-                          opacity: isMarking ? 0.5 : 1,
-                          whiteSpace: 'nowrap',
-                          fontFamily: 'inherit',
-                          transition: 'all 120ms ease',
-                        }}
-                      >
-                        {isMarking ? '…' : isCompleted ? '✅ Done' : '✅ Mark Complete'}
-                      </button>
-                    )}
-
-                    {/* View Recap — shown when recap exists */}
-                    {hasRecap && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenRecap(meeting.code, meeting.title)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: 'var(--text2)',
-                          background: 'var(--surface2, #f4f3f1)',
-                          border: '1px solid var(--border)',
-                          padding: '3px 8px',
-                          borderRadius: 5,
-                          whiteSpace: 'nowrap',
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          transition: 'border-color 120ms ease, color 120ms ease',
-                        }}
-                        onMouseEnter={e => {
-                          e.currentTarget.style.borderColor = 'var(--border2)'
-                          e.currentTarget.style.color = 'var(--text)'
-                        }}
-                        onMouseLeave={e => {
-                          e.currentTarget.style.borderColor = 'var(--border)'
-                          e.currentTarget.style.color = 'var(--text2)'
-                        }}
-                      >
-                        🎙️ View Recap
-                      </button>
-                    )}
-
-                    {/* Checklist toggle — NEW (additive), only for eligible meetings */}
-                    {hasChecklist && (
-                      <button
-                        type="button"
-                        onClick={() => toggleChecklistOpen(meeting.code)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: checklistOpen ? 'var(--text)' : 'var(--text2)',
-                          background: 'var(--surface2, #f4f3f1)',
-                          border: `1px solid ${checklistOpen ? 'var(--border2)' : 'var(--border)'}`,
-                          padding: '3px 8px',
-                          borderRadius: 5,
-                          whiteSpace: 'nowrap',
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          transition: 'border-color 120ms ease, color 120ms ease',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = checklistOpen ? 'var(--border2)' : 'var(--border)'; e.currentTarget.style.color = checklistOpen ? 'var(--text)' : 'var(--text2)' }}
-                      >
-                        ☑ Checklist {checklistDone}/{checklistTotal}
-                        <span style={{ fontSize: 9, transition: 'transform 200ms ease', transform: checklistOpen ? 'rotate(180deg)' : 'none' }}>▾</span>
-                      </button>
-                    )}
+                      )
+                    })}
                   </div>
                 </div>
+              ))}
+            </div>
+          )}
 
-                {/* Checklist panel — NEW (additive), below the action buttons */}
-                {hasChecklist && checklistOpen && (
-                  <MeetingChecklistPanel
-                    meetingCode={meeting.code}
-                    templates={checklistTemplates}
-                    checklistRows={checklistRows}
-                    togglingKeys={checklistToggling}
-                    onToggle={onToggleChecklist}
-                  />
-                )}
-
-              </div>
-            )
-          })}
+          {/* Action row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            {isCustomer && (
+              <button type="button" onClick={() => onAction('agenda', step)} style={workflowActionBtn}>📋 View Agenda</button>
+            )}
+            {isCustomer && (
+              <button type="button" onClick={() => onAction('recap', step)} style={workflowActionBtn}>🎙️ View Recap</button>
+            )}
+            {step.hasEmail && (
+              <button type="button" onClick={() => onAction('email', step)} style={{ ...workflowActionBtn, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', fontWeight: 600 }}>✉️ Generate Recap Email</button>
+            )}
+            <button
+              type="button"
+              onClick={() => onMarkComplete(step.step, !isCompleted)}
+              disabled={marking}
+              style={{
+                ...workflowActionBtn,
+                color: isCompleted ? '#166534' : '#fff',
+                background: isCompleted ? '#f0fdf4' : 'var(--charcoal)',
+                border: isCompleted ? '1px solid #bbf7d0' : '1px solid var(--charcoal)',
+                fontWeight: 600,
+                cursor: marking ? 'not-allowed' : 'pointer',
+                opacity: marking ? 0.5 : 1,
+              }}
+            >
+              {marking ? '…' : isCompleted ? '✓ Completed' : 'Mark Complete'}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -1349,11 +1151,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [editForm, setEditForm] = useState<EditClientForm | null>(null)
   const [savingClient, setSavingClient] = useState(false)
 
-  // ── Role-based checklist state (NEW — additive feature) ─────────────────────
-  const [checklistTemplates, setChecklistTemplates] = useState<ChecklistTemplate[]>([])
+  // ── Role-based checklist state (journey_checklists) ─────────────────────────
   const [checklistRows, setChecklistRows] = useState<Map<string, ChecklistRowState>>(new Map())
   const [checklistToggling, setChecklistToggling] = useState<Set<string>>(new Set())
   const checklistUserIdRef = useRef<string | null>(null)
+  // 33-step workflow completion state (workflow_step_completions table)
+  const [stepCompletions, setStepCompletions] = useState<Set<number>>(new Set())
+  const [stepMarking, setStepMarking] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     if (containerRef.current) {
@@ -1408,8 +1212,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     fetchEmailDrafts()
   }, [params.id])
 
-  // ── Fetch salesperson checklist templates + this client's saved state ───────
-  // (NEW — additive feature; does not touch any existing query above.)
+  // ── Fetch this client's checklist state + workflow step completions ─────────
+  // Loads once on mount; local state is the source of truth thereafter (toggles
+  // update it directly without re-fetching). Does not touch existing queries.
   useEffect(() => {
     async function fetchChecklist() {
       const supabase = createClient()
@@ -1418,25 +1223,27 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       const { data: { user } } = await supabase.auth.getUser()
       checklistUserIdRef.current = user?.id ?? null
 
-      const [{ data: templates }, { data: saved }] = await Promise.all([
-        supabase
-          .from('journey_checklist_templates')
-          .select('id, meeting_code, role, timing, task_text')
-          .eq('role', CHECKLIST_ROLE),
+      const [{ data: saved }, { data: completions }] = await Promise.all([
         supabase
           .from('journey_checklists')
-          .select('id, meeting_code, task_text, completed')
+          .select('meeting_code, role, task_text, completed')
+          .eq('client_id', params.id),
+        supabase
+          .from('workflow_step_completions')
+          .select('step_number')
           .eq('client_id', params.id),
       ])
 
-      if (templates) setChecklistTemplates(templates as ChecklistTemplate[])
-
       if (saved) {
         const map = new Map<string, ChecklistRowState>()
-        for (const r of saved as { id: string; meeting_code: string; task_text: string; completed: boolean }[]) {
-          map.set(checklistKey(r.meeting_code, r.task_text), { id: r.id, completed: r.completed })
+        for (const r of saved as { meeting_code: string; role: string; task_text: string; completed: boolean }[]) {
+          map.set(checklistKey(r.meeting_code, r.role, r.task_text), { completed: r.completed })
         }
         setChecklistRows(map)
+      }
+
+      if (completions) {
+        setStepCompletions(new Set((completions as { step_number: number }[]).map(c => c.step_number)))
       }
     }
     fetchChecklist()
@@ -1506,18 +1313,22 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     fetchClient()
   }, [fetchClient])
 
-  // ── Toggle a checklist task on/off + persist to Supabase ────────────────────
-  // (NEW — additive feature; entirely separate from markComplete below.)
-  async function toggleChecklistTask(meetingCode: string, taskText: string, next: boolean) {
-    const key = checklistKey(meetingCode, taskText)
+  // ── Toggle a checklist task on/off + persist to journey_checklists ──────────
+  // Local state is the source of truth. We update it optimistically and keep it
+  // on success (no re-fetch). Rows are matched/updated by their natural columns
+  // (client_id + meeting_code + role + task_text) instead of by a returned id,
+  // which avoids the bug where an insert's `.select().single()` read-back fails
+  // under RLS and incorrectly reverts the checkbox.
+  async function toggleChecklistTask(meetingCode: string, role: string, taskText: string, next: boolean) {
+    const key = checklistKey(meetingCode, role, taskText)
     setChecklistToggling(prev => new Set(prev).add(key))
 
     // Optimistic update so the checkbox feels instant.
-    const prevRows = checklistRows
-    const existing = prevRows.get(key)
+    const existed = checklistRows.has(key)
+    const prevCompleted = checklistRows.get(key)?.completed
     setChecklistRows(prev => {
       const m = new Map(prev)
-      m.set(key, { id: existing?.id ?? `optimistic-${key}`, completed: next })
+      m.set(key, { completed: next })
       return m
     })
 
@@ -1525,8 +1336,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       const supabase = createClient()
       const userId = checklistUserIdRef.current
 
-      if (existing && !existing.id.startsWith('optimistic-')) {
-        // A real row already exists → update its completed flag.
+      if (existed) {
+        // A row already exists for this task → update it in place.
         const { error } = await supabase
           .from('journey_checklists')
           .update({
@@ -1534,41 +1345,37 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             completed_by: next ? userId : null,
             completed_at: next ? new Date().toISOString() : null,
           })
-          .eq('id', existing.id)
+          .eq('client_id', params.id)
+          .eq('meeting_code', meetingCode)
+          .eq('role', role)
+          .eq('task_text', taskText)
         if (error) throw error
       } else {
-        // No row yet → insert a new one and keep its id for future updates.
-        const { data, error } = await supabase
+        // First time this task is toggled → insert a new row.
+        const { error } = await supabase
           .from('journey_checklists')
           .insert({
             client_id: params.id,
             meeting_code: meetingCode,
-            role: CHECKLIST_ROLE,
+            role,
             task_text: taskText,
             completed: next,
             completed_by: next ? userId : null,
             completed_at: next ? new Date().toISOString() : null,
           })
-          .select('id')
-          .single()
         if (error) throw error
-        if (data) {
-          setChecklistRows(prev => {
-            const m = new Map(prev)
-            m.set(key, { id: data.id, completed: next })
-            return m
-          })
-        }
       }
+      // Success: local state already reflects `next`, so nothing more to do.
     } catch (err) {
       console.error('[journey-checklist] toggle failed:', err)
       // Revert the optimistic change on failure.
       setChecklistRows(prev => {
         const m = new Map(prev)
-        if (existing) m.set(key, existing)
+        if (existed) m.set(key, { completed: prevCompleted ?? false })
         else m.delete(key)
         return m
       })
+      setToast('Could not save checklist change. Please try again.')
     } finally {
       setChecklistToggling(prev => {
         const m = new Set(prev)
@@ -1576,6 +1383,67 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         return m
       })
     }
+  }
+
+  // ── Mark a workflow step complete / incomplete (workflow_step_completions) ──
+  async function markStepComplete(stepNumber: number, completed: boolean) {
+    setStepMarking(prev => new Set(prev).add(stepNumber))
+
+    // Optimistic update.
+    const wasCompleted = stepCompletions.has(stepNumber)
+    setStepCompletions(prev => {
+      const s = new Set(prev)
+      if (completed) s.add(stepNumber)
+      else s.delete(stepNumber)
+      return s
+    })
+
+    try {
+      const supabase = createClient()
+      if (completed) {
+        const { error } = await supabase
+          .from('workflow_step_completions')
+          .insert({
+            client_id: params.id,
+            step_number: stepNumber,
+            completed_by: checklistUserIdRef.current,
+            completed_at: new Date().toISOString(),
+          })
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('workflow_step_completions')
+          .delete()
+          .eq('client_id', params.id)
+          .eq('step_number', stepNumber)
+        if (error) throw error
+      }
+    } catch (err) {
+      console.error('[workflow-step] mark complete failed:', err)
+      // Revert on failure.
+      setStepCompletions(prev => {
+        const s = new Set(prev)
+        if (wasCompleted) s.add(stepNumber)
+        else s.delete(stepNumber)
+        return s
+      })
+      setToast('Could not update step. Please try again.')
+    } finally {
+      setStepMarking(prev => {
+        const s = new Set(prev)
+        s.delete(stepNumber)
+        return s
+      })
+    }
+  }
+
+  // ── Customer-meeting action buttons (View Agenda / Recap / Generate Email) ──
+  // These are placeholders for now — the 33-step workflow has no agenda/recap/
+  // email-template mapping yet, and per the safety rules we must not touch the
+  // email API routes. Wire them up here when those mappings exist.
+  function handleWorkflowAction(kind: 'agenda' | 'recap' | 'email', step: WorkflowStepDef) {
+    const labels = { agenda: 'Agenda', recap: 'Recap', email: 'Recap email' }
+    setToast(`${labels[kind]} for "${step.title}" isn't linked yet.`)
   }
 
   async function markComplete(meetingCode: string, phaseNumber: number, title: string) {
@@ -1947,10 +1815,13 @@ Today's date is ${today}.
   }
 
   const happiness = HAPPINESS[client.happiness]
-  const completedCount = Array.from(journeyRows.entries()).filter(([code, r]) => r.completed && code.endsWith('m')).length
   const sentEmailCount = sentEmails.length
-  const journeyPct = Math.round((completedCount / 18) * 100)
-  const sentEmailsByCode = new Map(sentEmails.map(e => [e.email_code, e]))
+
+  // ── 33-step workflow progress (drives the Meeting Journey section) ──────────
+  const stepsCompletedCount = WORKFLOW_STEPS.filter(s => stepCompletions.has(s.step)).length
+  const stepsPct = Math.round((stepsCompletedCount / TOTAL_WORKFLOW_STEPS) * 100)
+  // Current step = first step that is not yet completed.
+  const currentStepNumber = WORKFLOW_STEPS.find(s => !stepCompletions.has(s.step))?.step ?? null
 
   // ── Derived values for the Fable redesign ──────────────────────────────────
   const allMeetingDefs = JOURNEY_PHASES.flatMap(p => p.meetings)
@@ -3054,72 +2925,41 @@ Today's date is ${today}.
           </div>
         )}
 
-        {/* ── Meeting Journey ───────────────────────────────────────────── */}
+        {/* ── Meeting Journey — 33-step workflow ────────────────────────── */}
         <div ref={journeyRef} className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
           <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
             <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Meeting Journey</h2>
             <span style={{ fontSize: 12, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
-              {completedCount} of 18 meetings{sentEmailCount > 0 ? ` · ${sentEmailCount} emails` : ''}
+              {stepsCompletedCount} of {TOTAL_WORKFLOW_STEPS} steps{sentEmailCount > 0 ? ` · ${sentEmailCount} emails` : ''}
             </span>
           </div>
 
           {/* Progress */}
           <div className="flex items-center" style={{ gap: 12, padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
             <span style={{ fontSize: 12.5, color: 'var(--text2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-              <b style={{ fontWeight: 600, color: 'var(--text)' }}>{completedCount} of 18</b> complete
+              <b style={{ fontWeight: 600, color: 'var(--text)' }}>{stepsCompletedCount} of {TOTAL_WORKFLOW_STEPS}</b> steps complete
             </span>
             <span className="flex-1 overflow-hidden" style={{ height: 5, borderRadius: 99, background: 'var(--surface2)' }}>
-              <span style={{ display: 'block', height: '100%', width: `${journeyPct}%`, background: happiness.accent, borderRadius: 99, transition: 'width 400ms ease' }} />
+              <span style={{ display: 'block', height: '100%', width: `${stepsPct}%`, background: happiness.accent, borderRadius: 99, transition: 'width 400ms ease' }} />
             </span>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{journeyPct}%</span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{stepsPct}%</span>
           </div>
 
-          <div style={{ padding: '2px 17px 8px' }}>
-            <div className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.11em', color: 'var(--text3)', fontWeight: 700, padding: '11px 0 3px' }}>
-              Pre-Construction
-            </div>
-            {JOURNEY_PHASES.filter(p => p.number <= 5).map(phase => (
-              <PhaseCard
-                key={phase.number}
-                phase={phase}
-                journeyRows={journeyRows}
-                markingIds={markingIds}
-                onMarkComplete={markComplete}
-                onOpenRecap={(code) => router.push(`/customers/${params.id}/meetings/${code}`)}
-                onViewAgenda={setActiveAgenda}
-                sentEmailsByCode={sentEmailsByCode}
-                onViewSentEmail={setViewSentEmail}
-                isCurrent={phase.number === currentPhaseNumber}
-                isDone={phase.meetings.every(m => journeyRows.get(m.code)?.completed)}
-                defaultExpanded={phase.number === currentPhaseNumber}
-                checklistTemplates={checklistTemplates}
+          {/* Steps */}
+          <div>
+            {WORKFLOW_STEPS.map(step => (
+              <WorkflowStep
+                key={step.step}
+                step={step}
+                isCompleted={stepCompletions.has(step.step)}
+                isCurrent={step.step === currentStepNumber}
+                defaultExpanded={step.step === currentStepNumber}
                 checklistRows={checklistRows}
                 checklistToggling={checklistToggling}
                 onToggleChecklist={toggleChecklistTask}
-              />
-            ))}
-
-            <div className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.11em', color: 'var(--text3)', fontWeight: 700, padding: '14px 0 3px' }}>
-              Construction
-            </div>
-            {JOURNEY_PHASES.filter(p => p.number >= 6).map(phase => (
-              <PhaseCard
-                key={phase.number}
-                phase={phase}
-                journeyRows={journeyRows}
-                markingIds={markingIds}
-                onMarkComplete={markComplete}
-                onOpenRecap={(code) => router.push(`/customers/${params.id}/meetings/${code}`)}
-                onViewAgenda={setActiveAgenda}
-                sentEmailsByCode={sentEmailsByCode}
-                onViewSentEmail={setViewSentEmail}
-                isCurrent={phase.number === currentPhaseNumber}
-                isDone={phase.meetings.every(m => journeyRows.get(m.code)?.completed)}
-                defaultExpanded={phase.number === currentPhaseNumber}
-                checklistTemplates={checklistTemplates}
-                checklistRows={checklistRows}
-                checklistToggling={checklistToggling}
-                onToggleChecklist={toggleChecklistTask}
+                marking={stepMarking.has(step.step)}
+                onMarkComplete={markStepComplete}
+                onAction={handleWorkflowAction}
               />
             ))}
           </div>
