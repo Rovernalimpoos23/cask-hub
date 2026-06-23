@@ -1131,6 +1131,538 @@ function WorkflowStep({
   )
 }
 
+// ── Standing Agenda (NEW — additive feature) ──────────────────────────────────
+// Per-client, editable "living record" of architect design decisions. Saves to
+// client_agenda_header (one row/client) + client_standing_agenda (one row per
+// answered question). Fully self-contained: own state, own fetch, own save.
+
+interface AgendaQuestion {
+  key: string
+  text: string
+  tags: string[]
+  type: 'notes' | 'options_notes'
+  options?: string[]
+}
+interface AgendaSectionDef {
+  code: string
+  name: string
+  questions: AgendaQuestion[]
+}
+
+const AGENDA_SECTIONS: AgendaSectionDef[] = [
+  {
+    code: '01 00 00',
+    name: 'General Requirements',
+    questions: [
+      { key: 'sign_placement', text: 'Construction sign placement — where can it be staked for visibility?', tags: ['FLAG'], type: 'notes' },
+      { key: 'site_access', text: 'Site access — how will construction vehicles and deliveries reach the site?', tags: ['FLAG'], type: 'notes' },
+      { key: 'permitting_path', text: 'Permitting path — municipality, expeditor needed, anticipated review timeline?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'notes' },
+    ]
+  },
+  {
+    code: '02 00 00',
+    name: 'Existing Conditions',
+    questions: [
+      { key: 'trees_landscaping', text: 'Trees or landscaping that affect the project — any to be removed or protected?', tags: ['1ST DESIGN', 'FLAG'], type: 'notes' },
+      { key: 'existing_structures', text: 'Existing structures to demolish (full or selective)? Describe scope.', tags: ['1ST DESIGN', 'FLAG'], type: 'options_notes', options: ['Full structure demo', 'Selective / partial demo', 'None'] },
+      { key: 'existing_driveway', text: 'Existing driveway / pavers / hardscape to remove?', tags: ['FLAG'], type: 'options_notes', options: ['Driveway demo', 'Paver removal', 'None'] },
+    ]
+  },
+  {
+    code: '03 00 00',
+    name: 'Concrete',
+    questions: [
+      { key: 'foundation_type', text: 'Foundation type for site conditions (slab, stem wall, elevated/coastal)?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'notes' },
+      { key: 'wall_type', text: 'Wall type / material — block vs. wood by floor', tags: ['1ST DESIGN'], type: 'options_notes', options: ['1st floor block, 2nd floor wood (standard)', '1st floor block (single story)', '1st floor wood', '1st & 2nd floor wood', '1st & 2nd floor block'] },
+      { key: 'driveway_surface', text: 'Driveway surface selection', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Crushed limestone (durable, affordable)', 'Concrete ($) — clean classic', 'Brick pavers ($$) — upscale'] },
+      { key: 'parking_pad', text: 'Parking pad / apron surface selection', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Crushed limestone', 'Concrete ($)', 'Brick pavers ($$)'] },
+      { key: 'swale_drainage', text: 'Swale / drainage grading', tags: ['FLAG', '2ND DESIGN'], type: 'notes' },
+    ]
+  },
+  {
+    code: '06 00 00',
+    name: 'Wood, Plastics & Composites',
+    questions: [
+      { key: 'num_stories', text: 'Number of stories / floors (drives framing, pilings, structure cost)?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'notes' },
+      { key: 'ceiling_height', text: 'Floor-to-ceiling height — by floor?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['8 ft (standard, cost-effective)', '9 ft ($) more open', '10 ft ($$) high-end'] },
+      { key: 'pilings', text: 'Elevated foundation pilings required (coastal / flood)? Engineered depth?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Wood pilings required', 'Conventional foundation'] },
+      { key: 'roof_structure', text: 'Roof structure — vaulted or not vaulted?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Flat / standard truss (standard)', 'Vaulted ($) — open & spacious'] },
+      { key: 'staircase', text: 'Staircase & railing — any upgrade?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Standard pressure-treated (included)', 'Upgrade (specify below)'] },
+      { key: 'decking', text: 'Decking material — do they want Trex?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Pressure-treated lumber (standard)', 'Trex / composite ($)'] },
+      { key: 'deck_columns', text: 'Wrap the deck columns with siding?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Yes — wrap columns in siding', 'No — leave exposed'] },
+    ]
+  },
+  {
+    code: '07 00 00',
+    name: 'Thermal & Moisture Protection',
+    questions: [
+      { key: 'roof_system', text: 'Roof system selection', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Shingle (standard)', 'Architectural shingle ($)', 'TPO ($)', 'Flat roof ($)', 'Clay shingle ($$)'] },
+      { key: 'insulation', text: 'Insulation approach', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Foam (traditional HVAC) + batt in walls', 'Batt in ceiling + cold floor (mini-split)'] },
+      { key: 'garage_insulation', text: 'Does the garage need to be insulated?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Yes — insulate garage', 'No'] },
+      { key: 'gutters', text: 'Gutters — always included; which type?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Standard gutter (included)', 'Round copper gutter ($)'] },
+    ]
+  },
+  {
+    code: '08 00 00',
+    name: 'Openings',
+    questions: [
+      { key: 'window_color', text: 'Window color & brand', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['White, MI brand w/ PGT sliding (standard)', 'All PGT ($)'] },
+      { key: 'window_style', text: 'Window style', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Single hung (standard)', 'Roller / other ($) — specify'] },
+      { key: 'frosted_glass', text: 'Frosted glass in the bathroom?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Yes — frosted bathroom window', 'No'] },
+      { key: 'garage_door', text: 'Garage door — included? Height & insulation?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['7 ft (standard vehicles)', '8 ft ($$) taller / grander', 'Insulated garage door', 'No garage door'] },
+      { key: 'screened_porch', text: 'Screened porch — in scope?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Include (added to contract)', 'Exclude / allowance'] },
+      { key: 'exterior_doors', text: 'Exterior doors — glass & height?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['With glass', 'Without glass', '6/8 height (standard)', '8 ft height ($)'] },
+      { key: 'interior_doors', text: 'Interior door height?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['6/8 height (standard)', '8 ft height ($)'] },
+    ]
+  },
+  {
+    code: '09 00 00',
+    name: 'Finishes',
+    questions: [
+      { key: 'wall_texture', text: 'Wall & ceiling texture', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Orange peel walls / knock-down ceiling (standard)', 'Smooth — Level 4 ($)'] },
+      { key: 'garage_drywall', text: 'Garage drywall — finish the garage?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Yes ($) clean finished look', 'Ceiling only (standard)', 'No — unfinished'] },
+      { key: 'flooring', text: 'Flooring — LVP is included throughout. Upgrade?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['LVP throughout (standard)', 'Tile throughout', 'Hardwood throughout', 'Tile in bathrooms + LVP elsewhere', 'Hardwood throughout + tile in bathrooms'] },
+      { key: 'backsplash', text: 'Backsplash — included?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Yes — include backsplash', 'No'] },
+      { key: 'paint', text: 'Paint — any extra paint scope (e.g. main house)?', tags: ['2ND DESIGN'], type: 'notes' },
+      { key: 'window_casing', text: 'Casing around the windows?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Drywall return (included)', 'Wood casing ($)', 'Marble sill ($)'] },
+    ]
+  },
+  {
+    code: '10 00 00',
+    name: 'Specialties',
+    questions: [
+      { key: 'shower_glass', text: 'Shower / tub glass — do they want custom?', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Without glass (standard)', 'Custom glass ($)'] },
+    ]
+  },
+  {
+    code: '11 00 00',
+    name: 'Equipment',
+    questions: [
+      { key: 'appliances', text: 'Appliance package — include all appliances + washer & dryer?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Low — Frigidaire', 'Mid — Samsung', 'High — specialties ($$)'] },
+    ]
+  },
+  {
+    code: '12 00 00',
+    name: 'Furnishings',
+    questions: [
+      { key: 'cabinet_construction', text: 'Cabinet construction', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Semi-custom (standard)', 'Full custom (+$15K, depends on size)'] },
+      { key: 'cabinet_style', text: 'Cabinet style', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Shaker', 'Euro'] },
+      { key: 'vanity', text: 'Vanity', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Standard with custom counter', 'Floating'] },
+      { key: 'countertop', text: 'Countertop material', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Quartz Level 1 (standard)', 'Granite, construction grade (cheaper)', 'Special stone ($)'] },
+      { key: 'kitchen_sink', text: 'Kitchen sink', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Single bowl undermount (standard)', 'Farmhouse ($) — must be accounted for'] },
+      { key: 'bathroom_sink', text: 'Bathroom sink', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Square undermount (standard)', 'Floating (specify)'] },
+    ]
+  },
+  {
+    code: '22 00 00',
+    name: 'Plumbing',
+    questions: [
+      { key: 'laundry_location', text: 'Laundry location — where do washer/dryer go?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Upstairs (near bedrooms)', 'Garage', 'Lower level / utility', 'No laundry'] },
+      { key: 'water_heater', text: 'Water heater', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Traditional tank', 'Instant / tankless'] },
+      { key: 'plumbing_fixtures', text: 'Plumbing fixtures', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Low', 'Mid — Delta (included)', 'High end ($)'] },
+      { key: 'gas_service', text: 'Gas service — in scope for this project?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Gas included (added to scope)', 'Excluded'] },
+      { key: 'water_utility', text: 'Water utility — connection & metering', tags: ['FLAG', '2ND DESIGN'], type: 'options_notes', options: ['Connect to main house', 'Separate water meter ($2K + separate bill)'] },
+    ]
+  },
+  {
+    code: '23 00 00',
+    name: 'HVAC',
+    questions: [
+      { key: 'hvac_type', text: 'HVAC system type & efficiency goal?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Ducted central', 'Ductless mini-split', 'Ducted mini-split'] },
+      { key: 'air_handler', text: 'Air handler location?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Attic (saves floor space)', 'Mini-split wall units (room control)', 'Other (specify)'] },
+      { key: 'kitchen_hood', text: 'Kitchen hood', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Microwave used as hood', 'Design hood'] },
+    ]
+  },
+  {
+    code: '26 00 00',
+    name: 'Electrical',
+    questions: [
+      { key: 'electrical_meter', text: 'Electrical meter configuration', tags: ['FLAG', '2ND DESIGN'], type: 'options_notes', options: ['1 meter for ADU — don\'t touch main house', '2 meters — ADU + move main-house meter to ADU if line is on the way ($3K)', '1 meter on house feeding ADU ($3K)', '1 meter moved from house to ADU, feeding house from ADU ($3K)'] },
+      { key: 'elevator', text: 'Elevator — in scope?', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['Yes — add $50K', 'Not needed'] },
+      { key: 'light_fixtures', text: 'Light fixtures', tags: ['2ND DESIGN'], type: 'options_notes', options: ['Low — construction grade', 'Mid (included)', 'High end ($)'] },
+      { key: 'special_electrical', text: 'Special electrical', tags: ['1ST DESIGN', '2ND DESIGN'], type: 'options_notes', options: ['EV charger', 'Generator', 'Low voltage in kitchen ($2K)', 'Data box'] },
+    ]
+  },
+]
+
+// Tag pill colors.
+const AGENDA_TAG_STYLES: Record<string, { bg: string; color: string }> = {
+  '1ST DESIGN': { bg: '#eff6ff', color: '#1d4ed8' },
+  'FLAG':       { bg: '#fef2f2', color: '#b91c1c' },
+  '2ND DESIGN': { bg: '#f0fdf4', color: '#166534' },
+}
+
+const SPECIAL_CONDITIONS = [
+  'Historic district / overlay',
+  'Coastal construction control line',
+  'Flood zone',
+  'None of these',
+]
+
+interface AgendaAnswer { answer: string; selected_options: string[] }
+interface AgendaHeaderState {
+  architect: string
+  estimator: string
+  target_permit_date: string
+  zoning: string
+  special_conditions: string[]
+  plumbing_survey_notes: string
+  general_notes: string
+}
+
+function agendaKey(sectionCode: string, questionKey: string) {
+  return `${sectionCode}||${questionKey}`
+}
+
+// Shared styles to match the rest of the page.
+const agendaInputStyle: React.CSSProperties = {
+  width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)',
+  borderRadius: 6, padding: '7px 9px', fontSize: 12, color: 'var(--text)',
+  outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+}
+const agendaTextareaStyle: React.CSSProperties = {
+  width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)',
+  borderRadius: 6, padding: '6px 9px', fontSize: 12, color: 'var(--text)',
+  outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', resize: 'vertical',
+  lineHeight: 1.45,
+}
+const agendaLabelStyle: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text3)',
+}
+
+// Small checkbox matching the existing checklist checkboxes in this file.
+function AgendaCheckbox({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className="shrink-0"
+      style={{
+        width: 14, height: 14, borderRadius: 3,
+        border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)',
+        background: checked ? 'var(--charcoal)' : 'transparent',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1,
+        transition: 'background 120ms ease, border-color 120ms ease',
+      }}
+    >
+      {checked && (
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+      )}
+    </span>
+  )
+}
+
+function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg: string) => void }) {
+  const [cardOpen, setCardOpen] = useState(true)
+  // All sections collapsed by default.
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set())
+  const [header, setHeader] = useState<AgendaHeaderState>({
+    architect: '', estimator: '', target_permit_date: '', zoning: '',
+    special_conditions: [], plumbing_survey_notes: '', general_notes: '',
+  })
+  const [answers, setAnswers] = useState<Map<string, AgendaAnswer>>(new Map())
+  const [saving, setSaving] = useState(false)
+
+  // Fetch this client's saved agenda on mount.
+  useEffect(() => {
+    let active = true
+    async function load() {
+      const supabase = createClient()
+      const [{ data: h }, { data: rows }] = await Promise.all([
+        supabase.from('client_agenda_header').select('*').eq('client_id', clientId).maybeSingle(),
+        supabase.from('client_standing_agenda').select('section_code, question_key, answer, selected_options').eq('client_id', clientId),
+      ])
+      if (!active) return
+      if (h) {
+        setHeader({
+          architect: h.architect ?? '',
+          estimator: h.estimator ?? '',
+          target_permit_date: h.target_permit_date ?? '',
+          zoning: h.zoning ?? '',
+          special_conditions: Array.isArray(h.special_conditions) ? h.special_conditions : [],
+          plumbing_survey_notes: h.plumbing_survey_notes ?? '',
+          general_notes: h.general_notes ?? '',
+        })
+      }
+      if (rows) {
+        const m = new Map<string, AgendaAnswer>()
+        for (const r of rows as { section_code: string; question_key: string; answer: string | null; selected_options: unknown }[]) {
+          m.set(agendaKey(r.section_code, r.question_key), {
+            answer: r.answer ?? '',
+            selected_options: Array.isArray(r.selected_options) ? (r.selected_options as string[]) : [],
+          })
+        }
+        setAnswers(m)
+      }
+    }
+    load()
+    return () => { active = false }
+  }, [clientId])
+
+  // Persist everything via upsert. Accepts explicit overrides so callers that
+  // also setState (e.g. checkbox toggles) can save the freshest value without
+  // waiting for a re-render. Requires unique constraints: client_agenda_header
+  // (client_id) and client_standing_agenda (client_id, section_code, question_key).
+  async function persist(showToast: boolean, overrideHeader?: AgendaHeaderState, overrideAnswers?: Map<string, AgendaAnswer>) {
+    const hdr = overrideHeader ?? header
+    const ans = overrideAnswers ?? answers
+    setSaving(true)
+    try {
+      const supabase = createClient()
+      const { error: hErr } = await supabase
+        .from('client_agenda_header')
+        .upsert({
+          client_id: clientId,
+          architect: hdr.architect || null,
+          estimator: hdr.estimator || null,
+          // NOTE: stored as text input per spec. If target_permit_date is a date
+          // column, enter YYYY-MM-DD; empty saves as null.
+          target_permit_date: hdr.target_permit_date || null,
+          zoning: hdr.zoning || null,
+          special_conditions: hdr.special_conditions,
+          plumbing_survey_notes: hdr.plumbing_survey_notes || null,
+          general_notes: hdr.general_notes || null,
+        }, { onConflict: 'client_id' })
+      if (hErr) throw hErr
+
+      const rows = Array.from(ans.entries()).map(([k, v]) => {
+        const [section_code, question_key] = k.split('||')
+        return { client_id: clientId, section_code, question_key, answer: v.answer || null, selected_options: v.selected_options }
+      })
+      if (rows.length) {
+        const { error: rErr } = await supabase
+          .from('client_standing_agenda')
+          .upsert(rows, { onConflict: 'client_id,section_code,question_key' })
+        if (rErr) throw rErr
+      }
+      if (showToast) onToast('Standing Agenda saved')
+    } catch (err) {
+      console.error('[standing-agenda] save failed:', err)
+      onToast('Could not save Standing Agenda. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function setHeaderField(patch: Partial<AgendaHeaderState>) {
+    setHeader(prev => ({ ...prev, ...patch }))
+  }
+  function toggleSpecialCondition(cond: string) {
+    const has = header.special_conditions.includes(cond)
+    const next = has ? header.special_conditions.filter(c => c !== cond) : [...header.special_conditions, cond]
+    const nextHeader = { ...header, special_conditions: next }
+    setHeader(nextHeader)
+    persist(false, nextHeader)
+  }
+  function setAnswerNotes(sectionCode: string, questionKey: string, value: string) {
+    const key = agendaKey(sectionCode, questionKey)
+    setAnswers(prev => {
+      const m = new Map(prev)
+      const cur = m.get(key) ?? { answer: '', selected_options: [] }
+      m.set(key, { ...cur, answer: value })
+      return m
+    })
+  }
+  function toggleOption(sectionCode: string, questionKey: string, option: string) {
+    const key = agendaKey(sectionCode, questionKey)
+    const cur = answers.get(key) ?? { answer: '', selected_options: [] }
+    const has = cur.selected_options.includes(option)
+    const nextOpts = has ? cur.selected_options.filter(o => o !== option) : [...cur.selected_options, option]
+    const nextMap = new Map(answers)
+    nextMap.set(key, { ...cur, selected_options: nextOpts })
+    setAnswers(nextMap)
+    persist(false, undefined, nextMap) // auto-save (checkboxes have no blur)
+  }
+
+  return (
+    <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+      {/* Card header */}
+      <button
+        type="button"
+        onClick={() => setCardOpen(v => !v)}
+        className="w-full text-left flex items-center justify-between"
+        style={{ padding: '13px 17px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderBottom: cardOpen ? '1px solid var(--border)' : 'none' }}
+      >
+        <div>
+          <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Standing Agenda</h2>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>Architect Design Agenda · Living record</div>
+        </div>
+        <span style={{ color: 'var(--text3)', fontSize: 11, transition: 'transform 200ms ease', transform: cardOpen ? 'rotate(180deg)' : 'none' }}>▾</span>
+      </button>
+
+      {cardOpen && (
+        <div style={{ padding: '14px 17px 16px' }}>
+          {/* Project info grid. Prefilled from saved header (no matching client
+              fields exist to prefill from, so this is the source of truth). */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, marginBottom: 14 }}>
+            {([
+              { k: 'architect', label: 'Architect' },
+              { k: 'estimator', label: 'Estimator' },
+              { k: 'target_permit_date', label: 'Target Permit Date' },
+              { k: 'zoning', label: 'Zoning' },
+            ] as const).map(f => (
+              <div key={f.k} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <label style={agendaLabelStyle}>{f.label}</label>
+                <input
+                  type="text"
+                  value={header[f.k]}
+                  onChange={e => setHeaderField({ [f.k]: e.target.value })}
+                  onBlur={() => persist(false)}
+                  style={agendaInputStyle}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Special conditions */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ ...agendaLabelStyle, display: 'block', marginBottom: 7 }}>Special Conditions</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px 16px' }}>
+              {SPECIAL_CONDITIONS.map(cond => {
+                const checked = header.special_conditions.includes(cond)
+                return (
+                  <button
+                    key={cond}
+                    type="button"
+                    onClick={() => toggleSpecialCondition(cond)}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 7, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+                  >
+                    <AgendaCheckbox checked={checked} />
+                    <span style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.4 }}>{cond}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Plumbing survey notes */}
+          <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={agendaLabelStyle}>Plumbing Survey Notes</label>
+            <textarea
+              rows={2}
+              value={header.plumbing_survey_notes}
+              onChange={e => setHeaderField({ plumbing_survey_notes: e.target.value })}
+              onBlur={() => persist(false)}
+              style={agendaTextareaStyle}
+            />
+          </div>
+
+          {/* General notes */}
+          <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={agendaLabelStyle}>General Notes</label>
+            <textarea
+              rows={3}
+              value={header.general_notes}
+              onChange={e => setHeaderField({ general_notes: e.target.value })}
+              onBlur={() => persist(false)}
+              style={agendaTextareaStyle}
+            />
+          </div>
+
+          {/* Sections */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {AGENDA_SECTIONS.map(section => {
+              const open = openSections.has(section.code)
+              const answered = section.questions.filter(q => {
+                const a = answers.get(agendaKey(section.code, q.key))
+                return !!a && (a.answer.trim().length > 0 || a.selected_options.length > 0)
+              }).length
+              return (
+                <div key={section.code} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenSections(prev => {
+                      const s = new Set(prev)
+                      if (s.has(section.code)) s.delete(section.code)
+                      else s.add(section.code)
+                      return s
+                    })}
+                    className="w-full text-left flex items-center gap-9"
+                    style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', background: 'var(--surface2)', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    <span style={{ color: 'var(--fable-red)', fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{section.code}</span>
+                    <span className="flex-1" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{section.name}</span>
+                    <span style={{ fontSize: 10.5, color: 'var(--text3)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{answered} of {section.questions.length} answered</span>
+                    <span style={{ color: 'var(--text3)', fontSize: 10, transition: 'transform 200ms ease', transform: open ? 'rotate(180deg)' : 'none' }}>▾</span>
+                  </button>
+
+                  {open && (
+                    <div style={{ padding: '11px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      {section.questions.map(q => {
+                        const entry = answers.get(agendaKey(section.code, q.key))
+                        return (
+                          <div key={q.key} style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                            {/* Question text + tags */}
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4, flex: '1 1 auto' }}>{q.text}</span>
+                              <span style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap' }}>
+                                {q.tags.map(tag => {
+                                  const ts = AGENDA_TAG_STYLES[tag] ?? { bg: 'var(--surface2)', color: 'var(--text3)' }
+                                  return (
+                                    <span key={tag} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.03em', color: ts.color, background: ts.bg, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>{tag}</span>
+                                  )
+                                })}
+                              </span>
+                            </div>
+
+                            {/* Options (multi-select) */}
+                            {q.type === 'options_notes' && q.options && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {q.options.map(opt => {
+                                  const checked = entry?.selected_options.includes(opt) ?? false
+                                  return (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => toggleOption(section.code, q.key, opt)}
+                                      style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+                                    >
+                                      <AgendaCheckbox checked={checked} />
+                                      <span style={{ fontSize: 11.5, color: 'var(--text)', lineHeight: 1.4, opacity: checked ? 1 : 0.85 }}>{opt}</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
+
+                            {/* Notes */}
+                            <textarea
+                              rows={2}
+                              placeholder="Notes…"
+                              value={entry?.answer ?? ''}
+                              onChange={e => setAnswerNotes(section.code, q.key, e.target.value)}
+                              onBlur={() => persist(false)}
+                              style={agendaTextareaStyle}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Save */}
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => persist(true)}
+              disabled={saving}
+              style={{
+                fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--charcoal)',
+                border: '1px solid var(--charcoal)', padding: '8px 16px', borderRadius: 7,
+                cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.5 : 1, fontFamily: 'inherit',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save Agenda'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 function getInitials(name: string): string {
@@ -2936,6 +3468,9 @@ Today's date is ${today}.
             </div>
           </div>
         )}
+
+        {/* ── Standing Agenda (NEW) ─────────────────────────────────────── */}
+        <StandingAgenda clientId={params.id} onToast={setToast} />
 
         {/* ── Meeting Journey — 33-step workflow ────────────────────────── */}
         <div ref={journeyRef} className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
