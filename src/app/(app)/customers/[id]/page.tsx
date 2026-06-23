@@ -743,6 +743,153 @@ function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
   )
 }
 
+// ── Role-based meeting checklist (NEW — additive feature) ─────────────────────
+// Self-contained salesperson checklist that renders inside eligible meeting rows.
+// Does not alter any existing meeting-row behaviour; it only adds an expandable
+// panel below the existing action buttons for the 4 seeded meeting codes.
+
+// Only these meeting codes have seeded salesperson tasks.
+const CHECKLIST_MEETING_CODES = ['PR1m', 'PR3m', 'PD1m', 'PD4m']
+// Currently only the salesperson role is surfaced.
+const CHECKLIST_ROLE = 'salesperson'
+// Render order + display labels for the timing groups.
+const CHECKLIST_TIMINGS: { key: string; label: string }[] = [
+  { key: 'before', label: 'Before' },
+  { key: 'during', label: 'During' },
+  { key: 'after', label: 'After' },
+]
+
+interface ChecklistTemplate {
+  id: string
+  meeting_code: string
+  role: string
+  timing: string
+  task_text: string
+}
+
+// State of a single per-client checklist row, keyed by meeting_code + task_text.
+interface ChecklistRowState {
+  id: string
+  completed: boolean
+}
+
+// Build the lookup key used to match a template task to its per-client row.
+function checklistKey(meetingCode: string, taskText: string) {
+  return `${meetingCode}||${taskText}`
+}
+
+function MeetingChecklistPanel({
+  meetingCode,
+  templates,
+  checklistRows,
+  togglingKeys,
+  onToggle,
+}: {
+  meetingCode: string
+  templates: ChecklistTemplate[]
+  checklistRows: Map<string, ChecklistRowState>
+  togglingKeys: Set<string>
+  onToggle: (meetingCode: string, taskText: string, next: boolean) => void
+}) {
+  const tasks = templates.filter(t => t.meeting_code === meetingCode)
+  if (tasks.length === 0) return null
+
+  const total = tasks.length
+  const doneCount = tasks.filter(t => checklistRows.get(checklistKey(meetingCode, t.task_text))?.completed).length
+
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        marginBottom: 4,
+        background: 'var(--surface2)',
+        borderLeft: '2px solid var(--fable-red)',
+        borderRadius: 6,
+        padding: '10px 12px 11px',
+      }}
+    >
+      {CHECKLIST_TIMINGS.map(timing => {
+        const group = tasks.filter(t => (t.timing || '').toLowerCase() === timing.key)
+        if (group.length === 0) return null
+        return (
+          <div key={timing.key} style={{ marginBottom: 9 }}>
+            <div
+              className="uppercase"
+              style={{ fontSize: 10, letterSpacing: '0.11em', color: 'var(--text3)', fontWeight: 700, marginBottom: 6 }}
+            >
+              {timing.label}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {group.map(task => {
+                const key = checklistKey(meetingCode, task.task_text)
+                const checked = checklistRows.get(key)?.completed ?? false
+                const busy = togglingKeys.has(key)
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => { if (!busy) onToggle(meetingCode, task.task_text, !checked) }}
+                    disabled={busy}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 8,
+                      background: 'transparent',
+                      border: 'none',
+                      padding: 0,
+                      textAlign: 'left',
+                      cursor: busy ? 'wait' : 'pointer',
+                      fontFamily: 'inherit',
+                      opacity: busy ? 0.6 : 1,
+                    }}
+                  >
+                    <span
+                      className="shrink-0"
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 4,
+                        border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)',
+                        background: checked ? 'var(--charcoal)' : 'transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginTop: 1,
+                        transition: 'background 120ms ease, border-color 120ms ease',
+                      }}
+                    >
+                      {checked && (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12.5,
+                        lineHeight: 1.4,
+                        color: 'var(--text)',
+                        opacity: checked ? 0.5 : 1,
+                        textDecoration: checked ? 'line-through' : 'none',
+                      }}
+                    >
+                      {task.task_text}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+
+      <div style={{ fontSize: 11, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+        {doneCount} of {total} tasks complete
+      </div>
+    </div>
+  )
+}
+
 // ── Journey phase card ────────────────────────────────────────────────────────
 
 function PhaseCard({
@@ -757,6 +904,10 @@ function PhaseCard({
   isCurrent,
   isDone,
   defaultExpanded,
+  checklistTemplates,
+  checklistRows,
+  checklistToggling,
+  onToggleChecklist,
 }: {
   phase: JourneyPhaseDef
   journeyRows: Map<string, ClientMeetingRow>
@@ -769,8 +920,22 @@ function PhaseCard({
   isCurrent: boolean
   isDone: boolean
   defaultExpanded: boolean
+  // NEW (additive): role-based checklist data + toggle handler
+  checklistTemplates: ChecklistTemplate[]
+  checklistRows: Map<string, ChecklistRowState>
+  checklistToggling: Set<string>
+  onToggleChecklist: (meetingCode: string, taskText: string, next: boolean) => void
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  // NEW (additive): tracks which meeting rows have their checklist panel open.
+  const [openChecklists, setOpenChecklists] = useState<Set<string>>(new Set())
+  const toggleChecklistOpen = (code: string) =>
+    setOpenChecklists(prev => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
 
   const completedInPhase = phase.meetings.filter(m => journeyRows.get(m.code)?.completed).length
   const total = phase.meetings.length
@@ -876,6 +1041,15 @@ function PhaseCard({
             const sentEmail = meeting.type === 'email' ? sentEmailsByCode.get(meeting.code) : undefined
 
             const isNext = meeting.code === nextCode
+            // NEW (additive): does this meeting have a salesperson checklist?
+            const hasChecklist =
+              CHECKLIST_MEETING_CODES.includes(meeting.code) &&
+              checklistTemplates.some(t => t.meeting_code === meeting.code)
+            const checklistOpen = openChecklists.has(meeting.code)
+            const checklistTotal = checklistTemplates.filter(t => t.meeting_code === meeting.code).length
+            const checklistDone = checklistTemplates.filter(
+              t => t.meeting_code === meeting.code && checklistRows.get(checklistKey(meeting.code, t.task_text))?.completed
+            ).length
             return (
               <div
                 key={meeting.code}
@@ -1091,8 +1265,48 @@ function PhaseCard({
                         🎙️ View Recap
                       </button>
                     )}
+
+                    {/* Checklist toggle — NEW (additive), only for eligible meetings */}
+                    {hasChecklist && (
+                      <button
+                        type="button"
+                        onClick={() => toggleChecklistOpen(meeting.code)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: checklistOpen ? 'var(--text)' : 'var(--text2)',
+                          background: 'var(--surface2, #f4f3f1)',
+                          border: `1px solid ${checklistOpen ? 'var(--border2)' : 'var(--border)'}`,
+                          padding: '3px 8px',
+                          borderRadius: 5,
+                          whiteSpace: 'nowrap',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          transition: 'border-color 120ms ease, color 120ms ease',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = checklistOpen ? 'var(--border2)' : 'var(--border)'; e.currentTarget.style.color = checklistOpen ? 'var(--text)' : 'var(--text2)' }}
+                      >
+                        ☑ Checklist {checklistDone}/{checklistTotal}
+                        <span style={{ fontSize: 9, transition: 'transform 200ms ease', transform: checklistOpen ? 'rotate(180deg)' : 'none' }}>▾</span>
+                      </button>
+                    )}
                   </div>
                 </div>
+
+                {/* Checklist panel — NEW (additive), below the action buttons */}
+                {hasChecklist && checklistOpen && (
+                  <MeetingChecklistPanel
+                    meetingCode={meeting.code}
+                    templates={checklistTemplates}
+                    checklistRows={checklistRows}
+                    togglingKeys={checklistToggling}
+                    onToggle={onToggleChecklist}
+                  />
+                )}
 
               </div>
             )
@@ -1134,6 +1348,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [toast, setToast] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<EditClientForm | null>(null)
   const [savingClient, setSavingClient] = useState(false)
+
+  // ── Role-based checklist state (NEW — additive feature) ─────────────────────
+  const [checklistTemplates, setChecklistTemplates] = useState<ChecklistTemplate[]>([])
+  const [checklistRows, setChecklistRows] = useState<Map<string, ChecklistRowState>>(new Map())
+  const [checklistToggling, setChecklistToggling] = useState<Set<string>>(new Set())
+  const checklistUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -1186,6 +1406,40 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       }
     }
     fetchEmailDrafts()
+  }, [params.id])
+
+  // ── Fetch salesperson checklist templates + this client's saved state ───────
+  // (NEW — additive feature; does not touch any existing query above.)
+  useEffect(() => {
+    async function fetchChecklist() {
+      const supabase = createClient()
+
+      // Capture the current user id (reuses the existing auth session) for completed_by.
+      const { data: { user } } = await supabase.auth.getUser()
+      checklistUserIdRef.current = user?.id ?? null
+
+      const [{ data: templates }, { data: saved }] = await Promise.all([
+        supabase
+          .from('journey_checklist_templates')
+          .select('id, meeting_code, role, timing, task_text')
+          .eq('role', CHECKLIST_ROLE),
+        supabase
+          .from('journey_checklists')
+          .select('id, meeting_code, task_text, completed')
+          .eq('client_id', params.id),
+      ])
+
+      if (templates) setChecklistTemplates(templates as ChecklistTemplate[])
+
+      if (saved) {
+        const map = new Map<string, ChecklistRowState>()
+        for (const r of saved as { id: string; meeting_code: string; task_text: string; completed: boolean }[]) {
+          map.set(checklistKey(r.meeting_code, r.task_text), { id: r.id, completed: r.completed })
+        }
+        setChecklistRows(map)
+      }
+    }
+    fetchChecklist()
   }, [params.id])
 
   useEffect(() => {
@@ -1251,6 +1505,78 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   useEffect(() => {
     fetchClient()
   }, [fetchClient])
+
+  // ── Toggle a checklist task on/off + persist to Supabase ────────────────────
+  // (NEW — additive feature; entirely separate from markComplete below.)
+  async function toggleChecklistTask(meetingCode: string, taskText: string, next: boolean) {
+    const key = checklistKey(meetingCode, taskText)
+    setChecklistToggling(prev => new Set(prev).add(key))
+
+    // Optimistic update so the checkbox feels instant.
+    const prevRows = checklistRows
+    const existing = prevRows.get(key)
+    setChecklistRows(prev => {
+      const m = new Map(prev)
+      m.set(key, { id: existing?.id ?? `optimistic-${key}`, completed: next })
+      return m
+    })
+
+    try {
+      const supabase = createClient()
+      const userId = checklistUserIdRef.current
+
+      if (existing && !existing.id.startsWith('optimistic-')) {
+        // A real row already exists → update its completed flag.
+        const { error } = await supabase
+          .from('journey_checklists')
+          .update({
+            completed: next,
+            completed_by: next ? userId : null,
+            completed_at: next ? new Date().toISOString() : null,
+          })
+          .eq('id', existing.id)
+        if (error) throw error
+      } else {
+        // No row yet → insert a new one and keep its id for future updates.
+        const { data, error } = await supabase
+          .from('journey_checklists')
+          .insert({
+            client_id: params.id,
+            meeting_code: meetingCode,
+            role: CHECKLIST_ROLE,
+            task_text: taskText,
+            completed: next,
+            completed_by: next ? userId : null,
+            completed_at: next ? new Date().toISOString() : null,
+          })
+          .select('id')
+          .single()
+        if (error) throw error
+        if (data) {
+          setChecklistRows(prev => {
+            const m = new Map(prev)
+            m.set(key, { id: data.id, completed: next })
+            return m
+          })
+        }
+      }
+    } catch (err) {
+      console.error('[journey-checklist] toggle failed:', err)
+      // Revert the optimistic change on failure.
+      setChecklistRows(prev => {
+        const m = new Map(prev)
+        if (existing) m.set(key, existing)
+        else m.delete(key)
+        return m
+      })
+    } finally {
+      setChecklistToggling(prev => {
+        const m = new Set(prev)
+        m.delete(key)
+        return m
+      })
+    }
+  }
 
   async function markComplete(meetingCode: string, phaseNumber: number, title: string) {
     setMarkingIds(prev => new Set(prev).add(meetingCode))
@@ -2766,6 +3092,10 @@ Today's date is ${today}.
                 isCurrent={phase.number === currentPhaseNumber}
                 isDone={phase.meetings.every(m => journeyRows.get(m.code)?.completed)}
                 defaultExpanded={phase.number === currentPhaseNumber}
+                checklistTemplates={checklistTemplates}
+                checklistRows={checklistRows}
+                checklistToggling={checklistToggling}
+                onToggleChecklist={toggleChecklistTask}
               />
             ))}
 
@@ -2786,6 +3116,10 @@ Today's date is ${today}.
                 isCurrent={phase.number === currentPhaseNumber}
                 isDone={phase.meetings.every(m => journeyRows.get(m.code)?.completed)}
                 defaultExpanded={phase.number === currentPhaseNumber}
+                checklistTemplates={checklistTemplates}
+                checklistRows={checklistRows}
+                checklistToggling={checklistToggling}
+                onToggleChecklist={toggleChecklistTask}
               />
             ))}
           </div>
