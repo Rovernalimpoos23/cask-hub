@@ -964,6 +964,18 @@ function WorkflowStep({
   onAction: (kind: 'agenda' | 'recap' | 'email', step: WorkflowStepDef) => void
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  // `defaultExpanded` depends on the current step, which is only known after the
+  // async step-completions load resolves. useState locks in its first value, so
+  // sync `expanded` whenever `defaultExpanded` flips (e.g. step 1 → real current
+  // step once data arrives). Only reacts to default changes, so a user's manual
+  // expand/collapse during a stable period is left untouched.
+  const prevDefaultExpanded = useRef(defaultExpanded)
+  useEffect(() => {
+    if (defaultExpanded !== prevDefaultExpanded.current) {
+      prevDefaultExpanded.current = defaultExpanded
+      setExpanded(defaultExpanded)
+    }
+  }, [defaultExpanded])
   const cfg = STEP_TYPE_CONFIG[step.type]
   const code = stepCode(step.step)
   const isCustomer = step.type === 'customer'
