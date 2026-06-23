@@ -3469,6 +3469,10 @@ Today's date is ${today}.
           </div>
         )}
 
+          </div>{/* /right column */}
+        </div>{/* /two-column layout */}
+
+        <div className="flex flex-col gap-5" style={{ marginTop: 24 }}>
         {/* ── Standing Agenda (NEW) ─────────────────────────────────────── */}
         <StandingAgenda clientId={params.id} onToast={setToast} />
 
@@ -3511,9 +3515,7 @@ Today's date is ${today}.
             ))}
           </div>
         </div>
-
-          </div>{/* /right column */}
-        </div>{/* /two-column layout */}
+        </div>
         </div>{/* /max-width wrapper */}
       </div>
 
