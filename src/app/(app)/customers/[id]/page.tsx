@@ -1561,7 +1561,7 @@ function StandingAgenda({ clientId, clientName, clientProjectAddress, onToast }:
 
     // Section question fields (notes + selected options combined). A missing
     // previous entry is treated as '' so the first filled value is logged.
-    const allKeys = new Set<string>([...prevAnswers.keys(), ...newAnswers.keys()])
+    const allKeys = new Set<string>(Array.from(prevAnswers.keys()).concat(Array.from(newAnswers.keys())))
     for (const k of allKeys) {
       const [section_code, question_key] = k.split('||')
       const oldStr = answerValueString(prevAnswers.get(k))
