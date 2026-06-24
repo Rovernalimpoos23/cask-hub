@@ -520,10 +520,26 @@ RULES:
             const templateBody = converted?.body ?? GENERAL_EMAIL_TEMPLATE
             const subject = buildEmailSubject(nextEmailCode, converted?.subject ?? null, matchedClient.name, projectType)
 
-            const emailPrompt = `You are drafting a professional client email for CASK Construction.
+            const emailPrompt = `You are generating a professional meeting recap email for CASK Construction.
 
-BASE TEMPLATE:
-${templateBody}
+OBJECTIVE:
+Generate a professional meeting recap email based on:
+1. The meeting transcript provided below
+2. The client profile information
+3. Action items and decisions from the meeting
+
+The email should communicate:
+- What was discussed
+- What decisions were made
+- What information was added or changed
+- What action items exist
+- What happens next
+
+Do NOT include internal team discussions or AI commentary.
+Do NOT repeat every agenda line item.
+Keep the email under 500 words.
+Focus on changes, decisions, and next steps.
+Write as if sending to all project stakeholders (homeowner, architect, estimator, project team).
 
 CLIENT PROFILE:
 - Client Name: ${matchedClient.name}
@@ -535,26 +551,66 @@ CLIENT PROFILE:
 - Personality Tags: ${personalityStr}
 - Assigned PM: ${owner}
 
-LAST MEETING RECAP:
-${recapText || summaryText || 'No recap available'}
+MEETING TRANSCRIPT / NOTES:
+${recapText || summaryText || 'No transcript available'}
 
-PERSONALIZATION RULES:
-- Replace [Owner Name] or [Customer Name] with client first name only
-- Replace [Your Name] or [PM Name] with ${owner}
-- Replace [Project Name] with ${matchedClient.name} ${projectType}
-- Replace [Location] with ${location}
-- Replace [Project Type] with ${projectType}
-- Replace any date placeholders like [INPUT MEETING DATE] with 'We will follow up shortly with available dates'
-- Replace NPS survey links with: https://cask-hub.vercel.app/survey/${matchedClient.id}
-- Keep ALL structural content from the template (numbered steps, bullet points, sections)
-- Only personalize greeting and placeholder fields
-- Add ONE brief personalized intro paragraph at the top referencing what was discussed in the last meeting recap
-- Adjust tone based on personality:
-  Direct/Fast decision maker = concise
-  Detail-oriented = keep all details
-  Relationship-driven = warmer tone
-  Skeptical = factual and professional
-Current client personality: ${personalityStr}
+EMAIL FORMAT — follow this exact structure:
+
+Subject: ${subject}
+
+Hello Team,
+
+Thank you for today's meeting regarding ${matchedClient.name} ${projectType}.
+
+Below is a summary of the discussion and next steps.
+
+KEY DECISIONS MADE
+Identify all decisions finalized during the meeting.
+Only include items discussed and confirmed — do not list items that were not resolved.
+
+PROJECT UPDATES
+Summarize any new information added including:
+- Project information updates
+- Existing conditions or special conditions
+- Design changes
+- Scope clarifications
+Keep concise and organized.
+
+OPEN ITEMS / PENDING DECISIONS
+List items requiring future discussion or approval.
+Only include genuine open items — do not fabricate.
+
+ACTION ITEMS
+CASK Team:
+- [Task] – [Owner]
+
+Client / Homeowner:
+- [Task]
+
+NEXT STEPS
+Summarize the next phase of the project. Examples:
+- Schedule plumbing survey
+- Complete Flag Meeting
+- Update drawings
+- Submit permit package
+
+UPCOMING MEETING
+Next Meeting: [Meeting Type] [Date] — if mentioned in the transcript, otherwise omit this line.
+
+Thank you,
+CASK Construction
+
+AI RULES:
+1. Compare transcript against known agenda items.
+2. Identify decisions made during the meeting.
+3. Identify newly added information.
+4. Identify unresolved items.
+5. Identify action items and owners.
+6. Summarize in professional language.
+7. Keep email under 500 words.
+8. Do not repeat every agenda line item.
+9. Focus on changes, decisions, and next steps.
+10. Adjust tone based on client personality: Direct/Fast decision maker = concise. Detail-oriented = thorough. Relationship-driven = warmer tone. Skeptical = factual and professional.
 
 OUTPUT FORMAT:
 Clean HTML only:
@@ -562,10 +618,10 @@ Clean HTML only:
 - <ol><li> for numbered lists
 - <ul><li> for bullet points
 - <strong> for section headers
-- No \`\`\`html wrapper
 - No markdown symbols
-- No raw bracket placeholders left unfilled
-Return ONLY the email body.`
+- No backtick wrappers
+- No bracket placeholders left unfilled
+Return ONLY the email body HTML. No subject line in the body.`
 
             const emailRes = await anthropic.messages.create({
               model: 'claude-opus-4-8',
