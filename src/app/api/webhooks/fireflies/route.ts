@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
       model: 'claude-sonnet-4-6',
       system: buildExtractionPrompt(),
       messages: [{ role: 'user', content: fullTranscript || transcript.title }],
-      max_tokens: 1500,
+      max_tokens: 4000,
     })
 
     const rawContent = claudeRes.content[0].type === 'text' ? claudeRes.content[0].text : ''
