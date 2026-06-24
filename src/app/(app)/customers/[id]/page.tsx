@@ -1301,11 +1301,16 @@ const SPECIAL_CONDITIONS = [
 
 interface AgendaAnswer { answer: string; selected_options: string[] }
 interface AgendaHeaderState {
+  project_name: string
+  project_address: string
   architect: string
+  project_specialist: string
   estimator: string
   target_permit_date: string
+  homeowners: string
   zoning: string
   special_conditions: string[]
+  special_conditions_notes: string
   plumbing_survey_notes: string
   general_notes: string
 }
@@ -1350,16 +1355,246 @@ function AgendaCheckbox({ checked }: { checked: boolean }) {
   )
 }
 
-function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg: string) => void }) {
+// ── Standing Agenda audit trail (NEW — additive feature) ──────────────────────
+// Field-level change history persisted to `agenda_audit_log`. Purely additive:
+// existing save/upsert logic is extended, never replaced.
+
+interface AuditEntry {
+  section_code: string
+  question_key: string
+  field_name: string
+  old_value: string | null
+  new_value: string | null
+  changed_by: string | null
+  changed_by_name: string | null
+  changed_at: string
+}
+
+// "section_code:question_key" — the key format used for the auditLog Map and popovers.
+function auditEntryKey(sectionCode: string, questionKey: string) {
+  return `${sectionCode}:${questionKey}`
+}
+
+// snake_case → Title Case (e.g. 'foundation_type' → 'Foundation Type').
+function humanizeKey(key: string) {
+  return key.split('_').map(w => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ')
+}
+
+// Nicer labels for the header (project info) fields; falls back to humanizeKey.
+const AGENDA_HEADER_LABELS: Record<string, string> = {
+  project_name: 'Project Name',
+  project_address: 'Project Address',
+  architect: 'Architect',
+  project_specialist: 'Project Specialist',
+  estimator: 'Estimator',
+  target_permit_date: 'Target Permit Submission Date',
+  homeowners: 'Homeowner(s)',
+  zoning: 'Zoning',
+  special_conditions: 'Special Conditions',
+  special_conditions_notes: 'Notes on Special Conditions & Impact',
+  plumbing_survey_notes: 'Plumbing Survey Notes',
+  general_notes: 'General Notes',
+}
+
+// The header keys tracked for audit (section_code === 'header').
+const HEADER_AUDIT_KEYS: (keyof AgendaHeaderState)[] = [
+  'project_name', 'project_address', 'architect', 'project_specialist',
+  'estimator', 'target_permit_date', 'homeowners', 'zoning',
+  'special_conditions', 'special_conditions_notes', 'plumbing_survey_notes', 'general_notes',
+]
+
+function auditFieldLabel(sectionCode: string, questionKey: string) {
+  if (sectionCode === 'header') return AGENDA_HEADER_LABELS[questionKey] ?? humanizeKey(questionKey)
+  return humanizeKey(questionKey)
+}
+
+// Render any stored value as a readable string (arrays joined with ", ").
+function stringifyAuditValue(value: unknown): string {
+  if (value == null) return ''
+  if (Array.isArray(value)) return value.join(', ')
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+// Combined readable value for a question answer (selected options + notes).
+function answerValueString(a: AgendaAnswer | undefined): string {
+  if (!a) return ''
+  const parts: string[] = []
+  if (a.selected_options.length) parts.push(a.selected_options.join(', '))
+  if (a.answer.trim()) parts.push(a.answer.trim())
+  return parts.join(' — ')
+}
+
+// Relative time for the "Last updated" line.
+function getRelativeTime(ts: string): string {
+  const then = new Date(ts)
+  const now = new Date()
+  const diffMs = now.getTime() - then.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return 'Just now'
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`
+  const sameYear = then.getFullYear() === now.getFullYear()
+  // Relative thresholds above use the true time difference; only the displayed
+  // fallback date is converted to Eastern Time.
+  return then.toLocaleDateString('en-US', sameYear
+    ? { timeZone: 'America/New_York', month: 'short', day: 'numeric' }
+    : { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Full date + time for the history popover, displayed in Eastern Time.
+function formatAuditDateTime(ts: string): string {
+  return new Date(ts).toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }) + ' ET'
+}
+
+function StandingAgenda({ clientId, clientName, clientProjectAddress, onToast }: { clientId: string; clientName: string; clientProjectAddress: string; onToast: (msg: string) => void }) {
   const [cardOpen, setCardOpen] = useState(true)
   // All sections collapsed by default.
   const [openSections, setOpenSections] = useState<Set<string>>(new Set())
   const [header, setHeader] = useState<AgendaHeaderState>({
-    architect: '', estimator: '', target_permit_date: '', zoning: '',
-    special_conditions: [], plumbing_survey_notes: '', general_notes: '',
+    project_name: '', project_address: '', architect: '', project_specialist: '',
+    estimator: '', target_permit_date: '', homeowners: '', zoning: '',
+    special_conditions: [], special_conditions_notes: '', plumbing_survey_notes: '', general_notes: '',
   })
   const [answers, setAnswers] = useState<Map<string, AgendaAnswer>>(new Map())
   const [saving, setSaving] = useState(false)
+
+  // ── Audit trail state (additive) ──────────────────────────────────────────
+  // auditLog: "section_code:question_key" → entries (newest first).
+  const [auditLog, setAuditLog] = useState<Map<string, AuditEntry[]>>(new Map())
+  const [openHistoryKey, setOpenHistoryKey] = useState<string | null>(null)
+  // Snapshot of the last-saved values so persist() can diff against them.
+  const savedHeaderRef = useRef<AgendaHeaderState | null>(null)
+  const savedAnswersRef = useRef<Map<string, AgendaAnswer>>(new Map())
+  // Current user (id + display name) for changed_by / changed_by_name.
+  const auditUserRef = useRef<{ id: string | null; name: string }>({ id: null, name: '' })
+
+  // Resolve the current user once for audit attribution.
+  // NOTE: supabase.auth.getUser() returns the AUTH user id, which differs from
+  // the public.users id (the emails match, the UUIDs do not). Look the user up
+  // by email so changed_by carries the correct public.users id and name.
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user?.email) return
+        const { data: userData } = await supabase
+          .from('users')
+          .select('id, name, role')
+          .eq('email', user.email)
+          .single()
+        if (active && userData) {
+          auditUserRef.current = { id: userData.id ?? null, name: userData.name ?? user.email ?? '' }
+        }
+      } catch (err) {
+        console.error('[standing-agenda] audit user lookup failed:', err)
+      }
+    })()
+    return () => { active = false }
+  }, [])
+
+  // Fetch this client's full audit trail and rebuild the auditLog Map. Reusable
+  // so we can refresh both on mount AND right after a save (the authoritative
+  // source of truth — does not depend on insert().select() returning rows).
+  const fetchAuditLog = useCallback(async () => {
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('agenda_audit_log')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('changed_at', { ascending: false })
+      if (error) {
+        console.error('[standing-agenda] audit log fetch error:', error)
+        return
+      }
+      if (!data) return
+      const m = new Map<string, AuditEntry[]>()
+      for (const row of data as AuditEntry[]) {
+        const key = auditEntryKey(row.section_code, row.question_key)
+        const arr = m.get(key) ?? []
+        arr.push(row) // query already sorts changed_at desc
+        m.set(key, arr)
+      }
+      console.log('[standing-agenda] audit log fetched:', data.length, 'rows; keys:', Array.from(m.keys()))
+      setAuditLog(m)
+    } catch (err) {
+      console.error('[standing-agenda] audit log fetch failed:', err)
+    }
+  }, [clientId])
+
+  // Fetch this client's full audit trail on mount.
+  useEffect(() => { fetchAuditLog() }, [fetchAuditLog])
+
+  // Insert audit rows for any fields that changed between two snapshots, then
+  // re-fetch the audit log so the UI reflects the new rows.
+  async function logAuditTrail(
+    supabase: ReturnType<typeof createClient>,
+    prevHeader: AgendaHeaderState | null,
+    newHeader: AgendaHeaderState,
+    prevAnswers: Map<string, AgendaAnswer>,
+    newAnswers: Map<string, AgendaAnswer>,
+  ) {
+    console.log('[standing-agenda] logAuditTrail fired', { hasPrevHeader: !!prevHeader, prevAnswerCount: prevAnswers.size })
+    const changes: { section_code: string; question_key: string; field_name: string; old_value: string; new_value: string }[] = []
+
+    // Header (project info) fields. On first save there is no previous snapshot,
+    // so treat the old value as '' — any filled field then counts as a change.
+    for (const key of HEADER_AUDIT_KEYS) {
+      const oldStr = prevHeader ? stringifyAuditValue(prevHeader[key]) : ''
+      const newStr = stringifyAuditValue(newHeader[key])
+      if (oldStr !== newStr) {
+        changes.push({ section_code: 'header', question_key: key, field_name: auditFieldLabel('header', key), old_value: oldStr, new_value: newStr })
+      }
+    }
+
+    // Section question fields (notes + selected options combined). A missing
+    // previous entry is treated as '' so the first filled value is logged.
+    const allKeys = new Set<string>([...prevAnswers.keys(), ...newAnswers.keys()])
+    for (const k of allKeys) {
+      const [section_code, question_key] = k.split('||')
+      const oldStr = answerValueString(prevAnswers.get(k))
+      const newStr = answerValueString(newAnswers.get(k))
+      if (oldStr !== newStr) {
+        changes.push({ section_code, question_key, field_name: auditFieldLabel(section_code, question_key), old_value: oldStr, new_value: newStr })
+      }
+    }
+
+    console.log('[standing-agenda] audit changes detected:', changes.length, changes.map(c => `${c.section_code}:${c.question_key}`))
+    if (!changes.length) return
+
+    const u = auditUserRef.current
+    const rows = changes.map(c => ({
+      client_id: clientId,
+      section_code: c.section_code,
+      question_key: c.question_key,
+      field_name: c.field_name,
+      old_value: c.old_value || null,
+      new_value: c.new_value || null,
+      changed_by: u.id,
+      changed_by_name: u.name || null,
+      // changed_at: handled by DB default (now()).
+    }))
+
+    const { data, error } = await supabase.from('agenda_audit_log').insert(rows).select()
+    console.log('[standing-agenda] audit insert result:', { inserted: data?.length ?? 0, error })
+    if (error) throw error
+
+    // Re-fetch from the DB so the UI updates even when insert().select() returns
+    // nothing (e.g. RLS "returning representation"). This is the source of truth.
+    await fetchAuditLog()
+  }
 
   // Fetch this client's saved agenda on mount.
   useEffect(() => {
@@ -1371,17 +1606,25 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
         supabase.from('client_standing_agenda').select('section_code, question_key, answer, selected_options').eq('client_id', clientId),
       ])
       if (!active) return
-      if (h) {
-        setHeader({
-          architect: h.architect ?? '',
-          estimator: h.estimator ?? '',
-          target_permit_date: h.target_permit_date ?? '',
-          zoning: h.zoning ?? '',
-          special_conditions: Array.isArray(h.special_conditions) ? h.special_conditions : [],
-          plumbing_survey_notes: h.plumbing_survey_notes ?? '',
-          general_notes: h.general_notes ?? '',
-        })
+      // Always seed the header so prefill fields (Project Name / Address /
+      // Homeowner(s)) populate from the client even before a row is saved.
+      const loadedHeader: AgendaHeaderState = {
+        project_name: h?.project_name || clientName || '',
+        project_address: h?.project_address || clientProjectAddress || '',
+        architect: h?.architect ?? '',
+        project_specialist: h?.project_specialist ?? '',
+        estimator: h?.estimator ?? '',
+        target_permit_date: h?.target_permit_date ?? '',
+        homeowners: h?.homeowners || clientName || '',
+        zoning: h?.zoning ?? '',
+        special_conditions: Array.isArray(h?.special_conditions) ? h.special_conditions : [],
+        special_conditions_notes: h?.special_conditions_notes ?? '',
+        plumbing_survey_notes: h?.plumbing_survey_notes ?? '',
+        general_notes: h?.general_notes ?? '',
       }
+      setHeader(loadedHeader)
+      // Snapshot the loaded header so audit diffs compare against last-saved values.
+      savedHeaderRef.current = loadedHeader
       if (rows) {
         const m = new Map<string, AgendaAnswer>()
         for (const r of rows as { section_code: string; question_key: string; answer: string | null; selected_options: unknown }[]) {
@@ -1391,11 +1634,13 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
           })
         }
         setAnswers(m)
+        // Snapshot the loaded answers for audit diffing.
+        savedAnswersRef.current = new Map(m)
       }
     }
     load()
     return () => { active = false }
-  }, [clientId])
+  }, [clientId, clientName, clientProjectAddress])
 
   // Persist everything via upsert. Accepts explicit overrides so callers that
   // also setState (e.g. checkbox toggles) can save the freshest value without
@@ -1411,13 +1656,17 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
         .from('client_agenda_header')
         .upsert({
           client_id: clientId,
+          project_name: hdr.project_name || null,
+          project_address: hdr.project_address || null,
           architect: hdr.architect || null,
+          project_specialist: hdr.project_specialist || null,
           estimator: hdr.estimator || null,
-          // NOTE: stored as text input per spec. If target_permit_date is a date
-          // column, enter YYYY-MM-DD; empty saves as null.
+          // target_permit_date is a date column — enter YYYY-MM-DD; empty saves as null.
           target_permit_date: hdr.target_permit_date || null,
+          homeowners: hdr.homeowners || null,
           zoning: hdr.zoning || null,
           special_conditions: hdr.special_conditions,
+          special_conditions_notes: hdr.special_conditions_notes || null,
           plumbing_survey_notes: hdr.plumbing_survey_notes || null,
           general_notes: hdr.general_notes || null,
         }, { onConflict: 'client_id' })
@@ -1433,6 +1682,19 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
           .upsert(rows, { onConflict: 'client_id,section_code,question_key' })
         if (rErr) throw rErr
       }
+
+      // ── Audit trail (additive) ──────────────────────────────────────────
+      // Log field-level changes vs the last-saved snapshot. Failures here must
+      // never break the save, so they are caught and logged independently.
+      try {
+        await logAuditTrail(supabase, savedHeaderRef.current, hdr, savedAnswersRef.current, ans)
+      } catch (auditErr) {
+        console.error('[standing-agenda] audit log failed:', auditErr)
+      }
+      // Advance the snapshot so the next save diffs against these saved values.
+      savedHeaderRef.current = hdr
+      savedAnswersRef.current = new Map(ans)
+
       if (showToast) onToast('Standing Agenda saved')
     } catch (err) {
       console.error('[standing-agenda] save failed:', err)
@@ -1472,6 +1734,61 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
     persist(false, undefined, nextMap) // auto-save (checkboxes have no blur)
   }
 
+  // "Last updated by … · <relative time>" line + click-to-open history popover.
+  // Renders nothing if the field has no audit entries.
+  function renderLastUpdated(sectionCode: string, questionKey: string) {
+    const key = auditEntryKey(sectionCode, questionKey)
+    const entries = auditLog.get(key)
+    if (!entries || entries.length === 0) {
+      // Diagnostic: surface key mismatches between lookup and stored audit rows.
+      if (auditLog.size > 0) console.debug('[standing-agenda] no audit entries for lookup key', key, '— available keys:', Array.from(auditLog.keys()))
+      return null
+    }
+    const latest = entries[0]
+    const isOpen = openHistoryKey === key
+    return (
+      <div style={{ position: 'relative' }}>
+        <div
+          onClick={() => setOpenHistoryKey(isOpen ? null : key)}
+          style={{ fontSize: 10.5, color: 'var(--text3)', fontStyle: 'italic', marginTop: 3, cursor: 'pointer' }}
+        >
+          Last updated by {latest.changed_by_name || 'Unknown'} · {getRelativeTime(latest.changed_at)}
+        </div>
+        {isOpen && (
+          <>
+            {/* Click-outside backdrop */}
+            <div onClick={() => setOpenHistoryKey(null)} style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
+            <div
+              style={{
+                position: 'absolute', zIndex: 100, top: '100%', left: 0, marginTop: 4,
+                background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8,
+                padding: '10px 12px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                minWidth: 240, maxWidth: 360, maxHeight: 200, overflowY: 'auto',
+              }}
+            >
+              {entries.map((e, i) => (
+                <div
+                  key={i}
+                  style={{
+                    fontSize: 11, color: 'var(--text2)', paddingBottom: 6, marginBottom: 6,
+                    borderBottom: i < entries.length - 1 ? '0.5px solid var(--border)' : 'none',
+                  }}
+                >
+                  <div>
+                    <span style={{ fontWeight: 700 }}>{e.changed_by_name || 'Unknown'}</span> changed this · <span style={{ color: 'var(--text3)' }}>{formatAuditDateTime(e.changed_at)}</span>
+                  </div>
+                  <div style={{ color: 'var(--text3)', fontSize: 10.5, marginTop: 2 }}>
+                    {e.old_value || '(empty)'} → {e.new_value || '(empty)'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
       {/* Card header */}
@@ -1490,24 +1807,46 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
 
       {cardOpen && (
         <div style={{ padding: '14px 17px 16px' }}>
-          {/* Project info grid. Prefilled from saved header (no matching client
-              fields exist to prefill from, so this is the source of truth). */}
+          {/* Legend — meeting-phase tag key */}
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {([
+              { tag: '1ST DESIGN', text: '1st Design — broad direction: footprint, layout, room program, major scope yes/no' },
+              { tag: 'FLAG', text: 'Flag Meeting — on-site truth: footprint staked, utilities, access, trees, setbacks' },
+              { tag: '2ND DESIGN', text: '2nd Design — lock every selection so drawings can go to permit' },
+            ] as const).map(item => {
+              const ts = AGENDA_TAG_STYLES[item.tag]
+              return (
+                <div key={item.tag} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.03em', color: ts.color, background: ts.bg, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap', flexShrink: 0 }}>{item.tag}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.4 }}>{item.text}</span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Project info grid — prefilled from the client; saved to client_agenda_header. */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, marginBottom: 14 }}>
             {([
-              { k: 'architect', label: 'Architect' },
-              { k: 'estimator', label: 'Estimator' },
-              { k: 'target_permit_date', label: 'Target Permit Date' },
-              { k: 'zoning', label: 'Zoning' },
+              { k: 'project_name', label: 'Project Name', type: 'text' },
+              { k: 'project_address', label: 'Project Address', type: 'text' },
+              { k: 'architect', label: 'Architect', type: 'text' },
+              { k: 'project_specialist', label: 'Project Specialist', type: 'text' },
+              { k: 'estimator', label: 'Estimator', type: 'text' },
+              { k: 'target_permit_date', label: 'Target Permit Submission Date', type: 'date' },
+              { k: 'homeowners', label: 'Homeowner(s)', type: 'text' },
+              { k: 'zoning', label: 'Zoning', type: 'text' },
             ] as const).map(f => (
               <div key={f.k} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 <label style={agendaLabelStyle}>{f.label}</label>
                 <input
-                  type="text"
+                  type={f.type}
                   value={header[f.k]}
                   onChange={e => setHeaderField({ [f.k]: e.target.value })}
                   onBlur={() => persist(false)}
                   style={agendaInputStyle}
                 />
+                {/* Audit trail — last updated indicator + history popover */}
+                {renderLastUpdated('header', f.k)}
               </div>
             ))}
           </div>
@@ -1531,18 +1870,41 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
                 )
               })}
             </div>
+            {/* Audit trail — last updated indicator for the special-conditions selections */}
+            {renderLastUpdated('header', 'special_conditions')}
+            {/* Notes specific to special conditions (separate from General Notes) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+              <label style={agendaLabelStyle}>Notes on special conditions &amp; impact:</label>
+              <textarea
+                rows={2}
+                value={header.special_conditions_notes}
+                onChange={e => setHeaderField({ special_conditions_notes: e.target.value })}
+                onBlur={() => persist(false)}
+                style={agendaTextareaStyle}
+              />
+              {/* Audit trail — last updated indicator + history popover */}
+              {renderLastUpdated('header', 'special_conditions_notes')}
+            </div>
           </div>
 
-          {/* Plumbing survey notes */}
-          <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label style={agendaLabelStyle}>Plumbing Survey Notes</label>
-            <textarea
-              rows={2}
-              value={header.plumbing_survey_notes}
-              onChange={e => setHeaderField({ plumbing_survey_notes: e.target.value })}
-              onBlur={() => persist(false)}
-              style={agendaTextareaStyle}
-            />
+          {/* Plumbing Survey */}
+          <div style={{ marginBottom: 14, border: '1px solid var(--border)', borderRadius: 8, padding: '11px 12px', background: 'var(--surface2)' }}>
+            <label style={{ ...agendaLabelStyle, display: 'block', marginBottom: 7 }}>Plumbing Survey</label>
+            <p style={{ fontSize: 11.5, color: 'var(--text2)', lineHeight: 1.45, margin: '0 0 9px' }}>
+              Remind the customer that we will schedule a plumbing survey, and they will receive an email from the architect.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={agendaLabelStyle}>Plumbing survey notes:</label>
+              <textarea
+                rows={2}
+                value={header.plumbing_survey_notes}
+                onChange={e => setHeaderField({ plumbing_survey_notes: e.target.value })}
+                onBlur={() => persist(false)}
+                style={agendaTextareaStyle}
+              />
+              {/* Audit trail — last updated indicator + history popover */}
+              {renderLastUpdated('header', 'plumbing_survey_notes')}
+            </div>
           </div>
 
           {/* General notes */}
@@ -1555,6 +1917,8 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
               onBlur={() => persist(false)}
               style={agendaTextareaStyle}
             />
+            {/* Audit trail — last updated indicator + history popover */}
+            {renderLastUpdated('header', 'general_notes')}
           </div>
 
           {/* Sections */}
@@ -1632,6 +1996,8 @@ function StandingAgenda({ clientId, onToast }: { clientId: string; onToast: (msg
                               onBlur={() => persist(false)}
                               style={agendaTextareaStyle}
                             />
+                            {/* Audit trail — last updated indicator + history popover */}
+                            {renderLastUpdated(section.code, q.key)}
                           </div>
                         )
                       })}
@@ -3474,7 +3840,7 @@ Today's date is ${today}.
 
         <div className="flex flex-col gap-5" style={{ marginTop: 24 }}>
         {/* ── Standing Agenda (NEW) ─────────────────────────────────────── */}
-        <StandingAgenda clientId={params.id} onToast={setToast} />
+        <StandingAgenda clientId={params.id} clientName={client.name} clientProjectAddress={client.project_address ?? ''} onToast={setToast} />
 
         {/* ── Meeting Journey — 33-step workflow ────────────────────────── */}
         <div ref={journeyRef} className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
