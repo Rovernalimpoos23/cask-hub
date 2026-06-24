@@ -254,13 +254,13 @@ export async function POST(req: NextRequest) {
     let meetingCode: string | null = null
 
     // New format: STEP[number] Meeting Name: Client Name
-    //   e.g. "STEP04 Customer Alignment Meeting: John Smith"
-    //   The delimiter class includes colon, hyphen, en-dash and em-dash so both
-    //   the "Meeting: Name" and "Meeting — Name" variants match.
-    const stepMatch = rawTitle.match(/^STEP(\d+)\s+.+?[:\-–—]\s*(.+)$/i)
+    //   e.g. "STEP01 Internal Sales to Precon Pass-Off: John Smith"
+    //   Uses the LAST colon as the separator so hyphens in the meeting name
+    //   (e.g. "Pass-Off") are not mistaken for the delimiter.
+    const stepMatch = rawTitle.match(/^STEP(\d+)\s+(.+):\s*([^:]+)$/)
     if (stepMatch) {
       meetingCode = `step_${stepMatch[1].padStart(2, '0')}`
-      candidateClientName = stepMatch[2].trim()
+      candidateClientName = stepMatch[3].trim()
     }
 
     // Format 1 (legacy fallback): split on " — ", client name first, code second
