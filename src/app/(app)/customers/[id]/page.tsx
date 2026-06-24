@@ -951,6 +951,7 @@ function WorkflowStep({
   marking,
   onMarkComplete,
   onAction,
+  hasRecap,
 }: {
   step: WorkflowStepDef
   isCompleted: boolean
@@ -962,6 +963,8 @@ function WorkflowStep({
   marking: boolean
   onMarkComplete: (stepNumber: number, completed: boolean) => void
   onAction: (kind: 'agenda' | 'recap' | 'email', step: WorkflowStepDef) => void
+  // True when a saved recap (client_meetings row) exists for this step.
+  hasRecap: boolean
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   // `defaultExpanded` depends on the current step, which is only known after the
@@ -1103,7 +1106,15 @@ function WorkflowStep({
               <button type="button" onClick={() => onAction('agenda', step)} style={workflowActionBtn}>📋 View Agenda</button>
             )}
             {isCustomer && (
-              <button type="button" onClick={() => onAction('recap', step)} style={workflowActionBtn}>🎙️ View Recap</button>
+              <button
+                type="button"
+                onClick={() => onAction('recap', step)}
+                style={hasRecap
+                  ? { ...workflowActionBtn, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', fontWeight: 600 }
+                  : { ...workflowActionBtn, color: 'var(--text3)', opacity: 0.5, cursor: 'not-allowed' }}
+              >
+                🎙️ View Recap
+              </button>
             )}
             {step.hasEmail && (
               <button type="button" onClick={() => onAction('email', step)} style={{ ...workflowActionBtn, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', fontWeight: 600 }}>✉️ Generate Recap Email</button>
@@ -2348,10 +2359,20 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   }
 
   // ── Customer-meeting action buttons (View Agenda / Recap / Generate Email) ──
-  // These are placeholders for now — the 33-step workflow has no agenda/recap/
-  // email-template mapping yet, and per the safety rules we must not touch the
-  // email API routes. Wire them up here when those mappings exist.
+  // Agenda / email remain placeholders. View Recap looks up the saved
+  // client_meetings recap for this step (meeting_id like 'step_04') and, when
+  // present, navigates to its recap page; otherwise it shows the linked-yet toast.
   function handleWorkflowAction(kind: 'agenda' | 'recap' | 'email', step: WorkflowStepDef) {
+    if (kind === 'recap') {
+      const code = stepCode(step.step)
+      const recapRow = journeyRows.get(code)
+      if (recapRow) {
+        router.push(`/customers/${params.id}/meetings/${code}`)
+      } else {
+        setToast(`Recap for "${step.title}" isn't linked yet.`)
+      }
+      return
+    }
     const labels = { agenda: 'Agenda', recap: 'Recap', email: 'Recap email' }
     setToast(`${labels[kind]} for "${step.title}" isn't linked yet.`)
   }
@@ -3877,6 +3898,7 @@ Today's date is ${today}.
                 marking={stepMarking.has(step.step)}
                 onMarkComplete={markStepComplete}
                 onAction={handleWorkflowAction}
+                hasRecap={journeyRows.has(stepCode(step.step))}
               />
             ))}
           </div>
