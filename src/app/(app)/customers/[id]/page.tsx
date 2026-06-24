@@ -1105,7 +1105,7 @@ function WorkflowStep({
             {isCustomer && (
               <button type="button" onClick={() => onAction('agenda', step)} style={workflowActionBtn}>📋 View Agenda</button>
             )}
-            {isCustomer && (
+            {(isCustomer || step.type === 'internal') && (
               <button
                 type="button"
                 onClick={() => onAction('recap', step)}
