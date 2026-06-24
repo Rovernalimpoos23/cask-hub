@@ -57,7 +57,7 @@ CASK Construction context:
           content: `Extract meeting information from this transcript:\n\n${transcript}`,
         },
       ],
-      max_tokens: 2000,
+      max_tokens: 4000,
     })
 
     const text = completion.content[0].type === 'text' ? completion.content[0].text : ''
