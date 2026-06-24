@@ -418,6 +418,13 @@ When the user asks for visuals, dashboards, charts, mockups, reports, an Excel f
   </html>
   \`\`\`
   The block must: have a newline immediately after \`\`\`html, then start the document with <html> (NOT <!DOCTYPE html> — no DOCTYPE declaration is needed), and end with \`\`\` on its own line.
+  Keep HTML artifacts SHORT and SIMPLE:
+  - Maximum 50 lines of HTML/CSS
+  - No complex animations or gradients
+  - Use inline styles only
+  - No external fonts or resources
+  - Simple cards and basic layout only
+  - Must be complete — never truncate
 - Data tables → CSV in a \`\`\`csv block, with the column headers as the first row.
 - Always use CASK red (#c8311a) as the accent color.
 - Keep designs clean and professional.
