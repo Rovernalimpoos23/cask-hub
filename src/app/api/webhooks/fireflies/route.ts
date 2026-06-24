@@ -245,24 +245,37 @@ export async function POST(req: NextRequest) {
       : rawDate
 
     // 5. Try to match transcript to a client journey meeting
-    //    Format 1: "John Smith — PR1m — Internal Sales to Pre-Con Pass-Off"
-    //    Format 2: "PR1m Internal Sales to Pre-Con Pass-Off: John Smith"
+    //    New format: "STEP04 Customer Alignment Meeting: John Smith" (or " — John Smith")
+    //    Format 1 (legacy): "John Smith — PR1m — Internal Sales to Pre-Con Pass-Off"
+    //    Format 2 (legacy): "PR1m Internal Sales to Pre-Con Pass-Off: John Smith"
     const rawTitle = transcript.title ?? ''
 
     let candidateClientName: string | null = null
     let meetingCode: string | null = null
 
-    // Format 1: split on " — ", client name first, code second
-    const dashParts = rawTitle.split(' — ')
-    if (dashParts.length >= 2) {
-      const codeMatch1 = rawTitle.match(/\b(PR|PD|PP|PS|PB|CG|CS|CR|CF|CC)\d+(?:\.\d+)?[a-zA-Z](?:\.\d+)?\b/i)
-      if (codeMatch1) {
-        candidateClientName = dashParts[0].trim()
-        meetingCode = codeMatch1[0]
+    // New format: STEP[number] Meeting Name: Client Name
+    //   e.g. "STEP04 Customer Alignment Meeting: John Smith"
+    //   The delimiter class includes colon, hyphen, en-dash and em-dash so both
+    //   the "Meeting: Name" and "Meeting — Name" variants match.
+    const stepMatch = rawTitle.match(/^STEP(\d+)\s+.+?[:\-–—]\s*(.+)$/i)
+    if (stepMatch) {
+      meetingCode = `step_${stepMatch[1].padStart(2, '0')}`
+      candidateClientName = stepMatch[2].trim()
+    }
+
+    // Format 1 (legacy fallback): split on " — ", client name first, code second
+    if (!meetingCode) {
+      const dashParts = rawTitle.split(' — ')
+      if (dashParts.length >= 2) {
+        const codeMatch1 = rawTitle.match(/\b(PR|PD|PP|PS|PB|CG|CS|CR|CF|CC)\d+(?:\.\d+)?[a-zA-Z](?:\.\d+)?\b/i)
+        if (codeMatch1) {
+          candidateClientName = dashParts[0].trim()
+          meetingCode = codeMatch1[0]
+        }
       }
     }
 
-    // Format 2: "PR1m ... : Client Name" — code is first word, client name follows last ":"
+    // Format 2 (legacy fallback): "PR1m ... : Client Name" — code is first word, client name follows last ":"
     if (!meetingCode) {
       const firstWord = rawTitle.split(' ')[0] ?? ''
       const codeMatch2 = firstWord.match(/^(PR|PD|PP|PS|PB|CG|CS|CR|CF|CC)\d+(?:\.\d+)?[a-zA-Z](?:\.\d+)?$/i)
@@ -456,17 +469,24 @@ RULES:
 
         // ── Auto-generate email draft for the next email step ─────────────
 
-        // Maps each completed meeting code to the email code it should trigger
-        const MEETING_TO_EMAIL: Record<string, string> = {
-          PR1m: 'PR2e', PR3m: 'PR4e', PR5m: 'PR6e',
-          PD1m: 'PD2e', PD4m: 'PD5e',
-          PS2m: 'PS3e', PS4m: 'PS5e', PS6m: 'PS7e', PS8m: 'PS9e',
-          PB2m: 'PB3e', PB5m: 'PB6e',
-          CG1m: 'CG2e', CG3m: 'CG4e',
-          CS2m: 'CS3e',
-          CR1m: 'CR2e',
-          CF1m: 'CF2e',
-          CC2m: 'CC3e',
+        // Maps each completed step code to the email code it should trigger.
+        // null = no recap email for that step. (Typed string | null so the
+        // null entries compile.)
+        const MEETING_TO_EMAIL: Record<string, string | null> = {
+          'step_01': 'step_05_email',
+          'step_04': 'step_05_email',
+          'step_07': 'step_08_email',
+          'step_09': 'step_10_email',
+          'step_12': 'step_13_email',
+          'step_15': 'step_15_email',
+          'step_18': null,
+          'step_20': 'step_21_email',
+          'step_23': null,
+          'step_24': 'step_25_email',
+          'step_27': 'step_28_email',
+          'step_29': 'step_30_email',
+          'step_32': null,
+          'step_33': null,
         }
 
         const nextEmailCode = MEETING_TO_EMAIL[meetingCode]
