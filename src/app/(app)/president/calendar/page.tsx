@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase'
 import { TopBar, PillRed } from '@/components/ui'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 interface CalendarEvent {
   id: string
@@ -984,7 +985,7 @@ function FloatingCalendarAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

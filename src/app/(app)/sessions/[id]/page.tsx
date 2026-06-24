@@ -7,6 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { fetchMeetingById } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem } from '@/types'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 // ── Floating Sessions AI — palette + chat config ─────────────────────
 const ACCENT = '#c8311a' // CASK red
@@ -291,7 +292,7 @@ function FloatingSessionsAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

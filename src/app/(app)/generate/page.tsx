@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { TopBar, PillGreen } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 // ── Floating Agenda AI — palette + chat config ───────────────────────
 const ACCENT = '#c8311a' // CASK red
@@ -324,7 +325,7 @@ function FloatingAgendaAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

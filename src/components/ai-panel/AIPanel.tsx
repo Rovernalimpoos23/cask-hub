@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import mammoth from 'mammoth'
 import type { AIMessage } from '@/types'
 import { createClient } from '@/lib/supabase'
+import { parseArtifacts, HtmlArtifact, ChartArtifact, CsvArtifact, triggerDownload } from './artifacts'
 
 // ── Channel definitions ──────────────────────────────────────────────
 
@@ -172,8 +173,9 @@ type DownloadOption = { label: string; filename: string; content: string; mimeTy
 
 function detectDownloads(content: string): DownloadOption[] {
   const opts: DownloadOption[] = []
+  // ```csv blocks are rendered as a Data Table artifact (with its own
+  // "Download as Excel" button), so they are intentionally not duplicated here.
   const csvMatch = content.match(/```csv\r?\n([\s\S]*?)```/)
-  if (csvMatch) opts.push({ label: '⬇ Download CSV', filename: 'cask-export.csv', content: csvMatch[1].trim(), mimeType: 'text/csv' })
   const jsonMatch = content.match(/```json\r?\n([\s\S]*?)```/)
   if (jsonMatch) opts.push({ label: '⬇ Download JSON', filename: 'cask-export.json', content: jsonMatch[1].trim(), mimeType: 'application/json' })
   const textMatch = content.match(/```text\r?\n([\s\S]*?)```/)
@@ -189,13 +191,9 @@ function detectDownloads(content: string): DownloadOption[] {
   return opts
 }
 
-function triggerDownload(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = filename; a.click()
-  URL.revokeObjectURL(url)
-}
+// Artifact detection + rendering (parseArtifacts, HtmlArtifact, ChartArtifact,
+// CsvArtifact, triggerDownload) live in ./artifacts — shared with the floating
+// chat drawers. detectDownloads above remains AIPanel-specific.
 
 // ── Main component ───────────────────────────────────────────────────
 
@@ -611,32 +609,45 @@ export default function AIPanel() {
           {messages.map((msg, i) => {
             const isCurrentlySpeaking = speakingIndex === i
             const downloads = msg.role === 'assistant' ? detectDownloads(msg.content) : []
+            const parts = msg.role === 'assistant' ? parseArtifacts(msg.content) : null
+            const hasArtifact = !!parts && parts.some(p => p.kind !== 'text')
+
+            const userStyle: React.CSSProperties = {
+              fontSize: 12, lineHeight: 1.55, padding: '8px 10px',
+              background: 'var(--glass-msg-user)',
+              backdropFilter: 'var(--card-backdrop)', WebkitBackdropFilter: 'var(--card-backdrop)',
+              color: 'rgba(255,255,255,0.9)',
+              borderRadius: '10px 10px 2px 10px',
+              fontFamily: 'var(--font-geist), sans-serif',
+            }
+            const assistantStyle: React.CSSProperties = {
+              fontSize: 12, lineHeight: 1.55, padding: '8px 10px',
+              background: 'var(--glass-msg-assist)',
+              backdropFilter: 'var(--card-backdrop)', WebkitBackdropFilter: 'var(--card-backdrop)',
+              color: 'var(--text2)',
+              border: `1px solid ${isCurrentlySpeaking ? '#10b981' : 'var(--border)'}`,
+              borderLeft: isCurrentlySpeaking ? '3px solid #10b981' : '1px solid var(--border)',
+              borderRadius: '2px 10px 10px 10px',
+              whiteSpace: 'pre-wrap',
+              transition: 'border-color 200ms ease',
+              fontFamily: 'var(--font-geist), sans-serif',
+            }
+
             return (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: '92%', alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                <div
-                  style={msg.role === 'user' ? {
-                    fontSize: 12, lineHeight: 1.55, padding: '8px 10px',
-                    background: 'var(--glass-msg-user)',
-                    backdropFilter: 'var(--card-backdrop)', WebkitBackdropFilter: 'var(--card-backdrop)',
-                    color: 'rgba(255,255,255,0.9)',
-                    borderRadius: '10px 10px 2px 10px',
-                    fontFamily: 'var(--font-geist), sans-serif',
-                  } : {
-                    fontSize: 12, lineHeight: 1.55, padding: '8px 10px',
-                    background: 'var(--glass-msg-assist)',
-                    backdropFilter: 'var(--card-backdrop)', WebkitBackdropFilter: 'var(--card-backdrop)',
-                    color: 'var(--text2)',
-                    border: `1px solid ${isCurrentlySpeaking ? '#10b981' : 'var(--border)'}`,
-                    borderLeft: isCurrentlySpeaking ? '3px solid #10b981' : '1px solid var(--border)',
-                    borderRadius: '2px 10px 10px 10px',
-                    whiteSpace: 'pre-wrap',
-                    transition: 'border-color 200ms ease',
-                    fontFamily: 'var(--font-geist), sans-serif',
-                  }}
-                >
-                  {msg.content}
-                  {isCurrentlySpeaking && <SoundWave />}
-                </div>
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: hasArtifact ? '100%' : '92%', width: hasArtifact ? '100%' : undefined, alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                {!hasArtifact ? (
+                  <div style={msg.role === 'user' ? userStyle : assistantStyle}>
+                    {msg.content}
+                    {isCurrentlySpeaking && <SoundWave />}
+                  </div>
+                ) : (
+                  parts!.map((part, idx) => {
+                    if (part.kind === 'text') return <div key={idx} style={assistantStyle}>{part.text}</div>
+                    if (part.kind === 'html') return <HtmlArtifact key={idx} code={part.code} />
+                    if (part.kind === 'chart') return <ChartArtifact key={idx} code={part.code} />
+                    return <CsvArtifact key={idx} code={part.code} />
+                  })
+                )}
                 {downloads.length > 0 && (
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                     {downloads.map(opt => (

@@ -8,6 +8,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { TopBar, PillRed } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const ACCENT = '#8B5CF6'
 const RED = '#EF4444'
@@ -524,7 +525,7 @@ function FloatingHRAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

@@ -8,6 +8,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { TopBar, PillRed } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const ACCENT = '#F59E0B'
 const RED = '#EF4444'
@@ -525,7 +526,7 @@ function FloatingOperationsAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

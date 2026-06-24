@@ -10,6 +10,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const ACCENT = '#3B82F6' // brand blue (Sales & Marketing)
 const GREEN = '#16A34A' // on / above target
@@ -532,7 +533,7 @@ function FloatingSalesAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

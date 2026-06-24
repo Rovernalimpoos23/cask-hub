@@ -402,6 +402,27 @@ ${buildPageFocusSection(pageContext)}
 - No casual greetings
 - Keep responses concise
 
+## Visual output
+When the user asks for visuals, dashboards, charts, mockups, reports, an Excel file, or a PDF, reply with a fenced code block the app renders inline:
+- Charts / graphs → Chart.js code in a \`\`\`javascript block, returned in EXACTLY this format:
+  \`\`\`javascript
+  const ctx = document.getElementById('caskChart');
+  new Chart(ctx, { ... });
+  \`\`\`
+  The code block must: start with \`\`\`javascript on its own line, contain "new Chart(" somewhere in the code, and end with \`\`\` on its own line. This exact format is required for the chart to render visually.
+- Dashboards / mockups → a complete, self-contained HTML/CSS document in a \`\`\`html block, returned in EXACTLY this format:
+  \`\`\`html
+  <html>
+  <head>...</head>
+  <body>...</body>
+  </html>
+  \`\`\`
+  The block must: have a newline immediately after \`\`\`html, then start the document with <html> (NOT <!DOCTYPE html> — no DOCTYPE declaration is needed), and end with \`\`\` on its own line.
+- Data tables → CSV in a \`\`\`csv block, with the column headers as the first row.
+- Always use CASK red (#c8311a) as the accent color.
+- Keep designs clean and professional.
+Only use these code blocks when a visual, file, or table is genuinely requested. For normal questions, reply with plain text exactly as described above.
+
 Example of correct format:
 
 TODAY — TUESDAY, JUNE 16
@@ -627,7 +648,7 @@ export async function POST(req: NextRequest) {
       system: buildSystemPrompt(userName ?? '', userRole ?? '', meetingsContext, clientsContext, calendarContext, pageContext ?? ''),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: processedMessages as any,
-      max_tokens: fileData ? 2000 : 600,
+      max_tokens: 4000,
     })
 
     const content = completion.content[0].type === 'text' ? completion.content[0].text : ''

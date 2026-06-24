@@ -13,6 +13,7 @@ import {
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting } from '@/types'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const FILTER_TABS = [
   { value: 'all', label: 'All' },
@@ -305,7 +306,7 @@ function FloatingSessionsAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

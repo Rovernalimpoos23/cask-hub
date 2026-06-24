@@ -12,6 +12,7 @@ import {
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting } from '@/types'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 // Filter tabs — matched case-insensitively against the meeting title.
 const FILTERS: { value: string; label: string; match: (title: string) => boolean }[] = [
@@ -309,7 +310,7 @@ function FloatingDailyMeetingsAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

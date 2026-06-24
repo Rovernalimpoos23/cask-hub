@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -861,7 +862,7 @@ function FloatingDesignCenterAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

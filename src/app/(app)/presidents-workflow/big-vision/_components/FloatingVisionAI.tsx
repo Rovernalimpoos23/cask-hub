@@ -8,6 +8,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const PAGE_CONTEXT = '/presidents-workflow/big-vision'
 
@@ -546,7 +547,7 @@ export default function FloatingVisionAI() {
                         </span>
                       </div>
                     )}
-                    {m.content}
+                    <ArtifactContent content={m.content} />
                   </div>
                 </div>
               )

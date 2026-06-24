@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react'
 import { TopBar, ActionItemRow, SectionLabel } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 import type { ActionItem } from '@/types'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const OWNER_FILTERS = ['All', 'Calin', 'Kai', 'Chad', 'Rovern', 'All Leaders', 'All VPs']
 
@@ -291,7 +292,7 @@ function FloatingActionsAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

@@ -9,6 +9,7 @@ import { TopBar } from '@/components/ui'
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem } from '@/types'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 function getCurrentMonthYear(): string {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/New_York' })
@@ -554,7 +555,7 @@ function FloatingDashboardAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}

@@ -13,6 +13,7 @@ import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 import DailyEntryForm from '../components/DailyEntryForm'
 import ExportPDF from '../components/ExportPDF'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const ACCENT = '#3B82F6' // brand blue (Sales & Marketing)
 const RED = '#EF4444' // below-target
@@ -969,7 +970,7 @@ function FloatingSalesAI() {
                     wordBreak: 'break-word',
                   }}
                 >
-                  {m.content}
+                  <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}
