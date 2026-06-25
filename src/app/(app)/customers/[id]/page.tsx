@@ -10,6 +10,9 @@ import 'react-quill/dist/quill.snow.css'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 import { AGENDAS, NPS_QUESTIONS, type AgendaContent, type AgendaItem, type AgendaSection } from '../_agendaData'
+// NEW (additive): shared task due-date / overdue helpers (this page keeps its own
+// inline WORKFLOW_STEPS — only the pure timeline helpers are imported here).
+import { computeTaskDueDate, getTaskDueState, daysUntilDue } from '@/lib/workflow-steps'
 
 // ReactQuill must load client-side only — Quill references `document` at import time,
 // which would crash Next.js server rendering of this client component.
@@ -2079,12 +2082,15 @@ function CurrentStepTodos({
   checklistToggling,
   onToggleChecklist,
   journeyRows,
+  stepStartMap,
 }: {
   currentStepNumber: number | null
   checklistRows: Map<string, ChecklistRowState>
   checklistToggling: Set<string>
   onToggleChecklist: (meetingCode: string, role: string, taskText: string, next: boolean) => void
   journeyRows: Map<string, ClientMeetingRow>
+  // NEW (additive): step → started_at, for per-task due-date indicators.
+  stepStartMap: Map<number, Date>
 }) {
   const step = currentStepNumber != null ? WORKFLOW_STEPS.find(s => s.step === currentStepNumber) : undefined
 
@@ -2176,6 +2182,9 @@ function CurrentStepTodos({
               const key = checklistKey(stepCode(step.step), rb.role, task)
               const checked = checklistRows.get(key)?.completed ?? false
               const busy = checklistToggling.has(key)
+              // NEW (additive): per-task due date + color state from when this step started.
+              const taskDueDate = computeTaskDueDate(stepStartMap.get(step.step) ?? null, step.timeWindow, task)
+              const taskDue = getTaskDueState(taskDueDate, checked)
               return (
                 <button
                   key={ti}
@@ -2197,9 +2206,26 @@ function CurrentStepTodos({
                       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                     )}
                   </span>
-                  <span style={{ fontSize: 13, lineHeight: 1.4, color: 'var(--text)', opacity: checked ? 0.5 : 1, textDecoration: checked ? 'line-through' : 'none' }}>
+                  {/* NEW (additive): overdue tasks render in red; default color otherwise. */}
+                  <span style={{ fontSize: 13, lineHeight: 1.4, color: taskDue === 'overdue' ? '#ef4444' : 'var(--text)', opacity: checked ? 0.5 : 1, textDecoration: checked ? 'line-through' : 'none' }}>
                     {task}
                   </span>
+                  {/* NEW (additive): inline due-date indicator after the task text. */}
+                  {taskDue === 'overdue' && (
+                    <span style={{ background: '#fee2e2', color: '#991b1b', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 1 }}>
+                      Overdue
+                    </span>
+                  )}
+                  {taskDue === 'soon' && (
+                    <span style={{ background: '#fef3c7', color: '#92400e', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 1 }}>
+                      Due soon
+                    </span>
+                  )}
+                  {taskDue === 'ok' && taskDueDate && (
+                    <span style={{ fontSize: 10.5, color: '#22c55e', marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 2 }}>
+                      Due in {daysUntilDue(taskDueDate)} day{daysUntilDue(taskDueDate) === 1 ? '' : 's'}
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -2286,6 +2312,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // 33-step workflow completion state (workflow_step_completions table)
   const [stepCompletions, setStepCompletions] = useState<Set<number>>(new Set())
   const [stepMarking, setStepMarking] = useState<Set<number>>(new Set())
+  // NEW (additive): when each step started (journey_step_start). Drives task due dates.
+  const [stepStartMap, setStepStartMap] = useState<Map<number, Date>>(new Map())
 
   useEffect(() => {
     if (containerRef.current) {
@@ -2351,7 +2379,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       const { data: { user } } = await supabase.auth.getUser()
       checklistUserIdRef.current = user?.id ?? null
 
-      const [{ data: saved }, { data: completions }] = await Promise.all([
+      const [{ data: saved }, { data: completions }, { data: stepStarts }] = await Promise.all([
         supabase
           .from('journey_checklists')
           .select('meeting_code, role, task_text, completed')
@@ -2359,6 +2387,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         supabase
           .from('workflow_step_completions')
           .select('step_number')
+          .eq('client_id', params.id),
+        // NEW (additive): when each step started, for task due-date calculation.
+        supabase
+          .from('journey_step_start')
+          .select('step_number, started_at')
           .eq('client_id', params.id),
       ])
 
@@ -2372,6 +2405,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
       if (completions) {
         setStepCompletions(new Set((completions as { step_number: number }[]).map(c => c.step_number)))
+      }
+
+      // NEW (additive): build the step → started_at map (ignored if table/data absent).
+      if (stepStarts) {
+        const startMap = new Map<number, Date>()
+        for (const r of stepStarts as { step_number: number; started_at: string }[]) {
+          if (r.started_at) startMap.set(r.step_number, new Date(r.started_at))
+        }
+        setStepStartMap(startMap)
       }
     }
     fetchChecklist()
@@ -2538,6 +2580,31 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             completed_at: new Date().toISOString(),
           })
         if (error) throw error
+
+        // NEW (additive): record when the NEXT step starts so task due dates can be
+        // derived from it. Isolated in its own try/catch so a failure here can never
+        // disrupt the existing step-completion flow.
+        try {
+          const nextStep = stepNumber + 1
+          const startedAtIso = new Date().toISOString()
+          const { error: startErr } = await supabase
+            .from('journey_step_start')
+            .upsert(
+              { client_id: params.id, step_number: nextStep, started_at: startedAtIso },
+              { onConflict: 'client_id,step_number' },
+            )
+          if (startErr) {
+            console.error('[journey-step-start] upsert failed:', startErr)
+          } else {
+            setStepStartMap(prev => {
+              const m = new Map(prev)
+              m.set(nextStep, new Date(startedAtIso))
+              return m
+            })
+          }
+        } catch (startErr) {
+          console.error('[journey-step-start] upsert error:', startErr)
+        }
       } else {
         const { error } = await supabase
           .from('workflow_step_completions')
@@ -3891,6 +3958,7 @@ Today's date is ${today}.
           checklistToggling={checklistToggling}
           onToggleChecklist={toggleChecklistTask}
           journeyRows={journeyRows}
+          stepStartMap={stepStartMap}
         />
 
         {/* ── Emails — Pending (left) | Sent (right), side-by-side grid ──── */}

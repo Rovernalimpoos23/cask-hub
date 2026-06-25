@@ -190,3 +190,58 @@ export const WORKFLOW_STEPS: WorkflowStepDef[] = [
 ]
 
 export const TOTAL_WORKFLOW_STEPS = WORKFLOW_STEPS.length
+
+// ── Due-date / timeline helpers (NEW, additive) ──────────────────────────────
+// Shared by the customer detail page and the dashboard so both compute task due
+// dates and overdue states the same way. All pure — no side effects, no I/O.
+
+// Map a step's timeWindow string to a number of days. Customer/internal meetings
+// have no time window (null) and therefore no derived due date.
+export function timeWindowDays(timeWindow: string | null): number | null {
+  if (timeWindow === '½ week') return 3
+  if (timeWindow === '1 week') return 7
+  return null
+}
+
+// Offset (in days) from a step's start to a task's due date. Specific timing
+// mentioned in the task text takes precedence over the step's timeWindow.
+export function taskDueOffsetDays(taskText: string, timeWindow: string | null): number | null {
+  const t = taskText.toLowerCase()
+  if (t.includes('24 hr') || t.includes('24 hours')) return 1
+  if (t.includes('12 hr') || t.includes('12 hours')) return 0.5
+  if (t.includes('48 hr') || t.includes('48 hours')) return 2
+  if (t.includes('4 days')) return 4
+  return timeWindowDays(timeWindow)
+}
+
+// Compute a task's due date from when its step started. Returns null when the
+// step hasn't been timestamped yet or the task/step has no time window.
+export function computeTaskDueDate(
+  startedAt: Date | null,
+  timeWindow: string | null,
+  taskText: string,
+): Date | null {
+  if (!startedAt) return null
+  const offset = taskDueOffsetDays(taskText, timeWindow)
+  if (offset == null) return null
+  return new Date(startedAt.getTime() + offset * 24 * 60 * 60 * 1000)
+}
+
+export type TaskDueState = 'done' | 'none' | 'overdue' | 'soon' | 'ok'
+
+// Color state for a task's due-date indicator.
+// done → completed (no indicator) · none → no due date · overdue (red) ·
+// soon (amber, within 24h) · ok (green, more than 24h away).
+export function getTaskDueState(dueDate: Date | null, completed: boolean): TaskDueState {
+  if (completed) return 'done'
+  if (!dueDate) return 'none'
+  const diffMs = dueDate.getTime() - Date.now()
+  if (diffMs < 0) return 'overdue'
+  if (diffMs <= 24 * 60 * 60 * 1000) return 'soon'
+  return 'ok'
+}
+
+// Whole days remaining until a due date (ceil), for "Due in X days" labels.
+export function daysUntilDue(dueDate: Date): number {
+  return Math.max(0, Math.ceil((dueDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+}

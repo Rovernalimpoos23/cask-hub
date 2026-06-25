@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem, Priority } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
 // NEW (additive) — shared 33-step Customer Journey data for the Active Clients section.
-import { WORKFLOW_STEPS, TOTAL_WORKFLOW_STEPS, ROLE_NAMES, stepCode, checklistKey } from '@/lib/workflow-steps'
+import { WORKFLOW_STEPS, TOTAL_WORKFLOW_STEPS, ROLE_NAMES, stepCode, checklistKey, computeTaskDueDate, getTaskDueState } from '@/lib/workflow-steps'
 
 function getCurrentMonthYear(): string {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/New_York' })
@@ -853,6 +853,8 @@ export default function DashboardPage() {
   // NEW (additive) — Active Clients — Customer Journey section
   const [clientsData, setClientsData] = useState<JourneyClient[]>([])
   const [clientsJourneyLoading, setClientsJourneyLoading] = useState(true)
+  // NEW (additive) — Past Due Alerts: client_id → (step_number → started_at)
+  const [stepStartByClient, setStepStartByClient] = useState<Map<string, Map<number, Date>>>(new Map())
 
   useEffect(() => {
     const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
@@ -1076,6 +1078,29 @@ export default function DashboardPage() {
     })
   }, [])
 
+  // NEW (additive) — Past Due Alerts. Fetch when each step started for every client
+  // so the dashboard can flag overdue current-step tasks. Read-only.
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('journey_step_start')
+      .select('client_id, step_number, started_at')
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('[dashboard] journey_step_start error:', error)
+          return
+        }
+        const byClient = new Map<string, Map<number, Date>>()
+        for (const r of (data ?? []) as { client_id: string; step_number: number; started_at: string }[]) {
+          if (!r.started_at) continue
+          const m = byClient.get(r.client_id) ?? new Map<number, Date>()
+          m.set(r.step_number, new Date(r.started_at))
+          byClient.set(r.client_id, m)
+        }
+        setStepStartByClient(byClient)
+      })
+  }, [])
+
   const loadAllActionItems = useCallback(() => {
     const supabase = createClient()
     supabase
@@ -1261,6 +1286,24 @@ export default function DashboardPage() {
 
   const syncText = syncMins === 0 ? 'Synced just now' : `Synced ${syncMins} min ago`
 
+  // NEW (additive) — Past Due Alerts: overdue current-step journey tasks across all
+  // active clients. Derived from clientsData + stepStartByClient; no fetching here.
+  const journeyOverdueAlerts = clientsData.flatMap(client => {
+    if (client.currentStepNumber == null) return []
+    const step = WORKFLOW_STEPS.find(s => s.step === client.currentStepNumber)
+    if (!step) return []
+    const startedAt = stepStartByClient.get(client.id)?.get(client.currentStepNumber) ?? null
+    return client.journeyTasks
+      .filter(t => !t.completed)
+      .filter(t => getTaskDueState(computeTaskDueDate(startedAt, step.timeWindow, t.task), false) === 'overdue')
+      .map(t => ({
+        clientId: client.id,
+        clientName: client.name,
+        stepNumber: step.step,
+        task: t.task,
+      }))
+  })
+
   return (
     <>
       <style>{`
@@ -1361,6 +1404,41 @@ export default function DashboardPage() {
             sparkPath="M0 18 L12 17 L24 15 L36 14 L48 11 L60 10 L72 7 L84 5"
           />
         </div>
+
+        {/* NEW (additive): Past Due Alerts — placed high on the page, directly ABOVE the
+            briefing section. Only rendered when there are overdue customer-journey tasks. */}
+        {journeyOverdueAlerts.length > 0 && (
+          <section aria-label="Past due customer journey alerts" className="fb-rise" style={{ marginBottom: 26 }}>
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '14px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#b91c1c' }}>
+                  ⚠️ Past Due — Customer Journey
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', ...NUM }}>{journeyOverdueAlerts.length}</span>
+              </div>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {journeyOverdueAlerts.slice(0, 3).map((a, i) => (
+                  <li key={i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+                    <Link href={`/customers/${a.clientId}`} style={{ color: '#7f1d1d', textDecoration: 'none' }}>
+                      <b style={{ fontWeight: 650 }}>{a.clientName}</b>
+                      {' · '}STEP {String(a.stepNumber).padStart(2, '0')}{' · '}
+                      <span style={{ color: '#991b1b' }}>{a.task}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              {journeyOverdueAlerts.length > 3 && (
+                <Link
+                  href="/customers"
+                  className="fb-all"
+                  style={{ display: 'inline-block', marginTop: 8, fontSize: 11.5, fontWeight: 500, color: '#b91c1c', textDecoration: 'none' }}
+                >
+                  and {journeyOverdueAlerts.length - 3} more →
+                </Link>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* ROW 2: Afternoon Briefing (full width) */}
         {/* Briefing — the signature element */}
