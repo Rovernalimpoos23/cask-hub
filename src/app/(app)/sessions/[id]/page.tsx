@@ -454,13 +454,33 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     setActionItemsLoading(false)
   }, [meeting])
 
-  async function handleToggle(id: string, done: boolean) {
-    setActionItems(prev => prev.map(item => item.id === id ? { ...item, done } : item))
+  async function handleToggle(index: number, done: boolean) {
+    if (!meeting) return
+
+    // Action items live in the meetings.action_items JSON column — not the
+    // separate action_items table. Fireflies-webhook items have no id field,
+    // so finding by id silently fails. Identify the clicked item by its
+    // position in the array instead, then match by task + owner.
+    const clicked = actionItems[index]
+    if (!clicked) return
+    const matches = (a: ActionItem) => a.task === clicked.task && a.owner === clicked.owner
+
+    // Optimistic UI — flip only the matched item.
+    const updated = actionItems.map(a => (matches(a) ? { ...a, done } : a))
+    setActionItems(updated)
+
     const supabase = createClient()
+
+    // Persist the optimistic state directly. Re-reading from Supabase here
+    // would race when several items are toggled quickly — a later toggle would
+    // read a stale array (before the previous write landed) and overwrite it.
+    const persisted = updated
+
+    // Write the whole updated array back to meetings.action_items.
     const { error } = await supabase
-      .from('action_items')
-      .update({ done })
-      .eq('id', id)
+      .from('meetings')
+      .update({ action_items: persisted })
+      .eq('id', meeting.id)
     if (error) console.error('[session] toggle persist failed:', error)
   }
 
@@ -626,8 +646,10 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
             ) : actionItems.length === 0 ? (
               <p className="text-[12px]" style={{ color: 'var(--text3)' }}>No action items recorded.</p>
             ) : (
-              actionItems.map(item => (
-                <ActionItemRow key={item.id} item={item} onToggle={handleToggle} />
+              actionItems.map((item, index) => (
+                // ActionItemRow passes item.id to onToggle, but webhook items
+                // have no id — inject the array index via this closure instead.
+                <ActionItemRow key={item.id ?? index} item={item} onToggle={(_id, done) => handleToggle(index, done)} />
               ))
             )}
           </div>
