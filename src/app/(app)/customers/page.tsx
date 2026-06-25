@@ -54,7 +54,7 @@ function formatCurrency(value: number): string {
 function ClientCard({ client }: { client: Client }) {
   const [hovered, setHovered] = useState(false)
   const config = HAPPINESS_CONFIG[client.happiness]
-  const pct = Math.round((client.meetingsCompleted / 18) * 100)
+  const pct = Math.round((client.meetingsCompleted / 33) * 100)
 
   return (
     <Link
@@ -142,7 +142,7 @@ function ClientCard({ client }: { client: Client }) {
       {/* Progress */}
       <div style={{ width: 160, flexShrink: 0 }}>
         <div style={{ fontSize: 11, color: 'var(--muted, #6b7280)', marginBottom: 5 }}>
-          {client.meetingsCompleted} of 18 meetings
+          {client.meetingsCompleted} of 33 steps
           {client.emailsSent > 0 && <span style={{ color: 'var(--muted, #6b7280)' }}> · {client.emailsSent} emails sent</span>}
         </div>
         <div
@@ -619,14 +619,18 @@ export default function ActiveClientsPage() {
       try {
         const supabase = createClient()
 
-        const [{ data: clientRows }, { data: meetingRows }, { data: emailRows }] = await Promise.all([
+        const [{ data: clientRows }, { data: meetingRows }, { data: stepRows }, { data: emailRows }] = await Promise.all([
           supabase.from('clients').select('*').order('name'),
-          supabase.from('client_meetings').select('client_id').eq('completed', true).like('meeting_id', '%m'),
+          supabase.from('client_meetings').select('client_id').eq('completed', true),
+          supabase.from('workflow_step_completions').select('client_id'),
           supabase.from('client_email_drafts').select('client_id').eq('status', 'sent'),
         ])
 
         const meetingMap: Record<string, number> = {}
         for (const row of meetingRows ?? []) {
+          meetingMap[row.client_id] = (meetingMap[row.client_id] ?? 0) + 1
+        }
+        for (const row of stepRows ?? []) {
           meetingMap[row.client_id] = (meetingMap[row.client_id] ?? 0) + 1
         }
         const emailMap: Record<string, number> = {}
