@@ -5,10 +5,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { TopBar } from '@/components/ui'
+import { TopBar, PriorityDot } from '@/components/ui'
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
-import type { Meeting, ActionItem } from '@/types'
+import type { Meeting, ActionItem, Priority } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 function getCurrentMonthYear(): string {
@@ -987,6 +987,33 @@ export default function DashboardPage() {
     loadAllActionItems()
   }
 
+  // Mirrors handleBottomToggle exactly, but writes the priority field instead of done.
+  async function handlePriorityChange(item: ActionItem, priority: Priority) {
+    const matches = (a: ActionItem) => a.task === item.task && a.owner === item.owner
+
+    // Optimistic UI
+    setActionItems(prev => prev.map(a => (matches(a) ? { ...a, priority } : a)))
+
+    const supabase = createClient()
+
+    // 1. Find the meeting whose action_items JSON contains this item (matched by task + owner).
+    const { data } = await supabase
+      .from('meetings')
+      .select('id, action_items')
+      .not('action_items', 'is', null)
+    const rows = (data ?? []) as { id: string; action_items: ActionItem[] | null }[]
+    const target = rows.find(m => (m.action_items ?? []).some(matches))
+    if (!target) return
+
+    // 2. Update that specific item's priority field within the array.
+    const updated = (target.action_items ?? []).map(a => (matches(a) ? { ...a, priority } : a))
+
+    // 3. Save the updated array back to the meetings.action_items column.
+    await supabase.from('meetings').update({ action_items: updated }).eq('id', target.id)
+
+    loadAllActionItems()
+  }
+
   const todayLabel = new Date().toLocaleDateString('en-US', {
     timeZone: 'America/New_York',
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -1054,6 +1081,12 @@ export default function DashboardPage() {
       .map(([name, items]) => ({
         name,
         items: [...items].sort((x, y) => {
+          // Priority first (High → Medium → Low), then preserve the existing
+          // overdue-first ordering and due_date ascending within each tier.
+          const PRANK: Record<Priority, number> = { high: 0, medium: 1, low: 2 }
+          const xp = PRANK[x.priority ?? 'low']
+          const yp = PRANK[y.priority ?? 'low']
+          if (xp !== yp) return xp - yp
           const xo = isOverdue(x) ? 0 : 1
           const yo = isOverdue(y) ? 0 : 1
           if (xo !== yo) return xo - yo
@@ -1612,6 +1645,10 @@ export default function DashboardPage() {
                               transition: 'border-color 150ms ease',
                             }}
                           />
+                          {/* Priority dot — inline before the task text */}
+                          <div style={{ marginTop: 3 }}>
+                            <PriorityDot priority={item.priority} onChange={p => handlePriorityChange(item, p)} />
+                          </div>
                           <span style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--text)' }}>{item.task}</span>
                           <span
                             style={{

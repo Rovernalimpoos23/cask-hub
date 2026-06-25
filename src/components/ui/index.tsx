@@ -2,9 +2,9 @@
 // src/components/ui/index.tsx
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTheme } from '@/lib/theme-context'
-import type { Meeting, ActionItem } from '@/types'
+import type { Meeting, ActionItem, Priority } from '@/types'
 
 // ── Theme Toggle Button ──────────────────────────────────────────────
 function ThemeToggle() {
@@ -315,12 +315,110 @@ export function MeetingCard({ meeting, recapBadge = false }: { meeting: Meeting;
 }
 
 // ── Action Item Row ──────────────────────────────────────────────────
+// ── Priority dot selector ────────────────────────────────────────────
+// Shared color/label config for action-item priority. Used by ActionItemRow
+// (Action Items page) and inline on the Dashboard.
+export const PRIORITY_META: Record<Priority, { color: string; label: string; emoji: string }> = {
+  high:   { color: '#ef4444', label: 'High',   emoji: '🔴' },
+  medium: { color: '#f59e0b', label: 'Medium', emoji: '🟡' },
+  low:    { color: '#9ca3af', label: 'Low',    emoji: '⚪' },
+}
+
+// A small colored circle that opens an inline popover for picking priority.
+// Self-contained: takes the current priority (defaults to 'low' when unset)
+// and an onChange callback. Closes on outside click.
+export function PriorityDot({
+  priority,
+  onChange,
+}: {
+  priority?: Priority
+  onChange?: (priority: Priority) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const current: Priority = priority ?? 'low'
+  const meta = PRIORITY_META[current]
+
+  // Click-outside closes the popover.
+  useEffect(() => {
+    if (!open) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [open])
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+      <button
+        type="button"
+        title={`Priority: ${meta.label}`}
+        onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o) }}
+        style={{
+          width: 10,
+          height: 10,
+          borderRadius: '50%',
+          background: meta.color,
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+        }}
+      />
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            zIndex: 50,
+            background: 'var(--surface)',
+            border: '0.5px solid var(--border)',
+            borderRadius: 8,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+            minWidth: 100,
+            overflow: 'hidden',
+          }}
+        >
+          {(['high', 'medium', 'low'] as Priority[]).map(p => (
+            <div
+              key={p}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(false); onChange?.(p) }}
+              style={{
+                fontSize: 12,
+                padding: '6px 12px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                color: 'var(--text)',
+                fontFamily: 'var(--font-geist), sans-serif',
+                transition: 'background 120ms ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+            >
+              <span>{PRIORITY_META[p].emoji}</span> {PRIORITY_META[p].label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ActionItemRow({
   item,
   onToggle,
+  priority,
+  onPriorityChange,
 }: {
   item: ActionItem
   onToggle?: (id: string, done: boolean) => void
+  // Priority is opt-in: the dot only renders when onPriorityChange is provided,
+  // so existing callers (e.g. sessions page) are unaffected.
+  priority?: Priority
+  onPriorityChange?: (id: string, priority: Priority) => void
 }) {
   const [done, setDone] = useState(item.done)
   const [hovered, setHovered] = useState(false)
@@ -381,6 +479,13 @@ export function ActionItemRow({
           </svg>
         )}
       </button>
+
+      {/* Priority dot — opt-in, sits inline before the task text */}
+      {onPriorityChange && (
+        <div style={{ marginTop: 4 }}>
+          <PriorityDot priority={priority ?? item.priority} onChange={p => onPriorityChange(item.id, p)} />
+        </div>
+      )}
 
       {/* Body */}
       <div className="flex-1 min-w-0">

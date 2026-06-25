@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { TopBar, ActionItemRow, SectionLabel } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
-import type { ActionItem } from '@/types'
+import type { ActionItem, Priority } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const OWNER_FILTERS = ['All', 'Calin', 'Kai', 'Chad', 'Rovern', 'All Leaders', 'All VPs']
@@ -437,6 +437,16 @@ export default function ActionsPage() {
     )
   }
 
+  // Priority-aware sort: High → Medium → Low, then due_date ascending within
+  // each priority group. Items with no priority are treated as 'low'.
+  const PRIORITY_RANK: Record<Priority, number> = { high: 0, medium: 1, low: 2 }
+  function byPriorityThenDue(a: ActionItem, b: ActionItem) {
+    const ra = PRIORITY_RANK[a.priority ?? 'low']
+    const rb = PRIORITY_RANK[b.priority ?? 'low']
+    if (ra !== rb) return ra - rb
+    return new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+  }
+
   useEffect(() => {
     const supabase = createClient()
     supabase
@@ -466,10 +476,8 @@ export default function ActionsPage() {
         item.owner.toLowerCase().includes(ownerFilter.toLowerCase())
       )
 
-  const openItems = filtered.filter(a => !a.done).sort(
-    (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
-  )
-  const completedItems = filtered.filter(a => a.done)
+  const openItems = filtered.filter(a => !a.done).sort(byPriorityThenDue)
+  const completedItems = filtered.filter(a => a.done).sort(byPriorityThenDue)
 
   async function handleToggle(id: string, done: boolean) {
     // Optimistic UI
@@ -497,6 +505,35 @@ export default function ActionsPage() {
       .update({ action_items: updated })
       .eq('id', target.meeting_id)
     if (error) console.error('[actions] toggle persist failed:', error)
+  }
+
+  // Mirrors handleToggle exactly, but writes the priority field instead of done.
+  async function handlePriorityChange(id: string, priority: Priority) {
+    // Optimistic UI
+    setItems(prev => prev.map(item => (item.id === id ? { ...item, priority } : item)))
+
+    const target = items.find(item => item.id === id)
+    if (!target?.meeting_id) return
+
+    const supabase = createClient()
+
+    // Read the source meeting's current action_items array.
+    const { data } = await supabase
+      .from('meetings')
+      .select('action_items')
+      .eq('id', target.meeting_id)
+      .single()
+    const current = (data?.action_items ?? []) as ActionItem[]
+
+    // Set the matching item's priority field (matched by task + owner), then save back.
+    const updated = current.map(a =>
+      a.task === target.task && a.owner === target.owner ? { ...a, priority } : a
+    )
+    const { error } = await supabase
+      .from('meetings')
+      .update({ action_items: updated })
+      .eq('id', target.meeting_id)
+    if (error) console.error('[actions] priority persist failed:', error)
   }
 
   return (
@@ -577,7 +614,7 @@ export default function ActionsPage() {
                 <SectionLabel>Open Items</SectionLabel>
                 <div className="flex flex-col gap-[5px]">
                   {openItems.map(item => (
-                    <ActionItemRow key={item.id} item={item} onToggle={handleToggle} />
+                    <ActionItemRow key={item.id} item={item} onToggle={handleToggle} priority={item.priority} onPriorityChange={handlePriorityChange} />
                   ))}
                 </div>
               </div>
@@ -588,7 +625,7 @@ export default function ActionsPage() {
                 <SectionLabel>Completed</SectionLabel>
                 <div className="flex flex-col gap-[5px]">
                   {completedItems.map(item => (
-                    <ActionItemRow key={item.id} item={item} onToggle={handleToggle} />
+                    <ActionItemRow key={item.id} item={item} onToggle={handleToggle} priority={item.priority} onPriorityChange={handlePriorityChange} />
                   ))}
                 </div>
               </div>

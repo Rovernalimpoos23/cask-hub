@@ -4,6 +4,10 @@ export type MeetingType = 'leadership' | 'planning' | 'coaching' | 'education'
 
 export type OwnerName = 'calin' | 'chad' | 'kai' | 'rovern' | 'lamont' | 'jeff' | 'kait' | 'matteo'
 
+// Priority level for an action item. Optional — items created before this
+// feature have no priority and are treated as 'low' by the UI.
+export type Priority = 'high' | 'medium' | 'low'
+
 export interface ActionItem {
   id: string
   meeting_id?: string
@@ -11,6 +15,7 @@ export interface ActionItem {
   owner: string
   due_date: string
   done: boolean
+  priority?: Priority
   created_at?: string
 }
 
