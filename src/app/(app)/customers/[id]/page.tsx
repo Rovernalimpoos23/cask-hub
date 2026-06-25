@@ -2048,6 +2048,213 @@ function getInitials(name: string): string {
   return parts[0].slice(0, 2).toUpperCase()
 }
 
+// ── Current Step To-Do's (NEW — additive, read-only aggregation) ──────────────
+// Surfaces the *current* workflow step's checklist tasks (from WORKFLOW_STEPS,
+// state in checklistRows) plus the Fireflies action items from that step's saved
+// recap (client_meetings row in journeyRows). Reuses the existing checklist
+// toggle handler — it adds no new fetching or persistence of its own.
+
+interface RecapActionItem {
+  task?: string
+  owner?: string
+  due_date?: string | null
+  done?: boolean
+}
+
+// action_items comes from client_meetings (selected with '*'); depending on the
+// column type it may be a JSON string or an already-parsed array. Parse safely.
+function parseRecapActionItems(raw: unknown): RecapActionItem[] {
+  if (!raw) return []
+  let value: unknown = raw
+  if (typeof raw === 'string') {
+    try { value = JSON.parse(raw) } catch { return [] }
+  }
+  if (!Array.isArray(value)) return []
+  return value.filter((x): x is RecapActionItem => !!x && typeof x === 'object')
+}
+
+function CurrentStepTodos({
+  currentStepNumber,
+  checklistRows,
+  checklistToggling,
+  onToggleChecklist,
+  journeyRows,
+}: {
+  currentStepNumber: number | null
+  checklistRows: Map<string, ChecklistRowState>
+  checklistToggling: Set<string>
+  onToggleChecklist: (meetingCode: string, role: string, taskText: string, next: boolean) => void
+  journeyRows: Map<string, ClientMeetingRow>
+}) {
+  const step = currentStepNumber != null ? WORKFLOW_STEPS.find(s => s.step === currentStepNumber) : undefined
+
+  // Journey tasks for the current step only, flattened with their role for keying.
+  const journeyTasks = step
+    ? step.roles.flatMap(rb => rb.tasks.map(task => ({ role: rb.role, task })))
+    : []
+  const journeyIncomplete = step
+    ? journeyTasks.filter(t => !(checklistRows.get(checklistKey(stepCode(step.step), t.role, t.task))?.completed)).length
+    : 0
+
+  // Fireflies action items from this step's saved recap (if a recap exists).
+  const recapRow = step ? journeyRows.get('step_' + step.step.toString().padStart(2, '0')) : undefined
+  const actionItems = recapRow
+    ? parseRecapActionItems((recapRow as unknown as { action_items?: unknown }).action_items)
+    : []
+  const actionsIncomplete = actionItems.filter(a => a.done !== true).length
+
+  // Today at local midnight, for overdue / due-soon comparisons.
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  function dueState(item: RecapActionItem): 'overdue' | 'soon' | 'normal' | null {
+    if (!item.due_date) return null
+    if (item.done === true) return 'normal'
+    const due = new Date(item.due_date + 'T00:00:00')
+    if (isNaN(due.getTime())) return 'normal'
+    const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000)
+    if (diffDays < 0) return 'overdue'
+    if (diffDays <= 2) return 'soon'
+    return 'normal'
+  }
+
+  function fmtDue(d: string): string {
+    const date = new Date(d + 'T00:00:00')
+    if (isNaN(date.getTime())) return d
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  const subHeaderStyle: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
+    color: 'var(--text3)', padding: '10px 17px', borderBottom: '1px solid var(--border)',
+    display: 'flex', alignItems: 'center', gap: 8,
+  }
+  const countBadgeStyle: React.CSSProperties = {
+    fontSize: 10, fontWeight: 700, letterSpacing: 'normal', textTransform: 'none',
+    background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text3)',
+    borderRadius: 99, padding: '1px 7px',
+  }
+  const ownerBadgeStyle: React.CSSProperties = {
+    fontSize: 11, background: 'var(--surface2)', border: '1px solid var(--border)',
+    color: 'var(--text2)', borderRadius: 99, padding: '2px 8px', whiteSpace: 'nowrap',
+  }
+
+  const stepLabel = step
+    ? `STEP ${String(step.step).padStart(2, '0')} · ${step.title}`
+    : 'All steps complete'
+
+  return (
+    <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+      {/* Card header */}
+      <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+        <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>
+          Current Step To-Do&apos;s
+        </h2>
+        <span style={{ fontSize: 12, color: 'var(--text3)' }}>{stepLabel}</span>
+      </div>
+
+      {/* Sub-section 1 — Journey Tasks (from WORKFLOW_STEPS) */}
+      <div style={subHeaderStyle}>
+        <span>Journey Tasks</span>
+        <span style={countBadgeStyle}>{journeyIncomplete}</span>
+      </div>
+      {!step ? (
+        <div style={{ padding: '10px 17px', fontSize: 13, color: 'var(--text3)' }}>All steps complete</div>
+      ) : journeyTasks.length === 0 ? (
+        <div style={{ padding: '10px 17px', fontSize: 13, color: 'var(--text3)' }}>No journey tasks for this step.</div>
+      ) : (
+        step.roles.map((rb, ri) => (
+          <div key={rb.role} style={{ borderBottom: ri < step.roles.length - 1 ? '1px solid var(--border)' : undefined }}>
+            {/* Role group header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 17px 4px' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: rb.color, flexShrink: 0 }} />
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text2)' }}>
+                {ROLE_NAMES[rb.role] ?? rb.role}
+              </span>
+            </div>
+            {rb.tasks.map((task, ti) => {
+              const key = checklistKey(stepCode(step.step), rb.role, task)
+              const checked = checklistRows.get(key)?.completed ?? false
+              const busy = checklistToggling.has(key)
+              return (
+                <button
+                  key={ti}
+                  type="button"
+                  onClick={() => { if (!busy) onToggleChecklist(stepCode(step.step), rb.role, task, !checked) }}
+                  disabled={busy}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'flex-start', gap: 9,
+                    padding: '8px 17px', background: 'transparent', borderTop: '1px solid var(--border)',
+                    borderLeft: 'none', borderRight: 'none', borderBottom: 'none', textAlign: 'left',
+                    cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.6 : 1,
+                  }}
+                >
+                  <span
+                    className="shrink-0"
+                    style={{ width: 14, height: 14, borderRadius: 3, border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)', background: checked ? 'var(--charcoal)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, transition: 'background 120ms ease, border-color 120ms ease' }}
+                  >
+                    {checked && (
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                    )}
+                  </span>
+                  <span style={{ fontSize: 13, lineHeight: 1.4, color: 'var(--text)', opacity: checked ? 0.5 : 1, textDecoration: checked ? 'line-through' : 'none' }}>
+                    {task}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        ))
+      )}
+
+      {/* Sub-section 2 — Meeting Action Items (from Fireflies recap) */}
+      <div style={{ ...subHeaderStyle, borderTop: '1px solid var(--border)' }}>
+        <span>Meeting Action Items</span>
+        <span style={countBadgeStyle}>{actionsIncomplete}</span>
+      </div>
+      {!recapRow ? (
+        <div style={{ padding: '10px 17px', fontSize: 13, color: 'var(--text3)' }}>No meeting recorded yet for this step</div>
+      ) : actionItems.length === 0 ? (
+        <div style={{ padding: '10px 17px', fontSize: 13, color: 'var(--text3)' }}>No action items in this recap.</div>
+      ) : (
+        actionItems.map((item, i) => {
+          const state = dueState(item)
+          const done = item.done === true
+          const textColor = done
+            ? 'var(--text3)'
+            : state === 'overdue' ? 'var(--fable-red)'
+            : state === 'soon' ? '#d97706'
+            : 'var(--text)'
+          return (
+            <div key={i} style={{ padding: '8px 17px', borderTop: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 13, lineHeight: 1.45, color: textColor, textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.6 : 1 }}>
+                {item.task ?? 'Untitled task'}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                {item.owner && <span style={ownerBadgeStyle}>{item.owner}</span>}
+                {item.due_date && (
+                  <span style={{ fontSize: 11, color: done ? 'var(--text3)' : textColor }}>
+                    Due {fmtDue(item.due_date)}
+                  </span>
+                )}
+                {!done && state === 'overdue' && (
+                  <span style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#991b1b', borderRadius: 99, padding: '1px 7px' }}>Overdue</span>
+                )}
+                {!done && state === 'soon' && (
+                  <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', borderRadius: 99, padding: '1px 7px' }}>Due soon</span>
+                )}
+                <span style={{ fontSize: 10.5, color: 'var(--text3)', fontStyle: 'italic' }}>
+                  from {recapRow.title}
+                </span>
+              </div>
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
 export default function ClientDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -3677,7 +3884,19 @@ Today's date is ${today}.
           {/* ===== Right column ===== */}
           <div className="flex flex-col gap-5">
 
-        {/* ── Pending Emails ───────────────────────────────────────────── */}
+        {/* ── Current Step To-Do's (NEW) ───────────────────────────────── */}
+        <CurrentStepTodos
+          currentStepNumber={currentStepNumber}
+          checklistRows={checklistRows}
+          checklistToggling={checklistToggling}
+          onToggleChecklist={toggleChecklistTask}
+          journeyRows={journeyRows}
+        />
+
+        {/* ── Emails — Pending (left) | Sent (right), side-by-side grid ──── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 20, alignItems: 'start' }}>
+        {/* Left column: Pending Emails */}
+        <div>
         {emailDrafts.length > 0 && (
           <div
             className="rounded-lg p-5"
@@ -3806,7 +4025,10 @@ Today's date is ${today}.
             </div>
           </div>
         )}
+        </div>{/* /left column: Pending Emails */}
 
+        {/* Right column: Sent Emails */}
+        <div>
         {/* ── Sent Emails ──────────────────────────────────────────────── */}
         {sentEmails.length > 0 && (
           <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
@@ -3828,7 +4050,7 @@ Today's date is ${today}.
                   <div
                     key={sent.id}
                     className="flex items-center"
-                    style={{ gap: 12, padding: '11px 17px', borderTop: i > 0 ? '1px solid var(--border)' : 'none', cursor: 'pointer' }}
+                    style={{ gap: 12, padding: '11px 17px', borderTop: i > 0 ? '1px solid var(--border)' : 'none', cursor: 'pointer', overflow: 'hidden' }}
                     onClick={() => setViewSentEmail(sent)}
                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
@@ -3843,9 +4065,9 @@ Today's date is ${today}.
                       </svg>
                     </span>
                     <div className="min-w-0">
-                      <div style={{ fontSize: 13, fontWeight: 550, letterSpacing: '-0.005em', color: 'var(--text)' }}>{title}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 550, letterSpacing: '-0.005em', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
                       {when && (
-                        <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{when} ET · delivered</div>
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{when} ET · delivered</div>
                       )}
                     </div>
                     <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 550, color: 'var(--text)', flexShrink: 0 }}>View →</span>
@@ -3855,6 +4077,8 @@ Today's date is ${today}.
             </div>
           </div>
         )}
+        </div>{/* /right column: Sent Emails */}
+        </div>{/* /emails grid */}
 
           </div>{/* /right column */}
         </div>{/* /two-column layout */}
