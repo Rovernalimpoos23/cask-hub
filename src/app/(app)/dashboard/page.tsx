@@ -10,6 +10,8 @@ import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem, Priority } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
+// NEW (additive) — shared 33-step Customer Journey data for the Active Clients section.
+import { WORKFLOW_STEPS, TOTAL_WORKFLOW_STEPS, ROLE_NAMES, stepCode, checklistKey } from '@/lib/workflow-steps'
 
 function getCurrentMonthYear(): string {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/New_York' })
@@ -778,6 +780,58 @@ function FloatingDashboardAI() {
   )
 }
 
+// ── Active Clients — Customer Journey (NEW, additive) ────────────────────────
+// Read-only aggregation for the dashboard. Pulls every client plus their workflow
+// step completions, per-step checklist state, and completed meeting recaps, then
+// derives each client's current step and the to-dos for that step. No writes.
+
+interface JourneyTaskDisplay {
+  role: string
+  task: string
+  completed: boolean
+}
+
+// Action item shape parsed out of a client_meetings recap row.
+interface JourneyMeetingActionItem {
+  task?: string
+  owner?: string
+  due_date?: string | null
+  done?: boolean
+}
+
+interface JourneyClient {
+  id: string
+  name: string
+  project_type: string
+  happiness: 'green' | 'yellow' | 'red'
+  location: string
+  currentStepNumber: number | null // lowest step NOT yet completed; null when all done
+  currentStepTitle: string | null
+  completedCount: number
+  journeyTasks: JourneyTaskDisplay[]
+  meetingActionItems: JourneyMeetingActionItem[]
+  hasRecapForStep: boolean
+}
+
+// action_items on a client_meetings row may be a JSON string or an already-parsed
+// array depending on the column type — parse defensively.
+function parseJourneyActionItems(raw: unknown): JourneyMeetingActionItem[] {
+  if (!raw) return []
+  let value: unknown = raw
+  if (typeof raw === 'string') {
+    try { value = JSON.parse(raw) } catch { return [] }
+  }
+  if (!Array.isArray(value)) return []
+  return value.filter((x): x is JourneyMeetingActionItem => !!x && typeof x === 'object')
+}
+
+// Map a happiness status to a Fable indicator color.
+function happinessColor(h: string): string {
+  if (h === 'red') return 'var(--fable-red)'
+  if (h === 'yellow') return 'var(--fable-warn)'
+  return 'var(--fable-ok)'
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [meetings, setMeetings] = useState<Meeting[]>([])
@@ -796,6 +850,9 @@ export default function DashboardPage() {
   const [syncMins, setSyncMins] = useState(0)
   const [expandedOwners, setExpandedOwners] = useState<Record<string, boolean>>({})
   const [yesterdayMeetings, setYesterdayMeetings] = useState<Meeting[]>([])
+  // NEW (additive) — Active Clients — Customer Journey section
+  const [clientsData, setClientsData] = useState<JourneyClient[]>([])
+  const [clientsJourneyLoading, setClientsJourneyLoading] = useState(true)
 
   useEffect(() => {
     const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()
@@ -922,6 +979,101 @@ export default function DashboardPage() {
         }
         setYesterdayMeetings((data ?? []) as Meeting[])
       })
+  }, [])
+
+  // NEW (additive) — Active Clients — Customer Journey.
+  // Fetches all clients plus the supporting tables needed to derive each client's
+  // current step and to-dos. Purely read-only; does not touch any existing query.
+  useEffect(() => {
+    async function loadClientsJourney() {
+      const supabase = createClient()
+      const [
+        { data: clients },
+        { data: completions },
+        { data: checklists },
+        { data: meetingRows },
+      ] = await Promise.all([
+        supabase.from('clients').select('id, name, project_type, happiness, location'),
+        supabase.from('workflow_step_completions').select('client_id, step_number'),
+        supabase.from('journey_checklists').select('client_id, meeting_code, role, task_text, completed'),
+        // action_items holds each step's recap action items (see customers/[id]); we
+        // match recaps to a step by meeting_id (e.g. "step_04").
+        supabase.from('client_meetings').select('client_id, meeting_id, title, action_items').eq('completed', true),
+      ])
+
+      // Index supporting rows by client_id for O(1) lookups while building cards.
+      const completionsByClient = new Map<string, Set<number>>()
+      for (const c of (completions ?? []) as { client_id: string; step_number: number }[]) {
+        const set = completionsByClient.get(c.client_id) ?? new Set<number>()
+        set.add(c.step_number)
+        completionsByClient.set(c.client_id, set)
+      }
+
+      const checklistByClient = new Map<string, Map<string, boolean>>()
+      for (const r of (checklists ?? []) as { client_id: string; meeting_code: string; role: string; task_text: string; completed: boolean }[]) {
+        const map = checklistByClient.get(r.client_id) ?? new Map<string, boolean>()
+        map.set(checklistKey(r.meeting_code, r.role, r.task_text), r.completed)
+        checklistByClient.set(r.client_id, map)
+      }
+
+      // client_id → (meeting_id → action_items)
+      const meetingsByClient = new Map<string, Map<string, unknown>>()
+      for (const m of (meetingRows ?? []) as { client_id: string; meeting_id: string; action_items: unknown }[]) {
+        if (!m.meeting_id) continue
+        const map = meetingsByClient.get(m.client_id) ?? new Map<string, unknown>()
+        map.set(m.meeting_id, m.action_items)
+        meetingsByClient.set(m.client_id, map)
+      }
+
+      const built: JourneyClient[] = ((clients ?? []) as {
+        id: string; name: string; project_type: string | null; happiness: string | null; location: string | null
+      }[]).map(c => {
+        const completed = completionsByClient.get(c.id) ?? new Set<number>()
+        const completedCount = WORKFLOW_STEPS.filter(s => completed.has(s.step)).length
+        const step = WORKFLOW_STEPS.find(s => !completed.has(s.step)) ?? null
+
+        // Journey tasks for the current step, flattened with their role + completion.
+        const clientChecklist = checklistByClient.get(c.id)
+        const journeyTasks: JourneyTaskDisplay[] = step
+          ? step.roles.flatMap(rb =>
+              rb.tasks.map(task => ({
+                role: rb.role,
+                task,
+                completed: clientChecklist?.get(checklistKey(stepCode(step.step), rb.role, task)) ?? false,
+              })),
+            )
+          : []
+
+        // Meeting action items from this step's saved recap (if one exists).
+        const recapRaw = step ? meetingsByClient.get(c.id)?.get(stepCode(step.step)) : undefined
+        const hasRecapForStep = recapRaw !== undefined
+        const meetingActionItems = parseJourneyActionItems(recapRaw)
+
+        const happiness: 'green' | 'yellow' | 'red' =
+          c.happiness === 'red' || c.happiness === 'yellow' ? c.happiness : 'green'
+
+        return {
+          id: c.id,
+          name: c.name,
+          project_type: c.project_type ?? '',
+          happiness,
+          location: c.location ?? '',
+          currentStepNumber: step?.step ?? null,
+          currentStepTitle: step?.title ?? null,
+          completedCount,
+          journeyTasks,
+          meetingActionItems,
+          hasRecapForStep,
+        }
+      })
+
+      setClientsData(built)
+      setClientsJourneyLoading(false)
+    }
+    loadClientsJourney().catch(err => {
+      console.error('[dashboard] active clients journey error:', err)
+      setClientsJourneyLoading(false)
+    })
   }, [])
 
   const loadAllActionItems = useCallback(() => {
@@ -1733,6 +1885,250 @@ export default function DashboardPage() {
               </Link>
             )}
           </section>
+
+        {/* NEW (additive): Active Clients — Customer Journey (between Action Items and Yesterday's Meetings) */}
+        <section aria-label="Active clients customer journey" style={{ display: 'block', marginBottom: 30 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+            <h2 style={{ fontSize: 11.5, letterSpacing: '1.4px', textTransform: 'uppercase', fontWeight: 650, color: 'var(--text)' }}>
+              Active Clients — Customer Journey
+            </h2>
+            <Link
+              href="/customers"
+              className="fb-all"
+              style={{ fontSize: 12, color: 'var(--text2)', textDecoration: 'none', fontWeight: 500, transition: 'color 150ms ease' }}
+            >
+              View all clients →
+            </Link>
+          </div>
+
+          {clientsJourneyLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[0, 1].map(i => (
+                <div key={i} className="shimmer" style={{ height: 120, borderRadius: 10, border: '1px solid var(--border)' }} />
+              ))}
+            </div>
+          ) : clientsData.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--text3)', padding: '8px 0' }}>No active clients</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {clientsData.map(client => {
+                // ── Journey tasks: cap at 5 total, then group those by role ──
+                const MAX_TASKS = 5
+                const visibleTasks = client.journeyTasks.slice(0, MAX_TASKS)
+                const moreTasks = client.journeyTasks.length - visibleTasks.length
+                const taskGroups: { role: string; tasks: JourneyTaskDisplay[] }[] = []
+                for (const t of visibleTasks) {
+                  let g = taskGroups.find(x => x.role === t.role)
+                  if (!g) { g = { role: t.role, tasks: [] }; taskGroups.push(g) }
+                  g.tasks.push(t)
+                }
+
+                // ── Meeting action items: only when a recap exists for this step ──
+                const visibleActions = client.meetingActionItems.slice(0, 3)
+                const showActions = client.hasRecapForStep && visibleActions.length > 0
+
+                const stepBadge =
+                  client.currentStepNumber != null
+                    ? `STEP ${String(client.currentStepNumber).padStart(2, '0')} · ${client.currentStepTitle}`
+                    : 'Journey complete'
+
+                const subLabelStyle: React.CSSProperties = {
+                  fontSize: 10,
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                  color: 'var(--text3)',
+                  fontWeight: 600,
+                  marginBottom: 8,
+                }
+
+                return (
+                  <div
+                    key={client.id}
+                    className="fb-rise"
+                    style={{
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 10,
+                      padding: '16px 20px',
+                    }}
+                  >
+                    {/* 1 — Client header row */}
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                      <Link
+                        href={`/customers/${client.id}`}
+                        style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}
+                      >
+                        {client.name}
+                      </Link>
+                      {client.project_type && (
+                        <span
+                          style={{
+                            fontSize: 10.5,
+                            fontWeight: 600,
+                            color: 'var(--text2)',
+                            background: 'var(--surface2)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 99,
+                            padding: '2px 9px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {client.project_type}
+                        </span>
+                      )}
+                      <span
+                        title={`Happiness: ${client.happiness}`}
+                        style={{
+                          width: 9,
+                          height: 9,
+                          borderRadius: '50%',
+                          background: happinessColor(client.happiness),
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, ...NUM }}>
+                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>{stepBadge}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+                          {client.completedCount} of {TOTAL_WORKFLOW_STEPS} steps
+                        </span>
+                      </span>
+                    </div>
+
+                    {/* 2 — Journey Tasks (current step) */}
+                    <div style={{ marginTop: 16 }}>
+                      <div style={subLabelStyle}>Journey Tasks</div>
+                      {taskGroups.length === 0 ? (
+                        <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                          {client.currentStepNumber == null ? 'All steps complete.' : 'No journey tasks for this step.'}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {taskGroups.map(g => (
+                            <div key={g.role}>
+                              <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, marginBottom: 4 }}>
+                                {ROLE_NAMES[g.role] ?? g.role}
+                              </div>
+                              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                {g.tasks.map((t, ti) => (
+                                  <li
+                                    key={ti}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'flex-start',
+                                      gap: 8,
+                                      opacity: t.completed ? 0.5 : 1,
+                                    }}
+                                  >
+                                    {/* Read-only display checkbox (12x12) */}
+                                    <span
+                                      aria-hidden="true"
+                                      style={{
+                                        width: 12,
+                                        height: 12,
+                                        flexShrink: 0,
+                                        marginTop: 2,
+                                        borderRadius: 3,
+                                        border: '1.5px solid var(--border2)',
+                                        background: t.completed ? 'var(--fable-ok)' : 'transparent',
+                                        display: 'grid',
+                                        placeItems: 'center',
+                                      }}
+                                    >
+                                      {t.completed && (
+                                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                          <path d="M20 6L9 17l-5-5" />
+                                        </svg>
+                                      )}
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontSize: 12,
+                                        lineHeight: 1.45,
+                                        color: 'var(--text)',
+                                        textDecoration: t.completed ? 'line-through' : 'none',
+                                      }}
+                                    >
+                                      {t.task}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                          {moreTasks > 0 && (
+                            <div style={{ fontSize: 11, color: 'var(--text3)' }}>and {moreTasks} more</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 3 — Meeting Action Items (from current step's recap) */}
+                    {showActions && (
+                      <div style={{ marginTop: 16 }}>
+                        <div style={subLabelStyle}>Meeting Action Items</div>
+                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {visibleActions.map((a, ai) => (
+                            <li
+                              key={ai}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                                gap: 8,
+                                opacity: a.done ? 0.5 : 1,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 12,
+                                  color: 'var(--text)',
+                                  textDecoration: a.done ? 'line-through' : 'none',
+                                }}
+                              >
+                                {a.task ?? 'Untitled action'}
+                              </span>
+                              {a.owner && (
+                                <span
+                                  style={{
+                                    fontSize: 10.5,
+                                    color: 'var(--text2)',
+                                    background: 'var(--surface2)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 99,
+                                    padding: '1px 8px',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {a.owner}
+                                </span>
+                              )}
+                              {a.due_date && (
+                                <span style={{ fontSize: 11, color: 'var(--text3)', ...NUM }}>
+                                  {fmtDue(a.due_date)}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* View full journey */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+                      <Link
+                        href={`/customers/${client.id}`}
+                        className="fb-all"
+                        style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none', fontWeight: 500, transition: 'color 150ms ease' }}
+                      >
+                        View Journey →
+                      </Link>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
 
         {/* Yesterday's Meetings — moved below Row 3 (full width) */}
         {yesterdayMeetings.length > 0 && (
