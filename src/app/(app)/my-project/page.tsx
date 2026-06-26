@@ -65,6 +65,109 @@ function TypeBadge({ type }: { type: string }) {
   )
 }
 
+// ── Phase progress tracker (NEW, additive) ────────────────────────────────────
+// 4 major milestone phases mapped onto the 33 workflow steps. CSS-var mapping
+// follows the same convention documented at the top of this file:
+//   --text-muted → --text3 · --text-primary → --text · --text-secondary → --text2
+//   --surface-1 → --surface2 · --border-strong → --border2
+interface PhaseDef { label: string; steps: number[]; description: string }
+
+const PHASES: PhaseDef[] = [
+  { label: 'Design & Planning', steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], description: 'Meetings, drawings & design decisions' },
+  { label: 'Permit', steps: [14, 15, 16], description: 'Permit submission & approval' },
+  { label: 'Contract & Selections', steps: [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], description: 'Contract signing & material selections' },
+  { label: 'Construction', steps: [33], description: 'Building your home' },
+]
+
+type PhaseState = 'done' | 'active' | 'upcoming'
+
+function getPhaseState(phase: PhaseDef, completed: Set<number>, currentStepNumber: number | null): PhaseState {
+  if (phase.steps.every(s => completed.has(s))) return 'done'
+  if (currentStepNumber != null && phase.steps.includes(currentStepNumber)) return 'active'
+  return 'upcoming'
+}
+
+function PhaseTracker({ completed, currentStepNumber }: { completed: Set<number>; currentStepNumber: number | null }) {
+  const states = PHASES.map(p => getPhaseState(p, completed, currentStepNumber))
+
+  // A connector (the segment to a phase's RIGHT) is solid green when the phase on
+  // its LEFT is done; otherwise it's a dashed gray line. Each phase draws its own
+  // left + right half so the halves of one connector always match.
+  const solidLine: React.CSSProperties = { flex: 1, height: 2, background: '#22c55e' }
+  const dashedLine: React.CSSProperties = { flex: 1, height: 0, borderTop: '2px dashed var(--border2)' }
+  const blankLine: React.CSSProperties = { flex: 1, height: 2, background: 'transparent' }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', margin: '20px 0' }}>
+      <style>{`
+        @keyframes myProjectPhasePulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(26,25,23,0.3); }
+          50% { box-shadow: 0 0 0 6px rgba(26,25,23,0); }
+        }
+      `}</style>
+      {PHASES.map((phase, i) => {
+        const state = states[i]
+        const leftDone = i > 0 ? states[i - 1] === 'done' : false
+        const rightDone = state === 'done'
+        const leftStyle = i === 0 ? blankLine : leftDone ? solidLine : dashedLine
+        const rightStyle = i === PHASES.length - 1 ? blankLine : rightDone ? solidLine : dashedLine
+
+        const circleBase: React.CSSProperties = {
+          width: 32,
+          height: 32,
+          borderRadius: '50%',
+          flexShrink: 0,
+          display: 'grid',
+          placeItems: 'center',
+        }
+        let circle: React.CSSProperties
+        let inner: React.ReactNode = null
+        if (state === 'done') {
+          circle = { ...circleBase, background: '#22c55e', border: 'none' }
+          inner = <span style={{ color: '#fff', fontSize: 14, lineHeight: 1 }}>✓</span>
+        } else if (state === 'active') {
+          circle = { ...circleBase, background: '#1a1917', border: 'none', animation: 'myProjectPhasePulse 2s ease-in-out infinite' }
+          inner = <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />
+        } else {
+          circle = { ...circleBase, background: 'var(--surface2)', border: '1.5px solid var(--border)' }
+        }
+
+        const labelColor = state === 'done' ? '#15803d' : state === 'active' ? 'var(--text)' : 'var(--text3)'
+        const labelWeight = state === 'done' ? 600 : state === 'active' ? 700 : 400
+        const descColor = state === 'active' ? 'var(--text2)' : 'var(--text3)'
+
+        return (
+          <div key={phase.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
+            {/* Circle + connector halves on the same horizontal line */}
+            <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+              <div style={leftStyle} />
+              <div style={circle}>{inner}</div>
+              <div style={rightStyle} />
+            </div>
+
+            {/* Label + optional CURRENT badge + description */}
+            <div style={{ textAlign: 'center', marginTop: 8, paddingInline: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: labelWeight, color: labelColor, lineHeight: 1.25 }}>
+                {phase.label}
+              </div>
+              {state === 'active' && (
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ fontSize: 9, background: '#fee2e2', color: '#991b1b', borderRadius: 4, padding: '1px 5px', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>
+                    Current
+                  </span>
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: descColor, marginTop: 2, lineHeight: 1.3, opacity: state === 'upcoming' ? 0.6 : 1 }}>
+                {phase.description}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Standing-agenda data (read-only inline copy — see note 3) ─────────────────
 interface CustomerAgendaQuestion { key: string; text: string }
 interface CustomerAgendaSection { code: string; name: string; questions: CustomerAgendaQuestion[] }
@@ -484,6 +587,9 @@ export default function MyProjectPage() {
           <div style={{ height: 6, background: 'var(--surface2)', borderRadius: 99, marginTop: 18, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: '#22c55e', borderRadius: 99, transition: 'width 500ms ease' }} />
           </div>
+
+          {/* NEW (additive): 4-phase milestone tracker */}
+          <PhaseTracker completed={completedSteps} currentStepNumber={currentStep?.step ?? null} />
 
           {/* Current step row */}
           {currentStep ? (
