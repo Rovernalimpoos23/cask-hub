@@ -806,7 +806,7 @@ export default function OKRDashboardPage() {
             {/* ── SECTION C: NPS Score History (hardcoded historical data) ─── */}
             <section style={{ marginTop: 32, marginBottom: 32 }}>
               <SectionHeader>NPS Score History</SectionHeader>
-              <div style={{ ...cardStyle, overflowX: 'auto', maxWidth: 660 }}>
+              <div style={{ ...cardStyle, overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr>
