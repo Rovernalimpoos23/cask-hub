@@ -923,15 +923,21 @@ export default function OKRDashboardPage() {
                         {PHASE_KEYS.map(k => {
                           const ps = phaseOf(c, k)
                           const meta = PHASE_META[k]
+                          const pct = ps.total > 0 ? Math.round((ps.completedCount / ps.total) * 100) : 0
                           return (
                             <div key={k}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 5 }}>
                                 <span style={{ color: 'var(--text2)', fontWeight: 600 }}>{meta.label}</span>
                                 <span style={{ color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
-                                  {ps.completedCount} of {ps.total}
+                                  {ps.completedCount} of {ps.total} · {pct}%
                                 </span>
                               </div>
-                              <ProgressBar value={ps.completedCount} total={ps.total} color={meta.accent} />
+                              <div style={{ position: 'relative' }}>
+                                <ProgressBar value={ps.completedCount} total={ps.total} color={meta.accent} />
+                                <span style={{ position: 'absolute', right: 0, top: 6, fontSize: 10, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                                  {pct}%
+                                </span>
+                              </div>
                             </div>
                           )
                         })}
