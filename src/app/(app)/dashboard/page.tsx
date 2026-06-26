@@ -13,6 +13,16 @@ import { ArtifactContent } from '@/components/ai-panel/artifacts'
 // NEW (additive) — shared 33-step Customer Journey data for the Active Clients section.
 import { WORKFLOW_STEPS, TOTAL_WORKFLOW_STEPS, ROLE_NAMES, stepCode, checklistKey, computeTaskDueDate, getTaskDueState } from '@/lib/workflow-steps'
 
+// Local display-only extension of ActionItem. `completed_at` persists into the
+// meetings.action_items JSON (JSONB column — not a schema change); `meeting_title`
+// /`meeting_date` are synthesized at fetch for the "From:" line and never written
+// back. Kept local because src/types is out of scope for this change.
+type ActionItemX = ActionItem & {
+  completed_at?: string
+  meeting_title?: string
+  meeting_date?: string
+}
+
 function getCurrentMonthYear(): string {
   return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/New_York' })
 }
@@ -843,7 +853,7 @@ export default function DashboardPage() {
   const [upcomingCount, setUpcomingCount] = useState<number | null>(null)
   const [nextEventHint, setNextEventHint] = useState<string>('Loading…')
   const [clockStr, setClockStr] = useState('')
-  const [actionItems, setActionItems] = useState<ActionItem[]>([])
+  const [actionItems, setActionItems] = useState<ActionItemX[]>([])
   const [actionItemsLoading, setActionItemsLoading] = useState(true)
   const [bottomActionItems, setBottomActionItems] = useState<ActionItem[]>([])
   const [bottomLoading, setBottomLoading] = useState(true)
@@ -1105,15 +1115,19 @@ export default function DashboardPage() {
     const supabase = createClient()
     supabase
       .from('meetings')
-      .select('action_items')
+      .select('title, date, action_items')
       .not('action_items', 'is', null)
       .neq('action_items', '[]')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
+        // Carry each item's source meeting title + date for the "From:" line so
+        // same-titled meetings stay distinguishable. These are display-only and
+        // never written back to the DB.
         const flattened = (data ?? []).flatMap(
-          (m: { action_items: ActionItem[] | null }) => m.action_items ?? []
+          (m: { title: string; date: string; action_items: ActionItem[] | null }) =>
+            (m.action_items ?? []).map(a => ({ ...a, meeting_title: m.title, meeting_date: m.date }))
         )
-        setActionItems(flattened as ActionItem[])
+        setActionItems(flattened as ActionItemX[])
         setActionItemsLoading(false)
       })
   }, [])
@@ -1141,8 +1155,17 @@ export default function DashboardPage() {
   async function handleBottomToggle(item: ActionItem, done: boolean) {
     const matches = (a: ActionItem) => a.task === item.task && a.owner === item.owner
 
+    // Stamp the completion time when checking; clear it when unchecking.
+    const completedAt = done ? new Date().toISOString() : undefined
+    const applyDone = (a: ActionItemX): ActionItemX => {
+      const next = { ...a, done }
+      if (done) next.completed_at = completedAt
+      else delete next.completed_at
+      return next
+    }
+
     // Optimistic UI — the item is filtered out of the open list once done.
-    setActionItems(prev => prev.map(a => (matches(a) ? { ...a, done } : a)))
+    setActionItems(prev => prev.map(a => (matches(a) ? applyDone(a) : a)))
 
     const supabase = createClient()
 
@@ -1151,12 +1174,12 @@ export default function DashboardPage() {
       .from('meetings')
       .select('id, action_items')
       .not('action_items', 'is', null)
-    const rows = (data ?? []) as { id: string; action_items: ActionItem[] | null }[]
+    const rows = (data ?? []) as { id: string; action_items: ActionItemX[] | null }[]
     const target = rows.find(m => (m.action_items ?? []).some(matches))
     if (!target) return
 
-    // 2. Update that specific item's done field within the array.
-    const updated = (target.action_items ?? []).map(a => (matches(a) ? { ...a, done } : a))
+    // 2. Update that specific item's done + completed_at within the array.
+    const updated = (target.action_items ?? []).map(a => (matches(a) ? applyDone(a) : a))
 
     // 3. Save the updated array back to the meetings.action_items column.
     await supabase.from('meetings').update({ action_items: updated }).eq('id', target.id)
@@ -1246,7 +1269,7 @@ export default function DashboardPage() {
 
   // Owner groups for the action items column — overdue-heavy owners first
   const ownerGroups = (() => {
-    const map = new Map<string, ActionItem[]>()
+    const map = new Map<string, ActionItemX[]>()
     for (const a of openActions) {
       const first = a.owner.trim().split(' ')[0]
       const name = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
@@ -1879,7 +1902,17 @@ export default function DashboardPage() {
                           <div style={{ marginTop: 3 }}>
                             <PriorityDot priority={item.priority} onChange={p => handlePriorityChange(item, p)} />
                           </div>
-                          <span style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--text)' }}>{item.task}</span>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--text)' }}>{item.task}</div>
+                            {item.meeting_title && (
+                              <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 2 }}>
+                                From: {item.meeting_title}
+                                {item.meeting_date
+                                  ? ` · ${new Date(item.meeting_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
+                                  : ''}
+                              </div>
+                            )}
+                          </div>
                           <span
                             style={{
                               marginLeft: 'auto',

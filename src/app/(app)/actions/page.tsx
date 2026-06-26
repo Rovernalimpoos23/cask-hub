@@ -9,6 +9,43 @@ import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 const OWNER_FILTERS = ['All', 'Calin', 'Kai', 'Chad', 'Rovern', 'All Leaders', 'All VPs']
 
+// Local display-only extension of ActionItem. `completed_at` is persisted into
+// the meetings.action_items JSON (not a schema change — it's a JSONB column);
+// `meeting_title`/`meeting_date` are synthesized at fetch time for display and
+// are never written back. Kept local because src/types is out of scope here.
+type ActionItemX = ActionItem & {
+  completed_at?: string
+  meeting_title?: string
+  meeting_date?: string
+}
+
+// Small gray meta shown beneath each action item: the source meeting (title +
+// date, so same-titled meetings stay distinguishable) and, once completed, the
+// completion timestamp converted to Eastern Time.
+function ActionItemMeta({ item }: { item: ActionItemX }) {
+  const fromDate = item.meeting_date
+    ? new Date(item.meeting_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : null
+
+  let completed: string | null = null
+  if (item.done && item.completed_at) {
+    const d = new Date(item.completed_at)
+    const cd = d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })
+    const ct = d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true })
+    completed = `Completed ${cd} ${ct} ET`
+  }
+
+  if (!item.meeting_title && !completed) return null
+  return (
+    <div className="pl-5 pr-3.5 mt-1 flex flex-col gap-0.5 text-[10px]" style={{ color: 'var(--text3)' }}>
+      {item.meeting_title && (
+        <span>From: {item.meeting_title}{fromDate ? ` · ${fromDate}` : ''}</span>
+      )}
+      {completed && <span>{completed}</span>}
+    </div>
+  )
+}
+
 // ── Floating Action Items AI — palette + chat config ─────────────────
 const ACCENT = '#c8311a' // CASK red
 
@@ -423,7 +460,7 @@ function FloatingActionsAI() {
 }
 
 export default function ActionsPage() {
-  const [items, setItems] = useState<ActionItem[]>([])
+  const [items, setItems] = useState<ActionItemX[]>([])
   const [loading, setLoading] = useState(true)
   const [ownerFilter, setOwnerFilter] = useState('Mine')
   const [showAll, setShowAll] = useState(false)
@@ -451,19 +488,26 @@ export default function ActionsPage() {
     const supabase = createClient()
     supabase
       .from('meetings')
-      .select('id, action_items')
+      .select('id, title, date, action_items')
       .not('action_items', 'is', null)
       .neq('action_items', '[]')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
-        const rows = (data ?? []) as { id: string; action_items: ActionItem[] | null }[]
+        const rows = (data ?? []) as { id: string; title: string; date: string; action_items: ActionItem[] | null }[]
         // Flatten every meeting's action_items array into one list. The JSON items
         // have no id, so synthesize a stable one (meeting id + index) for React keys
-        // and toggle lookups, and carry the source meeting_id for write-back.
+        // and toggle lookups, and carry the source meeting_id for write-back plus
+        // the meeting title + date for the "From:" display line.
         const flattened = rows.flatMap(m =>
-          (m.action_items ?? []).map((a, i) => ({ ...a, id: `${m.id}:${i}`, meeting_id: m.id }))
+          (m.action_items ?? []).map((a, i) => ({
+            ...a,
+            id: `${m.id}:${i}`,
+            meeting_id: m.id,
+            meeting_title: m.title,
+            meeting_date: m.date,
+          }))
         )
-        setItems(flattened as ActionItem[])
+        setItems(flattened as ActionItemX[])
         setLoading(false)
       })
   }, [])
@@ -480,8 +524,18 @@ export default function ActionsPage() {
   const completedItems = filtered.filter(a => a.done).sort(byPriorityThenDue)
 
   async function handleToggle(id: string, done: boolean) {
+    // Stamp the completion time once and reuse for both the optimistic state and
+    // the persisted write so they stay identical. Unchecking removes the stamp.
+    const completedAt = done ? new Date().toISOString() : undefined
+
     // Optimistic UI
-    setItems(prev => prev.map(item => (item.id === id ? { ...item, done } : item)))
+    setItems(prev => prev.map(item => {
+      if (item.id !== id) return item
+      const next = { ...item, done }
+      if (done) next.completed_at = completedAt
+      else delete next.completed_at
+      return next
+    }))
 
     const target = items.find(item => item.id === id)
     if (!target?.meeting_id) return
@@ -494,12 +548,17 @@ export default function ActionsPage() {
       .select('action_items')
       .eq('id', target.meeting_id)
       .single()
-    const current = (data?.action_items ?? []) as ActionItem[]
+    const current = (data?.action_items ?? []) as ActionItemX[]
 
-    // Flip the matching item's done field (matched by task + owner), then save back.
-    const updated = current.map(a =>
-      a.task === target.task && a.owner === target.owner ? { ...a, done } : a
-    )
+    // Flip the matching item's done field (matched by task + owner), set or clear
+    // completed_at to match, then save back.
+    const updated = current.map(a => {
+      if (a.task !== target.task || a.owner !== target.owner) return a
+      const next = { ...a, done }
+      if (done) next.completed_at = completedAt
+      else delete next.completed_at
+      return next
+    })
     const { error } = await supabase
       .from('meetings')
       .update({ action_items: updated })
@@ -614,7 +673,10 @@ export default function ActionsPage() {
                 <SectionLabel>Open Items</SectionLabel>
                 <div className="flex flex-col gap-[5px]">
                   {openItems.map(item => (
-                    <ActionItemRow key={item.id} item={item} onToggle={handleToggle} priority={item.priority} onPriorityChange={handlePriorityChange} />
+                    <div key={item.id}>
+                      <ActionItemRow item={item} onToggle={handleToggle} priority={item.priority} onPriorityChange={handlePriorityChange} />
+                      <ActionItemMeta item={item} />
+                    </div>
                   ))}
                 </div>
               </div>
@@ -625,7 +687,10 @@ export default function ActionsPage() {
                 <SectionLabel>Completed</SectionLabel>
                 <div className="flex flex-col gap-[5px]">
                   {completedItems.map(item => (
-                    <ActionItemRow key={item.id} item={item} onToggle={handleToggle} priority={item.priority} onPriorityChange={handlePriorityChange} />
+                    <div key={item.id}>
+                      <ActionItemRow item={item} onToggle={handleToggle} priority={item.priority} onPriorityChange={handlePriorityChange} />
+                      <ActionItemMeta item={item} />
+                    </div>
                   ))}
                 </div>
               </div>

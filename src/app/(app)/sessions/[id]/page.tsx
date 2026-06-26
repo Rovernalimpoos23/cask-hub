@@ -9,6 +9,43 @@ import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
+// Local display-only extension of ActionItem. `completed_at` is persisted into
+// the meetings.action_items JSON (not a schema change — it's a JSONB column).
+// Kept local because src/types is out of scope for this change.
+type ActionItemX = ActionItem & { completed_at?: string }
+
+// Small gray meta shown beneath each action item: the source meeting (title +
+// date, so same-titled meetings stay distinguishable) and, once completed, the
+// completion timestamp converted to Eastern Time.
+function ActionItemMeta({
+  item,
+  meetingTitle,
+  meetingDate,
+}: {
+  item: ActionItemX
+  meetingTitle: string
+  meetingDate: string
+}) {
+  const fromDate = meetingDate
+    ? new Date(meetingDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : null
+
+  let completed: string | null = null
+  if (item.done && item.completed_at) {
+    const d = new Date(item.completed_at)
+    const cd = d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })
+    const ct = d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true })
+    completed = `Completed ${cd} ${ct} ET`
+  }
+
+  return (
+    <div className="pl-5 pr-3.5 mt-1 flex flex-col gap-0.5 text-[10px]" style={{ color: 'var(--text3)' }}>
+      <span>From: {meetingTitle}{fromDate ? ` · ${fromDate}` : ''}</span>
+      {completed && <span>{completed}</span>}
+    </div>
+  )
+}
+
 // ── Floating Sessions AI — palette + chat config ─────────────────────
 const ACCENT = '#c8311a' // CASK red
 
@@ -438,7 +475,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   const [meeting, setMeeting] = useState<Meeting | null>(null)
   const [loading, setLoading] = useState(true)
   const [transcriptExpanded, setTranscriptExpanded] = useState(false)
-  const [actionItems, setActionItems] = useState<ActionItem[]>([])
+  const [actionItems, setActionItems] = useState<ActionItemX[]>([])
   const [actionItemsLoading, setActionItemsLoading] = useState(true)
 
   useEffect(() => {
@@ -465,8 +502,17 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     if (!clicked) return
     const matches = (a: ActionItem) => a.task === clicked.task && a.owner === clicked.owner
 
-    // Optimistic UI — flip only the matched item.
-    const updated = actionItems.map(a => (matches(a) ? { ...a, done } : a))
+    // Stamp the completion time when checking; clear it when unchecking.
+    const completedAt = done ? new Date().toISOString() : undefined
+
+    // Optimistic UI — flip only the matched item and set/clear its completed_at.
+    const updated = actionItems.map(a => {
+      if (!matches(a)) return a
+      const next = { ...a, done }
+      if (done) next.completed_at = completedAt
+      else delete next.completed_at
+      return next
+    })
     setActionItems(updated)
 
     const supabase = createClient()
@@ -649,7 +695,10 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
               actionItems.map((item, index) => (
                 // ActionItemRow passes item.id to onToggle, but webhook items
                 // have no id — inject the array index via this closure instead.
-                <ActionItemRow key={item.id ?? index} item={item} onToggle={(_id, done) => handleToggle(index, done)} />
+                <div key={item.id ?? index}>
+                  <ActionItemRow item={item} onToggle={(_id, done) => handleToggle(index, done)} />
+                  <ActionItemMeta item={item} meetingTitle={meeting.title} meetingDate={meeting.date} />
+                </div>
               ))
             )}
           </div>
