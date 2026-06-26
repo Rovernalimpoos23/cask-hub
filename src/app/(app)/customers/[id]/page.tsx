@@ -3751,6 +3751,29 @@ Today's date is ${today}.
                 >
                   ✏️
                 </button>
+                {/* NEW (additive): preview the customer-facing /my-project view. Gated to the
+                    John Smith demo client because /my-project resolves to the logged-in user
+                    (or the John Smith fallback), not this profile's id. */}
+                {client.name === 'John Smith' && (
+                  <Link
+                    href="/my-project"
+                    title="Preview customer view"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      height: 28, padding: '0 11px', borderRadius: 7,
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.14)',
+                      color: 'rgba(255,255,255,0.82)',
+                      fontSize: 11.5, fontWeight: 600, lineHeight: 1, cursor: 'pointer',
+                      fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', textDecoration: 'none',
+                      transition: 'background 150ms ease, border-color 150ms ease',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.28)' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)' }}
+                  >
+                    Customer View →
+                  </Link>
+                )}
               </div>
 
               {/* Meta row — only non-empty fields, separators interleaved cleanly */}
