@@ -38,6 +38,7 @@ const NAV_SECTIONS = [
     items: [
       { href: '/customers', icon: '👥', label: 'Active Clients', locked: false },
       { href: '/customers/templates', icon: '📋', label: 'Client Templates', locked: false },
+      { href: '/customers/okr-dashboard', icon: '🎯', label: 'OKR Dashboard', locked: false },
       { href: '/customers/new', icon: '➕', label: 'New Client Setup', locked: false },
     ],
   },
