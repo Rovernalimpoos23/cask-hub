@@ -3083,6 +3083,14 @@ Today's date is ${today}.
     ? `Continue the ${currentPhase.label} phase — ${currentPhase.meetings.filter(m => journeyRows.get(m.code)?.completed).length} of ${currentPhase.meetings.length} steps complete.`
     : ''
 
+  // ROOT CAUSE FIX: nextStepDesc above is truncated to 180 chars at the data layer
+  // by summarize(), so the expanded "Show less" view had nothing longer to render.
+  // nextStepFull is the same text cleaned of HTML/markdown but NOT length-clamped,
+  // so the expanded view can show the complete recap.
+  const nextStepFull = lastCompleted?.recap
+    ? summarize(lastCompleted.recap, Number.MAX_SAFE_INTEGER)
+    : nextStepDesc
+
   const clientSinceDate = client.start_date ? new Date(client.start_date) : null
   const clientSince =
     clientSinceDate && !isNaN(clientSinceDate.getTime())
@@ -3888,27 +3896,47 @@ Today's date is ${today}.
                 {nextMeetingDef.title}
               </div>
               {nextStepDesc && (
-                <>
-                  <div
-                    style={{
+                <div>
+                  {!isNextStepExpanded && (
+                    <div style={{
+                      overflow: 'hidden',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
                       fontSize: 13,
                       color: 'var(--text2)',
-                      marginTop: 4,
                       lineHeight: 1.5,
-                      ...(isNextStepExpanded
-                        ? {}
-                        : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }),
-                    }}
-                  >
-                    {nextStepDesc}
-                  </div>
-                  <span
-                    onClick={() => setIsNextStepExpanded(v => !v)}
-                    style={{ fontSize: 11, color: 'var(--fable-red)', cursor: 'pointer', fontWeight: 500, display: 'inline', marginLeft: 4 }}
-                  >
-                    {isNextStepExpanded ? 'Show less ←' : 'Read more →'}
-                  </span>
-                </>
+                      marginTop: 4
+                    }}>
+                      {nextStepDesc}
+                    </div>
+                  )}
+                  {isNextStepExpanded && (
+                    <div style={{
+                      fontSize: 13,
+                      color: 'var(--text2)',
+                      lineHeight: 1.5,
+                      marginTop: 4
+                    }}>
+                      {nextStepFull}
+                    </div>
+                  )}
+                  {(nextStepFull.length > 120 || nextStepFull !== nextStepDesc) && (
+                    <span
+                      onClick={() => setIsNextStepExpanded(v => !v)}
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--fable-red)',
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                        marginTop: 2,
+                        display: 'inline-block'
+                      }}
+                    >
+                      {isNextStepExpanded ? 'Show less ←' : 'Read more →'}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
             <button
