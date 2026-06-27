@@ -10,8 +10,13 @@ import { createClient } from '@/lib/supabase'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const PROJECT_TYPES = ['Custom Home', 'ADU', 'Detached Garage', 'Other']
-const OWNERS = ['Jeff', 'Chad', 'Calin', 'Rovern', 'Kai']
+const PROJECT_TYPE_GROUPS: { label: string; options: string[] }[] = [
+  { label: '── ADU ──', options: ['Detached ADU', 'Attached ADU', 'Garage Conversion ADU', '1-Story ADU', '2-Story ADU', 'Studio ADU', '1-Bedroom ADU', '2-Bedroom ADU'] },
+  { label: '── New Home Construction ──', options: ['Custom Home', 'One-Story Home', 'Two-Story Home'] },
+  { label: '── Renovation / Remodel ──', options: ['Whole-Home Renovation', 'Residential Remodel'] },
+  { label: '── Garage ──', options: ['New Garage', 'Garage Construction'] },
+]
+const OWNERS = ['Calin', 'Jeff', 'Tim', 'Cooper', 'Kait', 'Scott']
 const HAPPINESS_OPTIONS = [
   { value: 'green', emoji: '🟢', label: 'Happy', accent: '#16a34a', border: '#16a34a', bg: '#F0FDF4' },
   { value: 'yellow', emoji: '🟡', label: 'At Risk', accent: '#d97706', border: '#d97706', bg: '#FFFBEB' },
@@ -38,10 +43,10 @@ const DEFAULT_MEETINGS = [
 
 const DEFAULT_PRIORITIES = [
   'Budget alignment',
-  'Financing confirmed',
-  'Floor plan approved',
-  'Design alignment',
-  'Contract signed',
+  'Design complete',
+  'Permit received',
+  'Contract executed',
+  'Selections complete',
 ]
 
 type PriorityStatus = 'Unresolved' | 'In Progress' | 'Done'
@@ -154,11 +159,37 @@ export default function NewClientSetupPage() {
   const [name, setName]               = useState('')
   const [email, setEmail]             = useState('')
   const [projectType, setProjectType] = useState('Custom Home')
+  // Project Type dropdown — inline "add custom type" entry + session custom list.
+  const [customProjectTypes, setCustomProjectTypes] = useState<string[]>([])
+  const [addingProjectType, setAddingProjectType]   = useState(false)
+  const [newProjectType, setNewProjectType]         = useState('')
+  function commitNewProjectType() {
+    const trimmed = newProjectType.trim()
+    if (trimmed) {
+      setCustomProjectTypes(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]))
+      setProjectType(trimmed)
+    }
+    setAddingProjectType(false)
+    setNewProjectType('')
+  }
   const [projectValue, setProjectValue] = useState('')
   const [location, setLocation]       = useState('')
   const [projectAddress, setProjectAddress] = useState('')
   const [startDate, setStartDate]     = useState('')
   const [owner, setOwner]             = useState('Jeff')
+  // Sales PM dropdown — session-editable option list + inline "add new" entry.
+  const [ownerOptions, setOwnerOptions] = useState<string[]>(OWNERS)
+  const [addingOwner, setAddingOwner]   = useState(false)
+  const [newOwnerName, setNewOwnerName] = useState('')
+  function commitNewOwner() {
+    const trimmed = newOwnerName.trim()
+    if (trimmed) {
+      setOwnerOptions(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]))
+      setOwner(trimmed)
+    }
+    setAddingOwner(false)
+    setNewOwnerName('')
+  }
 
   // Happiness
   const [happiness, setHappiness] = useState<'green' | 'yellow' | 'red'>('green')
@@ -337,15 +368,44 @@ export default function NewClientSetupPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>Project Type</label>
-                    <select
-                      value={projectType}
-                      onChange={e => setProjectType(e.target.value)}
-                      style={{ ...inputStyle, cursor: 'pointer' }}
-                      onFocus={focusInput}
-                      onBlur={blurInput}
-                    >
-                      {PROJECT_TYPES.map(t => <option key={t}>{t}</option>)}
-                    </select>
+                    {addingProjectType ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={newProjectType}
+                        onChange={e => setNewProjectType(e.target.value)}
+                        onBlur={commitNewProjectType}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); commitNewProjectType() }
+                        }}
+                        placeholder="Custom project type…"
+                        style={inputStyle}
+                        onFocus={focusInput}
+                      />
+                    ) : (
+                      <select
+                        value={projectType}
+                        onChange={e => {
+                          if (e.target.value === '__add_custom__') { setAddingProjectType(true); return }
+                          setProjectType(e.target.value)
+                        }}
+                        style={{ ...inputStyle, cursor: 'pointer' }}
+                        onFocus={focusInput}
+                        onBlur={blurInput}
+                      >
+                        {PROJECT_TYPE_GROUPS.map(g => (
+                          <optgroup key={g.label} label={g.label}>
+                            {g.options.map(t => <option key={t}>{t}</option>)}
+                          </optgroup>
+                        ))}
+                        {customProjectTypes.length > 0 && (
+                          <optgroup label="── Custom ──">
+                            {customProjectTypes.map(t => <option key={t}>{t}</option>)}
+                          </optgroup>
+                        )}
+                        <option value="__add_custom__">+ Add custom type…</option>
+                      </select>
+                    )}
                   </div>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>Project Value</label>
@@ -414,16 +474,36 @@ export default function NewClientSetupPage() {
 
                 {/* Owner */}
                 <div style={{ ...fieldStyle, maxWidth: 220 }}>
-                  <label style={labelStyle}>Owner</label>
-                  <select
-                    value={owner}
-                    onChange={e => setOwner(e.target.value)}
-                    style={{ ...inputStyle, cursor: 'pointer' }}
-                    onFocus={focusInput}
-                    onBlur={blurInput}
-                  >
-                    {OWNERS.map(o => <option key={o}>{o}</option>)}
-                  </select>
+                  <label style={labelStyle}>Sales PM</label>
+                  {addingOwner ? (
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newOwnerName}
+                      onChange={e => setNewOwnerName(e.target.value)}
+                      onBlur={commitNewOwner}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { e.preventDefault(); commitNewOwner() }
+                      }}
+                      placeholder="New Sales PM name…"
+                      style={inputStyle}
+                      onFocus={focusInput}
+                    />
+                  ) : (
+                    <select
+                      value={owner}
+                      onChange={e => {
+                        if (e.target.value === '__add_new__') { setAddingOwner(true); return }
+                        setOwner(e.target.value)
+                      }}
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                      onFocus={focusInput}
+                      onBlur={blurInput}
+                    >
+                      {ownerOptions.map(o => <option key={o}>{o}</option>)}
+                      <option value="__add_new__">+ Add new…</option>
+                    </select>
+                  )}
                 </div>
 
               </div>
@@ -605,12 +685,19 @@ export default function NewClientSetupPage() {
                   className="text-[11px] font-semibold tracking-[0.6px] uppercase mb-2"
                   style={{ color: 'var(--text3)' }}
                 >
-                  8 Standard Meetings Auto-created
+                  33-Step Workflow Auto-created
+                </div>
+                <div className="mb-2.5" style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text3)' }}>
+                  The complete 33-step pre-construction workflow will be automatically loaded into this client&apos;s profile, including role-based checklists for Sales PM, Architect, and Estimator.
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {DEFAULT_MEETINGS.map((m, i) => (
+                  {[
+                    'Design & Planning · Steps 1-13',
+                    'Permit · Steps 14-15',
+                    'Contract & Selections · Steps 16-33',
+                  ].map(phase => (
                     <span
-                      key={m}
+                      key={phase}
                       style={{
                         fontSize: 11, fontWeight: 500,
                         color: 'var(--text3)',
@@ -620,7 +707,7 @@ export default function NewClientSetupPage() {
                         border: '1px solid var(--border)',
                       }}
                     >
-                      {i + 1}. {m}
+                      {phase}
                     </span>
                   ))}
                 </div>
