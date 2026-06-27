@@ -2302,6 +2302,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [confirmSendDraft, setConfirmSendDraft] = useState<EmailDraft | null>(null)
   const [viewSentEmail, setViewSentEmail] = useState<EmailDraft | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  // Collapse state for the moved-to-bottom info sections (collapsed by default).
+  const [isPersonalityExpanded, setIsPersonalityExpanded] = useState(false)
+  const [isPrioritiesExpanded, setIsPrioritiesExpanded] = useState(false)
+  // Next Step card briefing — collapsed to 2 lines by default.
+  const [isNextStepExpanded, setIsNextStepExpanded] = useState(false)
   const [editForm, setEditForm] = useState<EditClientForm | null>(null)
   const [savingClient, setSavingClient] = useState(false)
 
@@ -3089,6 +3094,24 @@ Today's date is ${today}.
   const hasComm = !!client.communication_style && client.communication_style !== COMM_PLACEHOLDER
   const hasTip = !!client.ai_tip && client.ai_tip !== 'Add personality details to get AI communication tips.'
 
+  // ── Recent Meeting Recaps — last 4 completed workflow steps with a saved recap.
+  // journeyRows is keyed by meeting_id (e.g. "step_04"); we match each to its
+  // WORKFLOW_STEPS definition for the title + step type (dot color).
+  const recentRecaps = Array.from(journeyRows.values())
+    .filter(r => r.completed === true && r.recap !== null && r.recap !== '' && r.recap !== undefined)
+    .map(r => {
+      const stepNum = parseInt(String(r.meeting_id ?? '').replace('step_', ''), 10)
+      const def = WORKFLOW_STEPS.find(s => s.step === stepNum)
+      return { row: r, stepNum, def }
+    })
+    .filter(x => x.def !== undefined)
+    .sort((a, b) => {
+      const ta = a.row.completed_at ? new Date(a.row.completed_at).getTime() : 0
+      const tb = b.row.completed_at ? new Date(b.row.completed_at).getTime() : 0
+      return tb - ta
+    })
+    .slice(0, 4)
+
   // Shared button style for the next-step actions
   const nextBtn: React.CSSProperties = {
     fontSize: 13, fontWeight: 550, borderRadius: 7, cursor: 'pointer',
@@ -3865,7 +3888,27 @@ Today's date is ${today}.
                 {nextMeetingDef.title}
               </div>
               {nextStepDesc && (
-                <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 4, lineHeight: 1.5 }}>{nextStepDesc}</div>
+                <>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: 'var(--text2)',
+                      marginTop: 4,
+                      lineHeight: 1.5,
+                      ...(isNextStepExpanded
+                        ? {}
+                        : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }),
+                    }}
+                  >
+                    {nextStepDesc}
+                  </div>
+                  <span
+                    onClick={() => setIsNextStepExpanded(v => !v)}
+                    style={{ fontSize: 11, color: 'var(--fable-red)', cursor: 'pointer', fontWeight: 500, display: 'inline', marginLeft: 4 }}
+                  >
+                    {isNextStepExpanded ? 'Show less ←' : 'Read more →'}
+                  </span>
+                </>
               )}
             </div>
             <button
@@ -3887,105 +3930,21 @@ Today's date is ${today}.
           </section>
         )}
 
-        {/* ── Two-column layout ─────────────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: 24, alignItems: 'start' }}>
+        {/* ── Full-width stacked layout ─────────────────────────────────── */}
+        <div className="flex flex-col gap-5">
 
-          {/* ===== Left column ===== */}
-          <div className="flex flex-col gap-5">
-
-            {/* Personality & Communication — hidden when all fields are empty */}
-            {(client.personality_tags.length > 0 || hasInterests || hasComm || hasTip) && (
-            <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
-              <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
-                <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Personality &amp; Communication</h2>
-              </div>
-              <div style={{ padding: '15px 17px' }}>
-                {client.personality_tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5" style={{ marginBottom: 13 }}>
-                    {client.personality_tags.map(tag => (
-                      <span
-                        key={tag}
-                        style={{ fontSize: 12, fontWeight: 500, color: 'var(--text2)', border: '1px solid var(--border)', borderRadius: 99, padding: '4px 11px', background: 'var(--surface2)' }}
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {hasInterests && (
-                  <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.55, margin: 0 }}>{client.key_interests}</p>
-                )}
-
-                {hasComm && (
-                  <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.55, margin: hasInterests ? '8px 0 0' : 0 }}>{client.communication_style}</p>
-                )}
-
-                {hasTip && (
-                  <div
-                    style={{ marginTop: 14, borderLeft: '3px solid var(--fable-red)', background: 'var(--red-soft)', borderRadius: '0 7px 7px 0', padding: '11px 14px' }}
-                  >
-                    <h3 className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.11em', color: 'var(--fable-red)', fontWeight: 700, marginBottom: 6 }}>
-                      How to communicate with {firstName}
-                    </h3>
-                    <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, margin: 0 }}>{client.ai_tip}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-            )}{/* /Personality & Communication */}
-
-            {/* Key Priorities — hidden entirely when empty or all items have blank text */}
-            {client.priorities.some(p => p.text.trim()) && (
-              <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
-                <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
-                  <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Key Priorities</h2>
-                  <span style={{ fontSize: 12, color: 'var(--text3)' }}>From meeting recaps</span>
-                </div>
-                <div style={{ padding: '6px 17px' }}>
-                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                    {client.priorities.filter(p => p.text.trim()).map((p, i, arr) => {
-                      const cfg = PRIORITY_CONFIG[p.status]
-                      const statusLabel = p.status === 'done' ? 'Done' : p.status === 'in_progress' ? 'In Progress' : 'Unresolved'
-                      return (
-                        <li
-                          key={i}
-                          style={{ display: 'flex', gap: 11, padding: '9px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', alignItems: 'flex-start' }}
-                        >
-                          <span style={{ width: 6, height: 6, borderRadius: '50%', marginTop: 7, flexShrink: 0, background: cfg.dot }} />
-                          <div>
-                            <div style={{ fontSize: 13, lineHeight: 1.45, color: 'var(--text)', textDecoration: cfg.strike ? 'line-through' : 'none', opacity: cfg.strike ? 0.7 : 1 }}>
-                              {p.text}
-                            </div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 2 }}>
-                              <b style={{ color: cfg.color, fontWeight: 600 }}>{statusLabel}</b>
-                            </div>
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              </div>
-            )}
-
-          </div>{/* /left column */}
-
-          {/* ===== Right column ===== */}
-          <div className="flex flex-col gap-5">
-
-        {/* ── Current Step To-Do's (NEW) ───────────────────────────────── */}
-        <CurrentStepTodos
-          currentStepNumber={currentStepNumber}
-          checklistRows={checklistRows}
-          checklistToggling={checklistToggling}
-          onToggleChecklist={toggleChecklistTask}
-          journeyRows={journeyRows}
-          stepStartMap={stepStartMap}
-        />
+            {/* ── Current Step To-Do's (NEW) — full width ──────────────────── */}
+            <CurrentStepTodos
+              currentStepNumber={currentStepNumber}
+              checklistRows={checklistRows}
+              checklistToggling={checklistToggling}
+              onToggleChecklist={toggleChecklistTask}
+              journeyRows={journeyRows}
+              stepStartMap={stepStartMap}
+            />
 
         {/* ── Emails — Pending (left) | Sent (right), side-by-side grid ──── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 20, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
         {/* Left column: Pending Emails */}
         <div>
         {emailDrafts.length > 0 && (
@@ -4170,11 +4129,150 @@ Today's date is ${today}.
         )}
         </div>{/* /right column: Sent Emails */}
         </div>{/* /emails grid */}
-
-          </div>{/* /right column */}
-        </div>{/* /two-column layout */}
+        </div>{/* /full-width stacked layout */}
 
         <div className="flex flex-col gap-5" style={{ marginTop: 24 }}>
+
+        {/* ── Recent Meeting Recaps (NEW) ───────────────────────────────── */}
+        <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+          <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Recent Meeting Recaps</h2>
+          </div>
+          {recentRecaps.length === 0 ? (
+            <div style={{ padding: '15px 17px', fontSize: 13, color: 'var(--text3)' }}>
+              No meeting recaps yet — recaps appear here after meetings are recorded
+            </div>
+          ) : (
+            <div>
+              {recentRecaps.map(({ row, stepNum, def }) => {
+                const dotColor = def ? STEP_TYPE_CONFIG[def.type].bar : 'var(--text3)'
+                const dateLabel = row.completed_at
+                  ? new Date(row.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  : ''
+                return (
+                  <div
+                    key={row.id ?? row.meeting_id}
+                    className="flex items-center"
+                    style={{ gap: 12, padding: '10px 17px', borderBottom: '1px solid var(--border)' }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: dotColor }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', fontFamily: 'monospace', flexShrink: 0 }}>
+                      STEP {String(stepNum).padStart(2, '0')}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {def?.title}
+                    </span>
+                    {dateLabel && (
+                      <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>{dateLabel}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/customers/${params.id}/meetings/${row.meeting_id}`)}
+                      style={{ ...workflowActionBtn, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', fontWeight: 600 }}
+                    >
+                      View Recap →
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>{/* /Recent Meeting Recaps */}
+
+        {/* ── Personality & Communication (moved · collapsible) ─────────── */}
+        {(client.personality_tags.length > 0 || hasInterests || hasComm || hasTip) && (
+        <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+          <button
+            type="button"
+            onClick={() => setIsPersonalityExpanded(v => !v)}
+            className="w-full flex items-center justify-between"
+            style={{ padding: '13px 17px', borderBottom: isPersonalityExpanded ? '1px solid var(--border)' : 'none', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+          >
+            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Personality &amp; Communication</h2>
+            <span style={{ color: 'var(--text3)', fontSize: 11, transition: 'transform 200ms ease', transform: isPersonalityExpanded ? 'none' : 'rotate(-90deg)' }}>▾</span>
+          </button>
+          {isPersonalityExpanded && (
+              <div style={{ padding: '15px 17px' }}>
+                {client.personality_tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5" style={{ marginBottom: 13 }}>
+                    {client.personality_tags.map(tag => (
+                      <span
+                        key={tag}
+                        style={{ fontSize: 12, fontWeight: 500, color: 'var(--text2)', border: '1px solid var(--border)', borderRadius: 99, padding: '4px 11px', background: 'var(--surface2)' }}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {hasInterests && (
+                  <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.55, margin: 0 }}>{client.key_interests}</p>
+                )}
+
+                {hasComm && (
+                  <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.55, margin: hasInterests ? '8px 0 0' : 0 }}>{client.communication_style}</p>
+                )}
+
+                {hasTip && (
+                  <div
+                    style={{ marginTop: 14, borderLeft: '3px solid var(--fable-red)', background: 'var(--red-soft)', borderRadius: '0 7px 7px 0', padding: '11px 14px' }}
+                  >
+                    <h3 className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.11em', color: 'var(--fable-red)', fontWeight: 700, marginBottom: 6 }}>
+                      How to communicate with {firstName}
+                    </h3>
+                    <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, margin: 0 }}>{client.ai_tip}</p>
+                  </div>
+                )}
+              </div>
+          )}
+        </div>
+        )}{/* /Personality & Communication */}
+
+        {/* ── Key Priorities (moved · collapsible) ──────────────────────── */}
+        {client.priorities.some(p => p.text.trim()) && (
+              <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsPrioritiesExpanded(v => !v)}
+                  className="w-full flex items-center justify-between"
+                  style={{ padding: '13px 17px', borderBottom: isPrioritiesExpanded ? '1px solid var(--border)' : 'none', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+                >
+                  <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Key Priorities</h2>
+                  <span className="flex items-center" style={{ gap: 10 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text3)' }}>From meeting recaps</span>
+                    <span style={{ color: 'var(--text3)', fontSize: 11, transition: 'transform 200ms ease', transform: isPrioritiesExpanded ? 'none' : 'rotate(-90deg)' }}>▾</span>
+                  </span>
+                </button>
+                {isPrioritiesExpanded && (
+                <div style={{ padding: '6px 17px' }}>
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                    {client.priorities.filter(p => p.text.trim()).map((p, i, arr) => {
+                      const cfg = PRIORITY_CONFIG[p.status]
+                      const statusLabel = p.status === 'done' ? 'Done' : p.status === 'in_progress' ? 'In Progress' : 'Unresolved'
+                      return (
+                        <li
+                          key={i}
+                          style={{ display: 'flex', gap: 11, padding: '9px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', alignItems: 'flex-start' }}
+                        >
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', marginTop: 7, flexShrink: 0, background: cfg.dot }} />
+                          <div>
+                            <div style={{ fontSize: 13, lineHeight: 1.45, color: 'var(--text)', textDecoration: cfg.strike ? 'line-through' : 'none', opacity: cfg.strike ? 0.7 : 1 }}>
+                              {p.text}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 2 }}>
+                              <b style={{ color: cfg.color, fontWeight: 600 }}>{statusLabel}</b>
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+                )}
+              </div>
+        )}{/* /Key Priorities */}
+
         {/* ── Standing Agenda (NEW) ─────────────────────────────────────── */}
         <StandingAgenda clientId={params.id} clientName={client.name} clientProjectAddress={client.project_address ?? ''} onToast={setToast} />
 
