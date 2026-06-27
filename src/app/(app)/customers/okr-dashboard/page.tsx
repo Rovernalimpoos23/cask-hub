@@ -39,6 +39,15 @@ const PHASE_META: Record<
 const MONTHLY_TARGET_PER_PM = 3 // each OKR: 3 per PM per month
 const QUARTER_TARGET_PER_PM = 9 // each OKR: 9 per PM per quarter
 
+// journey_checklists.meeting_code values that belong to each OKR phase
+// (e.g. 'step_06'). Derived from PHASE_META.steps so the two never drift:
+// Design → step_06..step_13, Permit → step_14..step_15, Contract → step_16..step_21.
+const PHASE_MEETING_CODES: Record<PhaseKey, Set<string>> = {
+  design: new Set(PHASE_META.design.steps.map(n => `step_${String(n).padStart(2, '0')}`)),
+  permit: new Set(PHASE_META.permit.steps.map(n => `step_${String(n).padStart(2, '0')}`)),
+  contract: new Set(PHASE_META.contract.steps.map(n => `step_${String(n).padStart(2, '0')}`)),
+}
+
 // ── Hardcoded reference data (from the Excel KPI tracker) ────────────────────
 // The following blocks are HARDCODED per spec. They mirror the Excel's static
 // reference tables — quarterly targets, historical NPS, departmental PIT goals,
@@ -125,6 +134,11 @@ interface StepStartRowDB {
   client_id: string
   step_number: number
   started_at: string | null
+}
+interface ChecklistRowDB {
+  client_id: string
+  meeting_code: string
+  completed: boolean
 }
 
 // ── Derived per-client shapes ────────────────────────────────────────────────
@@ -255,19 +269,22 @@ export default function OKRDashboardPage() {
   const [clients, setClients] = useState<ClientRowDB[]>([])
   const [completions, setCompletions] = useState<CompletionRowDB[]>([])
   const [starts, setStarts] = useState<StepStartRowDB[]>([])
+  const [checklistRows, setChecklistRows] = useState<ChecklistRowDB[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       const supabase = createClient()
-      const [{ data: c }, { data: comp }, { data: st }] = await Promise.all([
+      const [{ data: c }, { data: comp }, { data: st }, { data: chk }] = await Promise.all([
         supabase.from('clients').select('id, name, project_type, owner, location'),
         supabase.from('workflow_step_completions').select('client_id, step_number, completed_at'),
         supabase.from('journey_step_start').select('client_id, step_number, started_at'),
+        supabase.from('journey_checklists').select('client_id, meeting_code, completed'),
       ])
       setClients((c ?? []) as ClientRowDB[])
       setCompletions((comp ?? []) as CompletionRowDB[])
       setStarts((st ?? []) as StepStartRowDB[])
+      setChecklistRows((chk ?? []) as ChecklistRowDB[])
       setLoading(false)
     }
     load().catch(err => {
@@ -359,6 +376,28 @@ export default function OKRDashboardPage() {
       }
     })
   }, [clients, completions, starts])
+
+  // ── KPI task completion per client per phase (from journey_checklists) ───────
+  // client_id → phase → { total, completed }. Each checklist row is bucketed into
+  // its OKR phase by meeting_code (e.g. 'step_06' → design).
+  const taskStatsByClient = useMemo(() => {
+    const map = new Map<string, Record<PhaseKey, { total: number; completed: number }>>()
+    for (const r of checklistRows) {
+      let pk: PhaseKey | null = null
+      for (const k of PHASE_KEYS) {
+        if (PHASE_MEETING_CODES[k].has(r.meeting_code)) { pk = k; break }
+      }
+      if (!pk) continue
+      let rec = map.get(r.client_id)
+      if (!rec) {
+        rec = { design: { total: 0, completed: 0 }, permit: { total: 0, completed: 0 }, contract: { total: 0, completed: 0 } }
+        map.set(r.client_id, rec)
+      }
+      rec[pk].total += 1
+      if (r.completed === true) rec[pk].completed += 1
+    }
+    return map
+  }, [checklistRows])
 
   // ── Aggregations ───────────────────────────────────────────────────────────
   const inCurrentMonth = (d: Date | null) => !!d && etYMD(d).ym === nowYM
@@ -924,6 +963,9 @@ export default function OKRDashboardPage() {
                           const ps = phaseOf(c, k)
                           const meta = PHASE_META[k]
                           const pct = ps.total > 0 ? Math.round((ps.completedCount / ps.total) * 100) : 0
+                          // KPI task completion (journey_checklists) for this client/phase.
+                          const ts = taskStatsByClient.get(c.id)?.[k] ?? { total: 0, completed: 0 }
+                          const taskPct = ts.total > 0 ? Math.round((ts.completed / ts.total) * 100) : 0
                           return (
                             <div key={k}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 5 }}>
@@ -932,11 +974,29 @@ export default function OKRDashboardPage() {
                                   {ps.completedCount} of {ps.total} · {pct}%
                                 </span>
                               </div>
-                              <div style={{ position: 'relative' }}>
-                                <ProgressBar value={ps.completedCount} total={ps.total} color={meta.accent} />
-                                <span style={{ position: 'absolute', right: 0, top: 6, fontSize: 10, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                                  {pct}%
-                                </span>
+                              <ProgressBar value={ps.completedCount} total={ps.total} color={meta.accent} />
+
+                              {/* KPI task completion bar (journey_checklists) — added below the steps bar */}
+                              <div style={{ marginTop: 6 }}>
+                                {ts.total === 0 ? (
+                                  <div style={{ fontSize: 10, color: 'var(--text3)', fontStyle: 'italic' }}>
+                                    No tasks recorded yet
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 4 }}>
+                                      <span style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)' }}>
+                                        KPI Tasks
+                                      </span>
+                                      <span style={{ color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
+                                        {ts.completed} of {ts.total} tasks · {taskPct}%
+                                      </span>
+                                    </div>
+                                    <div style={{ height: 4, borderRadius: 99, background: 'var(--surface2)', overflow: 'hidden' }}>
+                                      <div style={{ height: 4, borderRadius: 99, width: `${taskPct}%`, background: meta.accent, opacity: 0.6, transition: 'width 200ms ease' }} />
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             </div>
                           )
