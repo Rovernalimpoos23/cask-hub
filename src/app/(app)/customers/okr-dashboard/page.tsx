@@ -14,6 +14,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import { WORKFLOW_STEPS } from '@/lib/workflow-steps'
 
 // ── Hardcoded constants (allowed by spec) ────────────────────────────────────
 // OKR phase → workflow step ranges (from Kai). A phase is "complete" only when
@@ -46,6 +47,21 @@ const PHASE_MEETING_CODES: Record<PhaseKey, Set<string>> = {
   design: new Set(PHASE_META.design.steps.map(n => `step_${String(n).padStart(2, '0')}`)),
   permit: new Set(PHASE_META.permit.steps.map(n => `step_${String(n).padStart(2, '0')}`)),
   contract: new Set(PHASE_META.contract.steps.map(n => `step_${String(n).padStart(2, '0')}`)),
+}
+
+// Fixed KPI task totals per phase — count ALL tasks across ALL roles for the steps
+// in each phase range from the workflow definition. This is the denominator for KPI
+// task completion so it stays constant regardless of how many checklist rows exist.
+const getFixedTaskTotal = (stepStart: number, stepEnd: number) =>
+  WORKFLOW_STEPS
+    .filter(s => s.step >= stepStart && s.step <= stepEnd)
+    .reduce((acc, step) =>
+      acc + step.roles.reduce((rAcc, role) => rAcc + role.tasks.length, 0), 0)
+
+const PHASE_TOTAL_TASKS: Record<PhaseKey, number> = {
+  design: getFixedTaskTotal(6, 13),
+  permit: getFixedTaskTotal(14, 15),
+  contract: getFixedTaskTotal(16, 21),
 }
 
 // ── Hardcoded reference data (from the Excel KPI tracker) ────────────────────
@@ -963,9 +979,12 @@ export default function OKRDashboardPage() {
                           const ps = phaseOf(c, k)
                           const meta = PHASE_META[k]
                           const pct = ps.total > 0 ? Math.round((ps.completedCount / ps.total) * 100) : 0
-                          // KPI task completion (journey_checklists) for this client/phase.
+                          // KPI task completion: completed comes from journey_checklists (rows
+                          // only exist when checked); the denominator is the FIXED total of all
+                          // workflow tasks in the phase range, so the percentage is meaningful.
                           const ts = taskStatsByClient.get(c.id)?.[k] ?? { total: 0, completed: 0 }
-                          const taskPct = ts.total > 0 ? Math.round((ts.completed / ts.total) * 100) : 0
+                          const taskTotal = PHASE_TOTAL_TASKS[k]
+                          const taskPct = taskTotal > 0 ? Math.round((ts.completed / taskTotal) * 100) : 0
                           return (
                             <div key={k}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 5 }}>
@@ -978,7 +997,7 @@ export default function OKRDashboardPage() {
 
                               {/* KPI task completion bar (journey_checklists) — added below the steps bar */}
                               <div style={{ marginTop: 6 }}>
-                                {ts.total === 0 ? (
+                                {taskTotal === 0 ? (
                                   <div style={{ fontSize: 10, color: 'var(--text3)', fontStyle: 'italic' }}>
                                     No tasks recorded yet
                                   </div>
@@ -989,7 +1008,7 @@ export default function OKRDashboardPage() {
                                         KPI Tasks
                                       </span>
                                       <span style={{ color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
-                                        {ts.completed} of {ts.total} tasks · {taskPct}%
+                                        {ts.completed} of {taskTotal} tasks · {taskPct}%
                                       </span>
                                     </div>
                                     <div style={{ height: 4, borderRadius: 99, background: 'var(--surface2)', overflow: 'hidden' }}>
