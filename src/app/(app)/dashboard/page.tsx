@@ -847,6 +847,9 @@ export default function DashboardPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
   const [firstName, setFirstName] = useState('')
+  // NEW (additive): the user's role from the users table, used to decide whether
+  // they see every owner's action items or only their own.
+  const [userRole, setUserRole] = useState('')
   const [greeting, setGreeting] = useState('Good morning')
   const [calendarEvents, setCalendarEvents] = useState<TodayEvent[]>([])
   const [calendarLoading, setCalendarLoading] = useState(true)
@@ -910,11 +913,12 @@ export default function DashboardPage() {
       if (!user?.email) return
       const { data: userData } = await supabase
         .from('users')
-        .select('name')
+        .select('name, role')
         .eq('email', user.email)
         .single()
       const name = userData?.name?.split(' ')[0] || ''
       setFirstName(name)
+      setUserRole(userData?.role ?? '')
     })
     const handler = () => { loadMeetings(); router.refresh() }
     window.addEventListener('cask-meeting-saved', handler)
@@ -1297,6 +1301,65 @@ export default function DashboardPage() {
       .sort((a, b) => b.overdue - a.overdue || b.items.length - a.items.length)
   })()
 
+  // ── NEW (additive): personal action-items view for non-leadership users ──────
+  // Leadership roles (president, ea, ai_specialist) keep the existing full board.
+  // Everyone else (vp_sales, ops_manager, vp_ops…) sees only their OWN open items,
+  // with a "View all team items" toggle to reveal everyone.
+  const currentFirst = firstName.trim()
+  const canSeeAllItems = ['president', 'ea', 'ai_specialist'].includes(userRole.toLowerCase())
+
+  // Open items across EVERY owner (not just the core board), grouped + sorted the
+  // same way as ownerGroups, then with the current user's own group floated first.
+  const allOpenActions = actionItems.filter(a => !a.done)
+  const allOwnerGroups = (() => {
+    const map = new Map<string, ActionItemX[]>()
+    for (const a of allOpenActions) {
+      const first = a.owner.trim().split(' ')[0]
+      const name = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+      const list = map.get(name) ?? []
+      list.push(a)
+      map.set(name, list)
+    }
+    const groups = Array.from(map.entries())
+      .map(([name, items]) => ({
+        name,
+        items: [...items].sort((x, y) => {
+          const PRANK: Record<Priority, number> = { high: 0, medium: 1, low: 2 }
+          const xp = PRANK[x.priority ?? 'low']
+          const yp = PRANK[y.priority ?? 'low']
+          if (xp !== yp) return xp - yp
+          const xo = isOverdue(x) ? 0 : 1
+          const yo = isOverdue(y) ? 0 : 1
+          if (xo !== yo) return xo - yo
+          return (x.due_date || '9999').localeCompare(y.due_date || '9999')
+        }),
+        overdue: items.filter(isOverdue).length,
+      }))
+      .sort((a, b) => b.overdue - a.overdue || b.items.length - a.items.length)
+    // Float the current user's own group to the very top (stable otherwise).
+    return groups.sort((a, b) => {
+      const am = a.name.toLowerCase() === currentFirst.toLowerCase() ? 0 : 1
+      const bm = b.name.toLowerCase() === currentFirst.toLowerCase() ? 0 : 1
+      return am - bm
+    })
+  })()
+  const myGroup = currentFirst
+    ? allOwnerGroups.find(g => g.name.toLowerCase() === currentFirst.toLowerCase()) ?? null
+    : null
+  const otherGroups = allOwnerGroups.filter(g => g !== myGroup)
+  const myOverdueActions = (myGroup?.items ?? []).filter(isOverdue)
+
+  // Overdue banner source: leadership sees the whole core board; everyone else
+  // sees only their own overdue count (so they never see "45 of them Calin's").
+  const bannerOverdueActions = canSeeAllItems ? overdueActions : myOverdueActions
+  const bannerOverdueCount = bannerOverdueActions.length
+  const bannerOldestOverdue = canSeeAllItems
+    ? oldestOverdue
+    : bannerOverdueActions.reduce<ActionItem | null>(
+        (o, a) => (!o || a.due_date < o.due_date ? a : o),
+        null
+      )
+
   const briefingLabel =
     greeting === 'Good morning' ? 'Morning Briefing'
     : greeting === 'Good afternoon' ? 'Afternoon Briefing'
@@ -1326,6 +1389,175 @@ export default function DashboardPage() {
         task: t.task,
       }))
   })
+
+  // ── NEW (additive): owner-group renderers ──────────────────────────────────
+  // Extracted verbatim from the inline render so the same card can be reused for
+  // both the leadership board and the personal-first view. Behavior unchanged.
+  type OwnerGroup = { name: string; items: ActionItemX[]; overdue: number }
+
+  function renderOwnerGroupCard(group: OwnerGroup) {
+    const expanded = !!expandedOwners[group.name]
+    const visible = expanded ? group.items : group.items.slice(0, 3)
+    const hidden = group.items.length - visible.length
+    return (
+      <div
+        key={group.name}
+        className="fb-rise"
+        style={{
+          border: '1px solid var(--fable-line, var(--border))',
+          borderRadius: 'var(--fable-radius)',
+          background: 'var(--surface)',
+          overflow: 'hidden',
+          marginBottom: 14,
+        }}
+      >
+        {/* Owner header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            padding: '10px 14px',
+            background: 'var(--surface2)',
+            borderBottom: '1px solid var(--fable-line-soft, var(--border))',
+          }}
+        >
+          <span
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: '50%',
+              background: 'var(--charcoal)',
+              color: '#fff',
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: 9.5,
+              fontWeight: 600,
+              flexShrink: 0,
+            }}
+          >
+            {group.name.charAt(0)}
+          </span>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{group.name}</span>
+          <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text3)', ...NUM }}>
+            {group.overdue > 0 && (
+              <>
+                <b style={{ color: 'var(--fable-red)', fontWeight: 650 }}>{group.overdue} overdue</b>
+                {' · '}
+              </>
+            )}
+            {group.items.length} open
+          </span>
+        </div>
+
+        {/* Tasks */}
+        {visible.map(item => {
+          const over = isOverdue(item)
+          return (
+            <div
+              key={item.id}
+              className="fb-task"
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 11,
+                padding: '11px 14px',
+                borderBottom: '1px solid var(--fable-line-soft, var(--border))',
+                transition: 'background 150ms ease',
+              }}
+            >
+              <button
+                className="fb-cb"
+                role="checkbox"
+                aria-checked="false"
+                title="Mark complete"
+                onClick={() => handleBottomToggle(item, true)}
+                style={{
+                  width: 15,
+                  height: 15,
+                  border: '1.5px solid var(--border2)',
+                  borderRadius: 4,
+                  flexShrink: 0,
+                  marginTop: 2,
+                  cursor: 'pointer',
+                  background: 'transparent',
+                  padding: 0,
+                  transition: 'border-color 150ms ease',
+                }}
+              />
+              {/* Priority dot — inline before the task text */}
+              <div style={{ marginTop: 3 }}>
+                <PriorityDot priority={item.priority} onChange={p => handlePriorityChange(item, p)} />
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--text)' }}>{item.task}</div>
+                {item.meeting_title && (
+                  <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 2 }}>
+                    From: {item.meeting_title}
+                    {item.meeting_date
+                      ? ` · ${new Date(item.meeting_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
+                      : ''}
+                  </div>
+                )}
+              </div>
+              <span
+                style={{
+                  marginLeft: 'auto',
+                  flexShrink: 0,
+                  fontSize: 11,
+                  fontWeight: 550,
+                  paddingTop: 2,
+                  whiteSpace: 'nowrap',
+                  color: over ? 'var(--fable-red)' : 'var(--text3)',
+                  ...NUM,
+                }}
+              >
+                {item.due_date ? fmtDue(item.due_date) : 'No due date'}
+                {over && (
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      marginLeft: 6,
+                      background: 'var(--fable-red-soft)',
+                      padding: '1px 6px',
+                      borderRadius: 5,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {overdueDays(item)}d
+                  </span>
+                )}
+              </span>
+            </div>
+          )
+        })}
+
+        {/* Show more / less */}
+        {(hidden > 0 || expanded) && (
+          <button
+            className="fb-show-more"
+            onClick={() => setExpandedOwners(prev => ({ ...prev, [group.name]: !expanded }))}
+            style={{
+              display: 'block',
+              width: '100%',
+              textAlign: 'center',
+              padding: 9,
+              fontSize: 11.5,
+              fontWeight: 500,
+              color: 'var(--text3)',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              transition: 'color 150ms ease',
+            }}
+          >
+            {expanded ? 'Show less' : `Show ${hidden} more from ${group.name}`}
+          </button>
+        )}
+      </div>
+    )
+  }
 
   return (
     <>
@@ -1531,12 +1763,13 @@ export default function DashboardPage() {
                 ) : (
                   `${calendarEvents.length} event${calendarEvents.length === 1 ? '' : 's'} on today’s calendar.`
                 )}{' '}
-                {actionItemsLoading ? null : overdueActions.length > 0 ? (
+                {actionItemsLoading ? null : bannerOverdueCount > 0 ? (
                   <>
                     <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
-                      {overdueActions.length} action item{overdueActions.length === 1 ? ' is' : 's are'} past due
+                      {bannerOverdueCount} action item{bannerOverdueCount === 1 ? ' is' : 's are'} past due
                     </em>
-                    {ownerGroups[0] && ownerGroups[0].overdue > 1
+                    {/* Owner attribution only for leadership; everyone else sees just their own count. */}
+                    {canSeeAllItems && ownerGroups[0] && ownerGroups[0].overdue > 1
                       ? `, ${ownerGroups[0].overdue} of them ${ownerGroups[0].name}’s.`
                       : '.'}
                   </>
@@ -1768,7 +2001,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Overdue alert strip */}
-            {!actionItemsLoading && overdueActions.length > 0 && (
+            {!actionItemsLoading && bannerOverdueCount > 0 && (
               <div
                 style={{
                   display: 'flex',
@@ -1790,9 +2023,9 @@ export default function DashboardPage() {
                 </svg>
                 <span>
                   <b style={{ fontWeight: 650 }}>
-                    {overdueActions.length} item{overdueActions.length === 1 ? '' : 's'} overdue
+                    {bannerOverdueCount} item{bannerOverdueCount === 1 ? '' : 's'} overdue
                   </b>
-                  {oldestOverdue ? ` — oldest open since ${fmtDue(oldestOverdue.due_date)}` : ''}
+                  {bannerOldestOverdue ? ` — oldest open since ${fmtDue(bannerOldestOverdue.due_date)}` : ''}
                 </span>
               </div>
             )}
@@ -1803,178 +2036,32 @@ export default function DashboardPage() {
                   <div key={i} className="shimmer" style={{ height: 54, borderRadius: 8, border: '1px solid var(--border)' }} />
                 ))}
               </div>
-            ) : ownerGroups.length === 0 ? (
+            ) : canSeeAllItems ? (
+              /* ===== Leadership board — existing behavior, unchanged ===== */
+              ownerGroups.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--text3)', padding: '8px 0' }}>
+                  No open action items. 🎉
+                </div>
+              ) : (
+                ownerGroups.map(group => renderOwnerGroupCard(group))
+              )
+            ) : myGroup || otherGroups.length > 0 ? (
+              /* ===== Personal view (Jeff, Matteo, Chad…) — own items only ===== */
+              myGroup ? (
+                renderOwnerGroupCard(myGroup)
+              ) : (
+                <div style={{ fontSize: 12.5, color: 'var(--text3)', padding: '8px 0', marginBottom: 4 }}>
+                  You have no open action items. 🎉
+                </div>
+              )
+            ) : (
               <div style={{ fontSize: 12.5, color: 'var(--text3)', padding: '8px 0' }}>
                 No open action items. 🎉
               </div>
-            ) : (
-              ownerGroups.map(group => {
-                const expanded = !!expandedOwners[group.name]
-                const visible = expanded ? group.items : group.items.slice(0, 3)
-                const hidden = group.items.length - visible.length
-                return (
-                  <div
-                    key={group.name}
-                    className="fb-rise"
-                    style={{
-                      border: '1px solid var(--fable-line, var(--border))',
-                      borderRadius: 'var(--fable-radius)',
-                      background: 'var(--surface)',
-                      overflow: 'hidden',
-                      marginBottom: 14,
-                    }}
-                  >
-                    {/* Owner header */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 9,
-                        padding: '10px 14px',
-                        background: 'var(--surface2)',
-                        borderBottom: '1px solid var(--fable-line-soft, var(--border))',
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          background: 'var(--charcoal)',
-                          color: '#fff',
-                          display: 'grid',
-                          placeItems: 'center',
-                          fontSize: 9.5,
-                          fontWeight: 600,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {group.name.charAt(0)}
-                      </span>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{group.name}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text3)', ...NUM }}>
-                        {group.overdue > 0 && (
-                          <>
-                            <b style={{ color: 'var(--fable-red)', fontWeight: 650 }}>{group.overdue} overdue</b>
-                            {' · '}
-                          </>
-                        )}
-                        {group.items.length} open
-                      </span>
-                    </div>
-
-                    {/* Tasks */}
-                    {visible.map(item => {
-                      const over = isOverdue(item)
-                      return (
-                        <div
-                          key={item.id}
-                          className="fb-task"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: 11,
-                            padding: '11px 14px',
-                            borderBottom: '1px solid var(--fable-line-soft, var(--border))',
-                            transition: 'background 150ms ease',
-                          }}
-                        >
-                          <button
-                            className="fb-cb"
-                            role="checkbox"
-                            aria-checked="false"
-                            title="Mark complete"
-                            onClick={() => handleBottomToggle(item, true)}
-                            style={{
-                              width: 15,
-                              height: 15,
-                              border: '1.5px solid var(--border2)',
-                              borderRadius: 4,
-                              flexShrink: 0,
-                              marginTop: 2,
-                              cursor: 'pointer',
-                              background: 'transparent',
-                              padding: 0,
-                              transition: 'border-color 150ms ease',
-                            }}
-                          />
-                          {/* Priority dot — inline before the task text */}
-                          <div style={{ marginTop: 3 }}>
-                            <PriorityDot priority={item.priority} onChange={p => handlePriorityChange(item, p)} />
-                          </div>
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--text)' }}>{item.task}</div>
-                            {item.meeting_title && (
-                              <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 2 }}>
-                                From: {item.meeting_title}
-                                {item.meeting_date
-                                  ? ` · ${new Date(item.meeting_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
-                                  : ''}
-                              </div>
-                            )}
-                          </div>
-                          <span
-                            style={{
-                              marginLeft: 'auto',
-                              flexShrink: 0,
-                              fontSize: 11,
-                              fontWeight: 550,
-                              paddingTop: 2,
-                              whiteSpace: 'nowrap',
-                              color: over ? 'var(--fable-red)' : 'var(--text3)',
-                              ...NUM,
-                            }}
-                          >
-                            {item.due_date ? fmtDue(item.due_date) : 'No due date'}
-                            {over && (
-                              <span
-                                style={{
-                                  display: 'inline-block',
-                                  marginLeft: 6,
-                                  background: 'var(--fable-red-soft)',
-                                  padding: '1px 6px',
-                                  borderRadius: 5,
-                                  fontWeight: 600,
-                                }}
-                              >
-                                {overdueDays(item)}d
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      )
-                    })}
-
-                    {/* Show more / less */}
-                    {(hidden > 0 || expanded) && (
-                      <button
-                        className="fb-show-more"
-                        onClick={() => setExpandedOwners(prev => ({ ...prev, [group.name]: !expanded }))}
-                        style={{
-                          display: 'block',
-                          width: '100%',
-                          textAlign: 'center',
-                          padding: 9,
-                          fontSize: 11.5,
-                          fontWeight: 500,
-                          color: 'var(--text3)',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          transition: 'color 150ms ease',
-                        }}
-                      >
-                        {expanded ? 'Show less' : `Show ${hidden} more from ${group.name}`}
-                      </button>
-                    )}
-                  </div>
-                )
-              })
             )}
 
-            {/* Bottom CTA → full Action Items page */}
-            {!actionItemsLoading && ownerGroups.length > 0 && (
+            {/* Bottom CTA → full Action Items page (leadership only) */}
+            {!actionItemsLoading && canSeeAllItems && ownerGroups.length > 0 && (
               <Link
                 href="/actions"
                 className="fb-show-more"
@@ -2241,7 +2328,9 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* Yesterday's Meetings — moved below Row 3 (full width) */}
+        {/* Yesterday's Meetings — moved below Row 3 (full width).
+            Visible for ALL roles — gated ONLY by data presence (never by user
+            role/canSeeAllItems). Do not wrap this in a role condition. */}
         {yesterdayMeetings.length > 0 && (
           <section aria-label="Yesterday's meetings">
             <div

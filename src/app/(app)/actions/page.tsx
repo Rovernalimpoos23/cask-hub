@@ -462,8 +462,10 @@ function FloatingActionsAI() {
 export default function ActionsPage() {
   const [items, setItems] = useState<ActionItemX[]>([])
   const [loading, setLoading] = useState(true)
-  const [ownerFilter, setOwnerFilter] = useState('Mine')
+  const [ownerFilter, setOwnerFilter] = useState('My Items')
   const [showAll, setShowAll] = useState(false)
+  // NEW (additive): current user's first name, powering the "My Items" filter.
+  const [currentUserFirstName, setCurrentUserFirstName] = useState('')
 
   function isCoreOwner(owner: string) {
     const o = owner.toLowerCase().trim()
@@ -512,13 +514,40 @@ export default function ActionsPage() {
       })
   }, [])
 
+  // NEW (additive): resolve the logged-in user's first name so we can default to
+  // and power the "My Items" filter. Does not affect the existing item fetch.
+  useEffect(() => {
+    async function loadCurrentUser() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: publicUser } = await supabase
+        .from('users')
+        .select('name')
+        .eq('email', user?.email ?? '')
+        .maybeSingle()
+      setCurrentUserFirstName(publicUser?.name?.split(' ')[0] ?? '')
+    }
+    loadCurrentUser()
+  }, [])
+
   const baseItems = showAll ? items : items.filter(a => isCoreOwner(a.owner))
 
-  const filtered = ownerFilter === 'All' || ownerFilter === 'Mine'
-    ? baseItems
-    : baseItems.filter(item =>
-        item.owner.toLowerCase().includes(ownerFilter.toLowerCase())
-      )
+  // NEW (additive): "My Items" — the current user's own items, matched by first
+  // name appearing in the owner field (case-insensitive). Drawn from the full
+  // item list (not baseItems) so they show regardless of the core-owner filter.
+  const myItems = currentUserFirstName
+    ? items.filter(a => a.owner.toLowerCase().includes(currentUserFirstName.toLowerCase()))
+    : []
+  const myOpenCount = myItems.filter(a => !a.done).length
+
+  const filtered =
+    ownerFilter === 'My Items'
+      ? myItems
+      : ownerFilter === 'All' || ownerFilter === 'Mine'
+      ? baseItems
+      : baseItems.filter(item =>
+          item.owner.toLowerCase().includes(ownerFilter.toLowerCase())
+        )
 
   const openItems = filtered.filter(a => !a.done).sort(byPriorityThenDue)
   const completedItems = filtered.filter(a => a.done).sort(byPriorityThenDue)
@@ -628,6 +657,32 @@ export default function ActionsPage() {
         {/* Owner filter */}
         <div className="flex items-center gap-1.5 mb-6 pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex gap-1.5 flex-1 flex-wrap">
+            {/* NEW (additive): "My Items" — current user's own items, first tab.
+                Existing "All" and per-owner tabs below are untouched. */}
+            <button
+              onClick={() => setOwnerFilter('My Items')}
+              className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-all duration-150 inline-flex items-center gap-1.5"
+              style={{
+                background: ownerFilter === 'My Items' ? 'var(--charcoal)' : 'none',
+                color: ownerFilter === 'My Items' ? 'white' : 'var(--text3)',
+                border: ownerFilter === 'My Items' ? '1px solid var(--charcoal)' : '1px solid var(--border)',
+                fontFamily: 'var(--font-geist), sans-serif',
+                cursor: 'pointer',
+              }}
+            >
+              My Items
+              <span
+                className="text-[10px] font-semibold rounded-full"
+                style={{
+                  padding: '0 6px',
+                  background: ownerFilter === 'My Items' ? 'rgba(255,255,255,0.22)' : 'var(--red-soft)',
+                  color: ownerFilter === 'My Items' ? 'white' : 'var(--red)',
+                  border: ownerFilter === 'My Items' ? '1px solid rgba(255,255,255,0.25)' : '1px solid var(--red-border)',
+                }}
+              >
+                {loading ? '…' : myOpenCount}
+              </span>
+            </button>
             {OWNER_FILTERS.map(f => (
               <button
                 key={f}
