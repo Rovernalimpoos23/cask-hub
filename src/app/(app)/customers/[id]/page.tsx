@@ -77,6 +77,18 @@ interface EmailDraft {
   sent_at?: string | null
 }
 
+// NEW (additive): a file uploaded to Supabase Storage for this client.
+interface ClientFile {
+  id: string
+  client_id: string
+  file_name: string
+  file_path: string
+  file_size: number
+  file_type: string
+  uploaded_by: string | null
+  uploaded_at: string
+}
+
 interface JourneyMeetingDef {
   code: string
   title: string
@@ -328,6 +340,24 @@ function editBlur(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | H
 
 function formatCurrency(v: number) {
   return '$' + v.toLocaleString('en-US')
+}
+
+// NEW (additive): human-readable file size (KB / MB) for the Project Files list.
+function formatFileSize(bytes: number): string {
+  if (bytes == null || Number.isNaN(bytes)) return ''
+  if (bytes < 1024) return `${bytes} B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${Math.round(kb)} KB`
+  return `${(kb / 1024).toFixed(1)} MB`
+}
+
+// NEW (additive): pick a file icon from MIME type (falling back to extension).
+function fileIcon(type: string, name: string): string {
+  const t = (type || '').toLowerCase()
+  const n = (name || '').toLowerCase()
+  if (t.includes('image') || /\.(jpe?g|png|gif|webp)$/.test(n)) return '🖼'
+  if (t.includes('sheet') || t.includes('excel') || /\.(xlsx?|csv)$/.test(n)) return '📊'
+  return '📄'
 }
 
 // Strip HTML/markdown noise and clamp to a short, single-line summary.
@@ -2310,6 +2340,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [editForm, setEditForm] = useState<EditClientForm | null>(null)
   const [savingClient, setSavingClient] = useState(false)
 
+  // ── Project Files state (NEW · additive · client_files table) ───────────────
+  const [clientFiles, setClientFiles] = useState<ClientFile[]>([])
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Captured on load so uploads can stamp uploaded_by without re-fetching auth.
+  const fileUserIdRef = useRef<string | null>(null)
+
   // ── Role-based checklist state (journey_checklists) ─────────────────────────
   const [checklistRows, setChecklistRows] = useState<Map<string, ChecklistRowState>>(new Map())
   const [checklistToggling, setChecklistToggling] = useState<Set<string>>(new Set())
@@ -2422,6 +2461,34 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       }
     }
     fetchChecklist()
+  }, [params.id])
+
+  // ── Fetch this client's uploaded files (NEW · additive) ─────────────────────
+  // Loads once on mount; local state is the source of truth thereafter (upload /
+  // delete update it directly). Also captures the current user id for uploaded_by.
+  useEffect(() => {
+    async function fetchClientFiles() {
+      const supabase = createClient()
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+
+      // client_files.uploaded_by references the public `users` table, whose ids
+      // differ from the Supabase auth user id. Look up the matching public user
+      // by email so uploads record a valid FK (fixes "could not be recorded").
+      const { data: publicUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', authUser?.email ?? '')
+        .single()
+      fileUserIdRef.current = publicUser?.id ?? null
+
+      const { data } = await supabase
+        .from('client_files')
+        .select('*')
+        .eq('client_id', params.id)
+        .order('uploaded_at', { ascending: false })
+      if (data) setClientFiles(data as ClientFile[])
+    }
+    fetchClientFiles()
   }, [params.id])
 
   useEffect(() => {
@@ -3119,6 +3186,94 @@ Today's date is ${today}.
       return tb - ta
     })
     .slice(0, 4)
+
+  // ── Project Files handlers (NEW · additive) ─────────────────────────────────
+  const MAX_FILE_BYTES = 10 * 1024 * 1024
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    // Reset the input so re-selecting the same file fires onChange again.
+    e.target.value = ''
+    if (!file) return
+    setFileError(null)
+
+    if (file.size > MAX_FILE_BYTES) {
+      setFileError('File too large — maximum size is 10MB.')
+      return
+    }
+
+    setUploadingFile(true)
+    try {
+      const supabase = createClient()
+      const filePath = `${params.id}/${Date.now()}_${file.name}`
+
+      const { error: uploadErr } = await supabase.storage
+        .from('client-files')
+        .upload(filePath, file)
+      if (uploadErr) {
+        setFileError('Upload failed — please try again.')
+        return
+      }
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('client_files')
+        .insert({
+          client_id: params.id,
+          file_name: file.name,
+          file_path: filePath,
+          file_size: file.size,
+          file_type: file.type,
+          uploaded_by: fileUserIdRef.current,
+        })
+        .select()
+        .single()
+      if (insertErr || !inserted) {
+        setFileError('File uploaded but could not be recorded — please refresh.')
+        return
+      }
+
+      setClientFiles(prev => [inserted as ClientFile, ...prev])
+    } catch (err) {
+      console.error('[client-files] upload error:', err)
+      setFileError('Upload failed — please try again.')
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
+  async function handleFileDownload(file: ClientFile) {
+    setFileError(null)
+    const supabase = createClient()
+    const { data, error } = await supabase.storage
+      .from('client-files')
+      .createSignedUrl(file.file_path, 3600)
+    if (error || !data?.signedUrl) {
+      setFileError('Could not generate a download link — please try again.')
+      return
+    }
+    window.open(data.signedUrl, '_blank')
+  }
+
+  async function handleFileDelete(file: ClientFile) {
+    if (!window.confirm(`Delete "${file.file_name}"? This cannot be undone.`)) return
+    setFileError(null)
+    setDeletingFileId(file.id)
+    try {
+      const supabase = createClient()
+      await supabase.storage.from('client-files').remove([file.file_path])
+      const { error } = await supabase.from('client_files').delete().eq('id', file.id)
+      if (error) {
+        setFileError('Delete failed — please try again.')
+        return
+      }
+      setClientFiles(prev => prev.filter(f => f.id !== file.id))
+    } catch (err) {
+      console.error('[client-files] delete error:', err)
+      setFileError('Delete failed — please try again.')
+    } finally {
+      setDeletingFileId(null)
+    }
+  }
 
   // Shared button style for the next-step actions
   const nextBtn: React.CSSProperties = {
@@ -4206,6 +4361,116 @@ Today's date is ${today}.
             </div>
           )}
         </div>{/* /Recent Meeting Recaps */}
+
+        {/* ── Project Files (NEW · additive) ────────────────────────────── */}
+        <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+          {/* Hidden file input — drives the "+ Upload File" / browse buttons */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx"
+            onChange={handleFileUpload}
+            style={{ display: 'none' }}
+          />
+
+          {/* Header */}
+          <div className="flex items-center justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Project Files</h2>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingFile}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
+                color: 'var(--fable-red)', background: 'var(--white)', border: '1px solid var(--border)',
+                padding: '4px 10px', borderRadius: 5, whiteSpace: 'nowrap',
+                cursor: uploadingFile ? 'not-allowed' : 'pointer', opacity: uploadingFile ? 0.5 : 1, fontFamily: 'inherit',
+              }}
+            >
+              + Upload File
+            </button>
+          </div>
+
+          {/* Upload area / status */}
+          <div style={{ padding: '12px 17px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingFile}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
+                color: 'var(--fable-red)', background: 'var(--white)', border: '1px solid var(--border)',
+                padding: '6px 12px', borderRadius: 6, whiteSpace: 'nowrap',
+                cursor: uploadingFile ? 'not-allowed' : 'pointer', opacity: uploadingFile ? 0.5 : 1, fontFamily: 'inherit',
+              }}
+            >
+              {uploadingFile ? 'Uploading…' : 'Click to browse'}
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              PDF, Word, Excel or images · max 10MB
+            </span>
+            {fileError && (
+              <span style={{ fontSize: 11, color: 'var(--fable-red)', fontWeight: 500 }}>{fileError}</span>
+            )}
+          </div>
+
+          {/* File list */}
+          {clientFiles.length === 0 ? (
+            <div style={{ padding: '15px 17px', fontSize: 13, color: 'var(--text3)' }}>
+              No files uploaded yet — upload plans, permits, or documents for this client
+            </div>
+          ) : (
+            <div>
+              {clientFiles.map(file => {
+                const dateLabel = file.uploaded_at
+                  ? new Date(file.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : ''
+                return (
+                  <div
+                    key={file.id}
+                    className="flex items-center"
+                    style={{ gap: 12, padding: '10px 17px', borderBottom: '1px solid var(--border)' }}
+                  >
+                    <span style={{ fontSize: 16, marginRight: 8, flexShrink: 0 }}>{fileIcon(file.file_type, file.file_name)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {file.file_name}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>{formatFileSize(file.file_size)}</span>
+                    {dateLabel && (
+                      <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>{dateLabel}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleFileDownload(file)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 500,
+                        color: 'var(--text2)', background: 'var(--white)', border: '1px solid var(--border)',
+                        padding: '4px 9px', borderRadius: 5, whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+                      }}
+                    >
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFileDelete(file)}
+                      disabled={deletingFileId === file.id}
+                      title="Delete file"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24,
+                        fontSize: 13, fontWeight: 700, lineHeight: 1,
+                        color: '#dc2626', background: 'var(--white)', border: '1px solid var(--red-border, #f5c9c2)',
+                        borderRadius: 5, cursor: deletingFileId === file.id ? 'not-allowed' : 'pointer',
+                        opacity: deletingFileId === file.id ? 0.5 : 1, fontFamily: 'inherit', flexShrink: 0,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>{/* /Project Files */}
 
         {/* ── Personality & Communication (moved · collapsible) ─────────── */}
         {(client.personality_tags.length > 0 || hasInterests || hasComm || hasTip) && (

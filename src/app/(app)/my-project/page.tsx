@@ -289,6 +289,17 @@ interface AgendaHeaderRow {
 
 interface AgendaAnswerEntry { answer: string; selected_options: string[] }
 
+// NEW (additive): a file shared with the customer (read-only on this page).
+interface ProjectFile {
+  id: string
+  client_id: string
+  file_name: string
+  file_path: string
+  file_size: number
+  file_type: string
+  uploaded_at: string
+}
+
 function agendaKey(sectionCode: string, questionKey: string) {
   return `${sectionCode}||${questionKey}`
 }
@@ -305,6 +316,23 @@ function normalizeOptions(raw: unknown): string[] {
     }
   }
   return []
+}
+
+// NEW (additive): human-readable file size + icon for the Your Project Files list.
+function fmtFileSize(bytes: number): string {
+  if (bytes == null || Number.isNaN(bytes)) return ''
+  if (bytes < 1024) return `${bytes} B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${Math.round(kb)} KB`
+  return `${(kb / 1024).toFixed(1)} MB`
+}
+
+function fileIcon(type: string, name: string): string {
+  const t = (type || '').toLowerCase()
+  const n = (name || '').toLowerCase()
+  if (t.includes('image') || /\.(jpe?g|png|gif|webp)$/.test(n)) return '🖼'
+  if (t.includes('sheet') || t.includes('excel') || /\.(xlsx?|csv)$/.test(n)) return '📊'
+  return '📄'
 }
 
 function fmtCurrency(value: number | null | undefined): string {
@@ -374,6 +402,8 @@ export default function MyProjectPage() {
   const [agendaHeader, setAgendaHeader] = useState<AgendaHeaderRow | null>(null)
   const [answers, setAnswers] = useState<Map<string, AgendaAnswerEntry>>(new Map())
   const [openSections, setOpenSections] = useState<Set<string>>(new Set())
+  // NEW (additive): files shared with this customer (read-only).
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([])
 
   useEffect(() => {
     async function load() {
@@ -403,15 +433,17 @@ export default function MyProjectPage() {
         }
         setClient(clientRow)
 
-        // 4-6. Completed steps, agenda header, agenda answers — in parallel.
-        const [{ data: completions }, { data: header }, { data: agendaAnswers }] = await Promise.all([
+        // 4-7. Completed steps, agenda header, agenda answers, shared files — in parallel.
+        const [{ data: completions }, { data: header }, { data: agendaAnswers }, { data: files }] = await Promise.all([
           supabase.from('workflow_step_completions').select('step_number').eq('client_id', clientRow.id),
           supabase.from('client_agenda_header').select('*').eq('client_id', clientRow.id).maybeSingle(),
           supabase.from('client_standing_agenda').select('*').eq('client_id', clientRow.id),
+          supabase.from('client_files').select('*').eq('client_id', clientRow.id).order('uploaded_at', { ascending: false }),
         ])
 
         setCompletedSteps(new Set((completions ?? []).map((c: { step_number: number }) => c.step_number)))
         setAgendaHeader((header as AgendaHeaderRow | null) ?? null)
+        setProjectFiles((files as ProjectFile[] | null) ?? [])
 
         const map = new Map<string, AgendaAnswerEntry>()
         for (const r of (agendaAnswers ?? []) as { section_code: string; question_key: string; answer: string | null; selected_options: unknown }[]) {
@@ -447,6 +479,19 @@ export default function MyProjectPage() {
     { label: 'Zoning', value: agendaHeader?.zoning ?? '' },
   ]
   const selectedConditions = agendaHeader?.special_conditions ?? []
+
+  // NEW (additive): open a shared file via a short-lived signed URL.
+  async function handleFileDownload(file: ProjectFile) {
+    const supabase = createClient()
+    const { data, error } = await supabase.storage
+      .from('client-files')
+      .createSignedUrl(file.file_path, 3600)
+    if (error || !data?.signedUrl) {
+      console.error('[my-project] download error:', error)
+      return
+    }
+    window.open(data.signedUrl, '_blank')
+  }
 
   // ── Full-viewport clean overlay (covers the app shell — see note 2) ──────────
   const overlay: React.CSSProperties = {
@@ -670,6 +715,71 @@ export default function MyProjectPage() {
                 </div>
               )
             })}
+          </div>
+        </div>
+
+        {/* ── SECTION 4.5 — Your Project Files (NEW · additive · read-only) ── */}
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 400, color: 'var(--text)', lineHeight: 1.2, margin: '0 0 12px' }}>
+            Your Project Files
+          </h2>
+          <div style={CARD}>
+            {projectFiles.length === 0 ? (
+              <div style={{ padding: '18px 20px', fontSize: 13, color: 'var(--text3)', lineHeight: 1.5 }}>
+                No files have been shared yet — your project documents will appear here once uploaded by your CASK team
+              </div>
+            ) : (
+              <div>
+                {projectFiles.map((file, i) => {
+                  const last = i === projectFiles.length - 1
+                  const dateLabel = file.uploaded_at
+                    ? new Date(file.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : ''
+                  return (
+                    <div
+                      key={file.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '12px 20px',
+                        borderBottom: last ? undefined : '0.5px solid var(--border)',
+                      }}
+                    >
+                      <span style={{ fontSize: 16, flexShrink: 0 }}>{fileIcon(file.file_type, file.file_name)}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {file.file_name}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                          <span style={{ fontSize: 11, color: 'var(--text3)' }}>{fmtFileSize(file.file_size)}</span>
+                          {dateLabel && <span style={{ fontSize: 11, color: 'var(--text3)' }}>· {dateLabel}</span>}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleFileDownload(file)}
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: 'var(--text)',
+                          background: 'var(--surface)',
+                          border: '0.5px solid var(--border2)',
+                          borderRadius: 8,
+                          padding: '6px 12px',
+                          whiteSpace: 'nowrap',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          flexShrink: 0,
+                        }}
+                      >
+                        Download →
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
 
