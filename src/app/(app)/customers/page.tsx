@@ -51,7 +51,7 @@ function formatCurrency(value: number): string {
   return '$' + value.toLocaleString('en-US')
 }
 
-function ClientCard({ client }: { client: Client }) {
+function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDelete: (client: Client) => void }) {
   const [hovered, setHovered] = useState(false)
   const config = HAPPINESS_CONFIG[client.happiness]
   const pct = Math.round((client.meetingsCompleted / 33) * 100)
@@ -179,6 +179,33 @@ function ClientCard({ client }: { client: Client }) {
       >
         {formatCurrency(client.project_value)}
       </div>
+
+      {/* Delete button — subtle, hover-revealed, sits next to the arrow.
+          Tabler icons are NOT loaded in this project, so a small red "Delete"
+          text label is used instead of <i className="ti ti-trash" />.
+          stopPropagation + preventDefault keep the card's Link from navigating. */}
+      <span
+        role="button"
+        tabIndex={0}
+        title={`Delete ${client.name}`}
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          onRequestDelete(client)
+        }}
+        style={{
+          fontSize: 11,
+          color: '#ef4444',
+          cursor: 'pointer',
+          flexShrink: 0,
+          padding: '2px 4px',
+          lineHeight: 1,
+          opacity: hovered ? 1 : 0,
+          transition: 'opacity 160ms ease',
+        }}
+      >
+        Delete
+      </span>
 
       {/* Arrow */}
       <div
@@ -613,6 +640,54 @@ function FloatingCustomerJourneyAI() {
 export default function ActiveClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
+  // Delete-flow state (additive — does not affect existing load/render logic).
+  const [pendingDelete, setPendingDelete] = useState<Client | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+
+  // Auto-dismiss the toast after a few seconds.
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  // Delete a client and all of its dependent rows. Child tables are removed
+  // first, then the clients row last, so foreign-key constraints stay satisfied.
+  async function handleConfirmDelete() {
+    if (!pendingDelete || deleting) return
+    const id = pendingDelete.id
+    setDeleting(true)
+    const supabase = createClient()
+    const childTables = [
+      'journey_checklists',
+      'workflow_step_completions',
+      'journey_step_start',
+      'client_agenda_header',
+      'client_standing_agenda',
+      'client_meetings',
+      'client_files',
+    ]
+    try {
+      for (const table of childTables) {
+        const { error } = await supabase.from(table).delete().eq('client_id', id)
+        if (error) throw error
+      }
+      const { error } = await supabase.from('clients').delete().eq('id', id)
+      if (error) throw error
+
+      // Remove from local state immediately — no page reload.
+      setClients(prev => prev.filter(c => c.id !== id))
+      setPendingDelete(null)
+      setToast('Client deleted successfully')
+    } catch (err) {
+      // Deletion failed (e.g. permissions/FK). Keep the client and surface it.
+      console.error('[customers] delete failed:', err)
+      setToast('Failed to delete client')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -749,13 +824,108 @@ export default function ActiveClientsPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {clients.map((client) => (
-            <ClientCard key={client.id} client={client} />
+            <ClientCard key={client.id} client={client} onRequestDelete={setPendingDelete} />
           ))}
         </div>
       )}
 
       {/* Floating Customer Journey AI button + chat drawer — bottom-right, this page only */}
       <FloatingCustomerJourneyAI />
+
+      {/* Delete confirmation modal */}
+      {pendingDelete && (
+        <div
+          onClick={() => { if (!deleting) setPendingDelete(null) }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#fff',
+              borderRadius: 12,
+              padding: 28,
+              maxWidth: 420,
+              width: '100%',
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>
+              Delete Client
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, marginBottom: 24 }}>
+              Are you sure you want to delete{' '}
+              <span style={{ fontWeight: 600, color: 'var(--text)' }}>{pendingDelete.name}</span>? This
+              cannot be undone. All client data including meeting recaps, emails, agenda, and journey
+              steps will be permanently deleted.
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setPendingDelete(null)}
+                disabled={deleting}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--text2)',
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: '9px 16px',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#fff',
+                  background: '#ef4444',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '9px 16px',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  opacity: deleting ? 0.7 : 1,
+                }}
+              >
+                {deleting ? 'Deleting…' : 'Delete Client'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success / failure toast */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 20,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1100,
+            background: 'var(--charcoal)',
+            color: '#fff',
+            fontSize: 13,
+            fontWeight: 600,
+            padding: '10px 18px',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px -6px rgba(0,0,0,0.4)',
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   )
 }
