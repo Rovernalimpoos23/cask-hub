@@ -49,6 +49,33 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(dashboardUrl)
   }
 
+  // ── Role-based page restriction ────────────────────────────────────────────
+  // Restricted roles may only view Customer Journey pages (/customers/*). Any
+  // other PAGE request is redirected to /customers. API routes, webhooks, the
+  // seed route and auth pages are intentionally excluded so app functionality
+  // (e.g. AI chat, data fetches) keeps working for these users.
+  const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'member']
+  const isApi = pathname.startsWith('/api/')
+  if (user?.email && !isAuthPage && !isApi && !isSeedRoute && !isWebhook) {
+    const { data: profile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('email', user.email)
+      .maybeSingle()
+    const role = profile?.role as string | undefined
+    const isCustomersPage = pathname === '/customers' || pathname.startsWith('/customers/')
+    // /my-project is the customer portal preview — allowed for ALL users,
+    // including restricted roles, so it's never redirected away.
+    const isMyProjectPage = pathname === '/my-project' || pathname.startsWith('/my-project/')
+    const isAllowedPage = isCustomersPage || isMyProjectPage
+    if (role && RESTRICTED_ROLES.includes(role) && !isAllowedPage) {
+      const customersUrl = request.nextUrl.clone()
+      customersUrl.pathname = '/customers'
+      customersUrl.search = ''
+      return NextResponse.redirect(customersUrl)
+    }
+  }
+
   return supabaseResponse
 }
 

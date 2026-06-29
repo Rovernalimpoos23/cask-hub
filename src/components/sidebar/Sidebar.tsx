@@ -75,6 +75,16 @@ const NAV_SECTIONS = [
   },
 ]
 
+// ── Role-based access ────────────────────────────────────────────────
+// Restricted roles see ONLY the Customer Journey section (Active Clients,
+// OKR Dashboard, New Client Setup) and are redirected to /customers.
+// Admin roles (Calin/president, Kai/ea, Rovern/ai_specialist) see everything
+// exactly as before. Roles are read from the `users.role` column.
+const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'member']
+const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
+// Sections a restricted role is allowed to see, matched by NAV_SECTIONS label.
+const RESTRICTED_VISIBLE_SECTIONS = ['Customer Journey']
+
 const RECENT_SESSIONS = [
   { label: 'Apr 30 · Leadership', href: '/sessions/a1b2c3d4-0006-0006-0006-000000000006' },
   { label: 'Mar 27 · Q2 Planning', href: '/sessions/a1b2c3d4-0003-0003-0003-000000000003' },
@@ -161,6 +171,7 @@ export default function Sidebar() {
   const router = useRouter()
   const { theme, toggleTheme, mounted } = useTheme()
   const [user, setUser] = useState<User | null>(null)
+  const [role, setRole] = useState<string | null>(null)
   const [signingOut, setSigningOut] = useState(false)
 
   useEffect(() => {
@@ -173,6 +184,34 @@ export default function Sidebar() {
 
     return () => subscription.unsubscribe()
   }, [])
+
+  // Look up the current user's role from the `users` table to drive access.
+  // While unresolved (role === null) we show the full sidebar; middleware still
+  // guards routes server-side, so admins never see a flash of hidden nav.
+  useEffect(() => {
+    if (!user?.email) { setRole(null); return }
+    const supabase = createClient()
+    supabase
+      .from('users')
+      .select('role')
+      .eq('email', user.email)
+      .maybeSingle()
+      .then(({ data }) => setRole((data?.role as string | undefined) ?? null))
+  }, [user?.email])
+
+  // A role is restricted only when it's in RESTRICTED_ROLES and not an admin role
+  // (defensive: an admin role always wins). Null role = treat as unrestricted.
+  const isRestricted = role !== null && RESTRICTED_ROLES.includes(role) && !ADMIN_ROLES.includes(role)
+
+  // Restricted users land on /customers, not /dashboard, on first login.
+  useEffect(() => {
+    if (isRestricted && pathname === '/dashboard') router.replace('/customers')
+  }, [isRestricted, pathname, router])
+
+  // Restricted roles see only the Customer Journey section; admins see all.
+  const visibleSections = isRestricted
+    ? NAV_SECTIONS.filter((s) => RESTRICTED_VISIBLE_SECTIONS.includes(s.label))
+    : NAV_SECTIONS
 
   async function handleSignOut() {
     setSigningOut(true)
@@ -242,17 +281,21 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-2.5 overflow-y-auto flex flex-col gap-px">
-        {/* Standalone Dashboard */}
-        <SideNavLink
-          href="/dashboard"
-          icon="▣"
-          label="Dashboard"
-          isActive={pathname === '/dashboard'}
-          standalone
-        />
-        <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
+        {/* Standalone Dashboard — hidden for restricted roles */}
+        {!isRestricted && (
+          <>
+            <SideNavLink
+              href="/dashboard"
+              icon="▣"
+              label="Dashboard"
+              isActive={pathname === '/dashboard'}
+              standalone
+            />
+            <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
+          </>
+        )}
 
-        {NAV_SECTIONS.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.label}>
             <div
               className="text-[10px] font-medium tracking-[1.5px] uppercase px-2 pt-3 pb-1"
@@ -309,6 +352,9 @@ export default function Sidebar() {
           </div>
         ))}
 
+        {/* Separator + Recent Sessions + Upcoming — hidden for restricted roles */}
+        {!isRestricted && (
+          <>
         {/* Separator */}
         <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
 
@@ -358,6 +404,8 @@ export default function Sidebar() {
             Prepare Agenda →
           </Link>
         </div>
+          </>
+        )}
       </nav>
 
       {/* Footer / User */}
