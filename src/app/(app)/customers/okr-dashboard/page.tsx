@@ -11,10 +11,11 @@
 // baked in.
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 import { WORKFLOW_STEPS } from '@/lib/workflow-steps'
+import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 // ── Hardcoded constants (allowed by spec) ────────────────────────────────────
 // OKR phase → workflow step ranges (from Kai). A phase is "complete" only when
@@ -533,6 +534,43 @@ export default function OKRDashboardPage() {
     borderRadius: 12,
     padding: 20,
   }
+
+  // ── Floating AI context ──────────────────────────────────────────────────────
+  // Built entirely from data already computed above (no new fetching). Adapted to
+  // this page's actual shapes: `computed` (not `clientsData`), PhaseStatus uses
+  // `completedCount`/`done` (not `completedSteps`/`isComplete`), `completedStepsByClient`
+  // is a Map, and month obtained counts come from `obtainedThisMonth()`. Passed to
+  // the floating CASK Intelligence AI as its system prompt.
+  const designObtained = obtainedThisMonth('design')
+  const permitObtained = obtainedThisMonth('permit')
+  const contractObtained = obtainedThisMonth('contract')
+  const pct = (done: number, total: number) => (total > 0 ? Math.round((done / total) * 100) : 0)
+  const okrAIContext = `You are CASK Intelligence on the Pre-Con OKR Dashboard for CASK Construction.
+Today: ${now.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })}
+
+ACTIVE CLIENTS AND OKR STATUS:
+${computed.map(client => {
+  const completedSteps = completedStepsByClient.get(client.id) ?? 0
+  const overallPct = pct(completedSteps, TOTAL_JOURNEY_STEPS)
+  return `
+- Client: ${client.name} | PM: ${client.owner} | Type: ${client.projectType}
+  Overall Journey: ${completedSteps} of ${TOTAL_JOURNEY_STEPS} steps · ${overallPct}%
+  Design (Steps 6-13): ${client.design.completedCount} of ${client.design.total} steps · ${pct(client.design.completedCount, client.design.total)}% ${client.design.done ? '✓ COMPLETE' : 'IN PROGRESS'}
+  Permit (Steps 14-15): ${client.permit.completedCount} of ${client.permit.total} steps · ${pct(client.permit.completedCount, client.permit.total)}% ${client.permit.done ? '✓ COMPLETE' : 'IN PROGRESS'}
+  Contract (Steps 16-21): ${client.contract.completedCount} of ${client.contract.total} steps · ${pct(client.contract.completedCount, client.contract.total)}% ${client.contract.done ? '✓ COMPLETE' : 'IN PROGRESS'}`
+}).join('')}
+
+MONTHLY TARGETS (${monthLabel}):
+- Design Completed: Target ${monthlyTeamTarget} | Obtained ${designObtained} | Diff ${designObtained - monthlyTeamTarget}
+- Permit Received: Target ${monthlyTeamTarget} | Obtained ${permitObtained} | Diff ${permitObtained - monthlyTeamTarget}
+- Contract Executed: Target ${monthlyTeamTarget} | Obtained ${contractObtained} | Diff ${contractObtained - monthlyTeamTarget}
+
+QUARTERLY TARGETS:
+- Design: ${QUARTER_TARGET_PER_PM} | Permit: ${QUARTER_TARGET_PER_PM} | Contract: ${QUARTER_TARGET_PER_PM}
+
+NPS: Grand Total 30 surveys · Average score 9
+
+Answer questions about client OKR status, PM assignments, monthly/quarterly targets, and journey progress. Be specific and ground every answer in the data above — never invent clients or numbers not present here.`
 
   return (
     <>
@@ -1149,6 +1187,9 @@ export default function OKRDashboardPage() {
           </>
         )}
       </div>
+
+      {/* Floating CASK Intelligence AI button + chat drawer — bottom-right, this page only */}
+      <FloatingOKRAI aiContext={okrAIContext} />
     </>
   )
 }
@@ -1210,5 +1251,419 @@ function CurrentPhaseBadge({ phase }: { phase: 'Design' | 'Permit' | 'Contract' 
     <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 9px', borderRadius: 99, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>
       {phase === 'Complete' ? '✓ Complete' : `In ${phase}`}
     </span>
+  )
+}
+
+// ── Floating CASK Intelligence AI (OKR Dashboard) ────────────────────────────
+// Same launcher + drawer pattern used on the other pages. The OKR-specific
+// context built in OKRDashboardPage is passed in as `aiContext` and sent to
+// /api/chat/client as the systemPrompt (the same endpoint the client profile
+// page uses to pass a page-built context). The chat history is keyed to this
+// page so it persists separately from other pages.
+const OKR_AI_ACCENT = '#c8311a' // CASK red
+const OKR_AI_D = {
+  bg: 'var(--surface)',
+  surface: 'var(--surface2)',
+  border: 'var(--border)',
+  borderSoft: 'var(--border)',
+  text: 'var(--text)',
+  text2: 'var(--text2)',
+  text3: 'var(--text3)',
+  accent: OKR_AI_ACCENT,
+}
+const OKR_AI_GREETING =
+  "CASK Intelligence online. I have live context on every active client's OKR status — Design, Permit, and Contract progress, PM assignments, and monthly & quarterly targets. Ask who's furthest behind, who owns a project, or whether we're on track."
+const OKR_AI_QUICK_PROMPTS = ['Who is furthest behind?', "This month's completions", 'On track for the quarter?']
+
+interface OKRPanelMsg {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+function FloatingOKRAI({ aiContext }: { aiContext: string }) {
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState<OKRPanelMsg[]>([{ role: 'assistant', content: OKR_AI_GREETING }])
+  const [input, setInput] = useState('')
+  const [thinking, setThinking] = useState(false)
+  const [btnHover, setBtnHover] = useState(false)
+  const endRef = useRef<HTMLDivElement>(null)
+  const userEmailRef = useRef('')
+
+  useEffect(() => {
+    if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, thinking, open])
+
+  useEffect(() => {
+    async function loadHistory() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user?.email) return
+      userEmailRef.current = user.email
+      const { data: history } = await supabase
+        .from('chat_history')
+        .select('role, content')
+        .eq('user_email', user.email)
+        .eq('page_context', '/customers/okr-dashboard')
+        .order('created_at', { ascending: true })
+        .limit(50)
+      if (history && history.length > 0) {
+        setMessages(history as OKRPanelMsg[])
+      }
+    }
+    loadHistory()
+  }, [])
+
+  function saveMessage(role: string, content: string) {
+    if (!userEmailRef.current) return
+    createClient()
+      .from('chat_history')
+      .insert({ user_email: userEmailRef.current, page_context: '/customers/okr-dashboard', role, content })
+      .then(({ error }) => { if (error) console.error('[chat history] save error:', error.message) })
+  }
+
+  async function clearHistory() {
+    if (!userEmailRef.current) return
+    await createClient()
+      .from('chat_history')
+      .delete()
+      .eq('user_email', userEmailRef.current)
+      .eq('page_context', '/customers/okr-dashboard')
+    setMessages([{ role: 'assistant', content: OKR_AI_GREETING }])
+  }
+
+  async function send(text?: string) {
+    const msg = (text ?? input).trim()
+    if (!msg || thinking) return
+    const next: OKRPanelMsg[] = [...messages, { role: 'user', content: msg }]
+    setMessages(next)
+    saveMessage('user', msg)
+    setInput('')
+    setThinking(true)
+    try {
+      // Pass the OKR context as the systemPrompt — same endpoint the client
+      // profile page uses to hand a page-built context to Claude.
+      const res = await fetch('/api/chat/client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemPrompt: aiContext,
+          messages: next.map(m => ({ role: m.role, content: m.content })),
+        }),
+      })
+      if (!res.ok) throw new Error(`API error ${res.status}`)
+      const data = await res.json()
+      const aiContent = data.content || 'No response.'
+      setMessages([...next, { role: 'assistant', content: aiContent }])
+      saveMessage('assistant', aiContent)
+    } catch {
+      setMessages([...next, { role: 'assistant', content: 'Connection error. Please try again.' }])
+    } finally {
+      setThinking(false)
+    }
+  }
+
+  function onKey(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    }
+  }
+
+  return (
+    <>
+      <style>{`
+        @keyframes okrAISlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
+
+      {/* Floating button — always visible on OKR Dashboard */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        onMouseEnter={() => setBtnHover(true)}
+        onMouseLeave={() => setBtnHover(false)}
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          zIndex: 60,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '12px 18px',
+          borderRadius: 999,
+          background: 'var(--charcoal)',
+          color: '#fff',
+          border: 'none',
+          cursor: 'pointer',
+          fontFamily: 'var(--font-geist), sans-serif',
+          fontSize: 13,
+          fontWeight: 700,
+          letterSpacing: '0.2px',
+          boxShadow: btnHover
+            ? '0 12px 30px -6px rgba(0,0,0,0.45)'
+            : '0 6px 18px -4px rgba(0,0,0,0.35)',
+          transform: btnHover ? 'translateY(-2px)' : 'translateY(0)',
+          transition: 'transform 160ms ease, box-shadow 160ms ease',
+        }}
+      >
+        <span style={{ fontSize: 15, lineHeight: 1 }}>💬</span>
+        CASK Intelligence
+      </button>
+
+      {/* Chat drawer — slides up from bottom-right */}
+      {open && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 61,
+            width: 380,
+            maxWidth: 'calc(100vw - 48px)',
+            height: 500,
+            maxHeight: 'calc(100vh - 48px)',
+            background: OKR_AI_D.bg,
+            color: OKR_AI_D.text,
+            border: `1px solid ${OKR_AI_D.border}`,
+            borderRadius: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            fontFamily: 'var(--font-geist), sans-serif',
+            boxShadow: '0 24px 60px -12px rgba(0,0,0,0.5)',
+            animation: 'okrAISlideUp 220ms ease',
+          }}
+        >
+          {/* Dark header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '13px 16px',
+              background: 'var(--charcoal)',
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: OKR_AI_D.accent,
+                  boxShadow: `0 0 8px ${OKR_AI_D.accent}`,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: '1.6px',
+                  textTransform: 'uppercase',
+                  color: '#fff',
+                }}
+              >
+                CASK Intelligence
+              </span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              onClick={clearHistory}
+              title="Clear chat history"
+              style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', padding: '5px 9px', borderRadius: 20, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              title="Close"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 26,
+                height: 26,
+                borderRadius: 7,
+                background: 'transparent',
+                border: 'none',
+                color: 'rgba(255,255,255,0.7)',
+                cursor: 'pointer',
+                transition: 'background 150ms ease, color 150ms ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                e.currentTarget.style.color = '#fff'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+            </span>
+          </div>
+
+          {/* Feed */}
+          <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: '6px 16px 10px' }}>
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: '11px 0',
+                  borderBottom: i < messages.length - 1 ? `1px solid ${OKR_AI_D.borderSoft}` : 'none',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    color: m.role === 'user' ? OKR_AI_D.text3 : OKR_AI_D.accent,
+                    marginBottom: 5,
+                  }}
+                >
+                  {m.role === 'user' ? 'You' : 'CASK Intelligence'}
+                </div>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    lineHeight: 1.55,
+                    color: m.role === 'user' ? OKR_AI_D.text2 : OKR_AI_D.text,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  <ArtifactContent content={m.content} />
+                </div>
+              </div>
+            ))}
+
+            {thinking && (
+              <div style={{ padding: '11px 0' }}>
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    color: OKR_AI_D.accent,
+                    marginBottom: 5,
+                  }}
+                >
+                  CASK Intelligence
+                </div>
+                <div style={{ fontSize: 12.5, color: OKR_AI_D.text3, fontStyle: 'italic' }}>Analyzing…</div>
+              </div>
+            )}
+            <div ref={endRef} />
+          </div>
+
+          {/* Quick prompts (only at start) */}
+          {messages.length <= 1 && !thinking && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 16px 10px' }}>
+              {OKR_AI_QUICK_PROMPTS.map(q => (
+                <button
+                  key={q}
+                  onClick={() => send(q)}
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 500,
+                    padding: '5px 10px',
+                    borderRadius: 20,
+                    background: OKR_AI_D.surface,
+                    border: `1px solid ${OKR_AI_D.border}`,
+                    color: OKR_AI_D.text2,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    transition: 'border-color 150ms ease, color 150ms ease',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = `${OKR_AI_D.accent}66`
+                    e.currentTarget.style.color = OKR_AI_D.text
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = OKR_AI_D.border
+                    e.currentTarget.style.color = OKR_AI_D.text2
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div style={{ padding: '10px 16px 14px', borderTop: `1px solid ${OKR_AI_D.border}`, flexShrink: 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: 6,
+                borderRadius: 9,
+                padding: 5,
+                border: `1px solid ${OKR_AI_D.border}`,
+                background: OKR_AI_D.surface,
+              }}
+            >
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={onKey}
+                placeholder="Ask about OKR status, PMs, targets..."
+                rows={1}
+                style={{
+                  flex: 1,
+                  resize: 'none',
+                  background: 'transparent',
+                  fontSize: 12.5,
+                  padding: '5px 6px',
+                  outline: 'none',
+                  lineHeight: 1.5,
+                  color: OKR_AI_D.text,
+                  fontFamily: 'inherit',
+                  maxHeight: 96,
+                  overflowY: 'auto',
+                  border: 'none',
+                }}
+              />
+              <button
+                onClick={() => send()}
+                disabled={!input.trim() || thinking}
+                style={{
+                  flexShrink: 0,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 7,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: input.trim() && !thinking ? OKR_AI_D.accent : OKR_AI_D.surface,
+                  color: input.trim() && !thinking ? '#fff' : OKR_AI_D.text3,
+                  border: 'none',
+                  cursor: !input.trim() || thinking ? 'not-allowed' : 'pointer',
+                  transition: 'background 150ms ease',
+                }}
+                title="Send"
+              >
+                <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                  <path
+                    d="M6 1L11 6L6 11M11 6H1"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
