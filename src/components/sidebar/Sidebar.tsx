@@ -100,6 +100,21 @@ const CHANGE_PW_INPUT_STYLE: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
+// Show/Hide toggle button for the Change Password inputs.
+const CHANGE_PW_TOGGLE_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  right: 10,
+  top: '50%',
+  transform: 'translateY(-50%)',
+  border: 'none',
+  background: 'none',
+  cursor: 'pointer',
+  color: 'var(--text3)',
+  fontSize: 11,
+  fontFamily: 'inherit',
+  padding: 0,
+}
+
 const RECENT_SESSIONS = [
   { label: 'Apr 30 · Leadership', href: '/sessions/a1b2c3d4-0006-0006-0006-000000000006' },
   { label: 'Mar 27 · Q2 Planning', href: '/sessions/a1b2c3d4-0003-0003-0003-000000000003' },
@@ -197,6 +212,10 @@ export default function Sidebar() {
   const [pwError, setPwError] = useState('')
   const [pwSubmitting, setPwSubmitting] = useState(false)
   const [pwToast, setPwToast] = useState('')
+  // Per-input show/hide toggles for the Change Password modal.
+  const [showCurrentPw, setShowCurrentPw] = useState(false)
+  const [showNewPw, setShowNewPw] = useState(false)
+  const [showConfirmPw, setShowConfirmPw] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
@@ -602,38 +621,65 @@ export default function Sidebar() {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginBottom: 6 }}>
               Current Password
             </label>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              style={CHANGE_PW_INPUT_STYLE}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showCurrentPw ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                style={{ ...CHANGE_PW_INPUT_STYLE, paddingRight: 52 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPw((v) => !v)}
+                style={CHANGE_PW_TOGGLE_STYLE}
+              >
+                {showCurrentPw ? 'Hide' : 'Show'}
+              </button>
+            </div>
 
             {/* New Password */}
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text2)', margin: '16px 0 6px' }}>
               New Password
             </label>
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="At least 8 characters"
-              style={CHANGE_PW_INPUT_STYLE}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showNewPw ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                style={{ ...CHANGE_PW_INPUT_STYLE, paddingRight: 52 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPw((v) => !v)}
+                style={CHANGE_PW_TOGGLE_STYLE}
+              >
+                {showNewPw ? 'Hide' : 'Show'}
+              </button>
+            </div>
 
             {/* Confirm New Password */}
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text2)', margin: '16px 0 6px' }}>
               Confirm New Password
             </label>
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              style={CHANGE_PW_INPUT_STYLE}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showConfirmPw ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                style={{ ...CHANGE_PW_INPUT_STYLE, paddingRight: 52 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPw((v) => !v)}
+                style={CHANGE_PW_TOGGLE_STYLE}
+              >
+                {showConfirmPw ? 'Hide' : 'Show'}
+              </button>
+            </div>
 
             {pwError && (
               <div style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>{pwError}</div>
