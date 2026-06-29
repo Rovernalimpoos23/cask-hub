@@ -40,6 +40,9 @@ const PHASE_META: Record<
 const MONTHLY_TARGET_PER_PM = 3 // each OKR: 3 per PM per month
 const QUARTER_TARGET_PER_PM = 9 // each OKR: 9 per PM per quarter
 
+// Total steps in the full client journey — denominator for the overall progress row.
+const TOTAL_JOURNEY_STEPS = 33
+
 // journey_checklists.meeting_code values that belong to each OKR phase
 // (e.g. 'step_06'). Derived from PHASE_META.steps so the two never drift:
 // Design → step_06..step_13, Permit → step_14..step_15, Contract → step_16..step_21.
@@ -414,6 +417,17 @@ export default function OKRDashboardPage() {
     }
     return map
   }, [checklistRows])
+
+  // ── Overall journey progress per client ─────────────────────────────────────
+  // client_id → count of workflow_step_completions rows (total steps completed
+  // across ALL phases). Denominator is the fixed TOTAL_JOURNEY_STEPS (33).
+  const completedStepsByClient = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of completions) {
+      map.set(r.client_id, (map.get(r.client_id) ?? 0) + 1)
+    }
+    return map
+  }, [completions])
 
   // ── Aggregations ───────────────────────────────────────────────────────────
   const inCurrentMonth = (d: Date | null) => !!d && etYMD(d).ym === nowYM
@@ -974,6 +988,29 @@ export default function OKRDashboardPage() {
                           <CurrentPhaseBadge phase={c.currentPhase} />
                         </span>
                       </div>
+
+                      {/* Overall journey progress — total steps completed across ALL phases / 33 */}
+                      {(() => {
+                        const completedSteps = completedStepsByClient.get(c.id) ?? 0
+                        const overallPct = Math.round((completedSteps / TOTAL_JOURNEY_STEPS) * 100)
+                        return (
+                          <div style={{ marginBottom: 14 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)' }}>
+                                Overall Journey
+                              </span>
+                              <span style={{ fontSize: 10, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
+                                {completedSteps} of {TOTAL_JOURNEY_STEPS} steps · {overallPct}%
+                              </span>
+                            </div>
+                            <div style={{ height: 4, borderRadius: 99, background: 'var(--surface2)', overflow: 'hidden' }}>
+                              <div style={{ height: 4, borderRadius: 99, width: `${overallPct}%`, background: '#1a1917', transition: 'width 200ms ease' }} />
+                            </div>
+                            <div style={{ borderBottom: '1px solid var(--border)', marginTop: 14 }} />
+                          </div>
+                        )
+                      })()}
+
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
                         {PHASE_KEYS.map(k => {
                           const ps = phaseOf(c, k)
