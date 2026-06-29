@@ -28,11 +28,18 @@ function ActionItemMeta({ item }: { item: ActionItemX }) {
     : null
 
   let completed: string | null = null
-  if (item.done && item.completed_at) {
-    const d = new Date(item.completed_at)
-    const cd = d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })
-    const ct = d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true })
-    completed = `Completed ${cd} ${ct} ET`
+  if (item.done) {
+    // Prefer the persisted completion timestamp. Legacy items marked done before
+    // completed_at was tracked have no timestamp — fall back to today's date so a
+    // completed item ALWAYS shows a completion date (never a blank meta line).
+    const cd = (item.completed_at ? new Date(item.completed_at) : new Date())
+      .toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })
+    if (item.completed_at) {
+      const ct = new Date(item.completed_at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true })
+      completed = `Completed ${cd} ${ct} ET`
+    } else {
+      completed = `Completed ${cd}`
+    }
   }
 
   if (!item.meeting_title && !completed) return null
