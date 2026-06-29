@@ -36,9 +36,9 @@ const NAV_SECTIONS = [
   {
     label: 'Customer Journey',
     items: [
+      { href: '/customers/new', icon: '➕', label: 'New Client Setup', locked: false },
       { href: '/customers', icon: '👥', label: 'Active Clients', locked: false },
       { href: '/customers/okr-dashboard', icon: '🎯', label: 'OKR Dashboard', locked: false },
-      { href: '/customers/new', icon: '➕', label: 'New Client Setup', locked: false },
     ],
   },
   {
