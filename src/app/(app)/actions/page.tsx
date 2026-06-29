@@ -493,6 +493,18 @@ export default function ActionsPage() {
     return new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
   }
 
+  // Completed-items sort: most recently completed first. Resolve a timestamp per
+  // item — completed_at, then due_date, then created date (created_at) — and sort
+  // descending. Items with no usable date sort to the bottom.
+  function completedRank(a: ActionItemX): number {
+    const ts = a.completed_at ?? a.due_date ?? a.created_at
+    const ms = ts ? new Date(ts).getTime() : NaN
+    return Number.isNaN(ms) ? -Infinity : ms
+  }
+  function byCompletedDesc(a: ActionItemX, b: ActionItemX) {
+    return completedRank(b) - completedRank(a)
+  }
+
   useEffect(() => {
     const supabase = createClient()
     supabase
@@ -557,7 +569,7 @@ export default function ActionsPage() {
         )
 
   const openItems = filtered.filter(a => !a.done).sort(byPriorityThenDue)
-  const completedItems = filtered.filter(a => a.done).sort(byPriorityThenDue)
+  const completedItems = filtered.filter(a => a.done).sort(byCompletedDesc)
 
   async function handleToggle(id: string, done: boolean) {
     // Stamp the completion time once and reuse for both the optimistic state and
