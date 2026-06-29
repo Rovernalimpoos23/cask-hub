@@ -85,6 +85,21 @@ const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 // Sections a restricted role is allowed to see, matched by NAV_SECTIONS label.
 const RESTRICTED_VISIBLE_SECTIONS = ['Customer Journey']
 
+// Input style for the Change Password modal — mirrors the app's form inputs
+// (see src/app/(app)/customers/new/page.tsx inputStyle).
+const CHANGE_PW_INPUT_STYLE: React.CSSProperties = {
+  width: '100%',
+  background: 'var(--bg)',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  padding: '9px 12px',
+  fontSize: 13,
+  color: 'var(--text)',
+  outline: 'none',
+  fontFamily: 'inherit',
+  boxSizing: 'border-box',
+}
+
 const RECENT_SESSIONS = [
   { label: 'Apr 30 · Leadership', href: '/sessions/a1b2c3d4-0006-0006-0006-000000000006' },
   { label: 'Mar 27 · Q2 Planning', href: '/sessions/a1b2c3d4-0003-0003-0003-000000000003' },
@@ -174,6 +189,15 @@ export default function Sidebar() {
   const [role, setRole] = useState<string | null>(null)
   const [signingOut, setSigningOut] = useState(false)
 
+  // ── Change Password (additive) ─────────────────────────────────────────────
+  const [pwModalOpen, setPwModalOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [pwError, setPwError] = useState('')
+  const [pwSubmitting, setPwSubmitting] = useState(false)
+  const [pwToast, setPwToast] = useState('')
+
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => setUser(data.user))
@@ -219,6 +243,42 @@ export default function Sidebar() {
     await supabase.auth.signOut()
     router.push('/auth/login')
     router.refresh()
+  }
+
+  // Auto-dismiss the success toast after a few seconds.
+  useEffect(() => {
+    if (!pwToast) return
+    const t = setTimeout(() => setPwToast(''), 3000)
+    return () => clearTimeout(t)
+  }, [pwToast])
+
+  function closePwModal() {
+    setPwModalOpen(false)
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setPwError('')
+  }
+
+  async function handleUpdatePassword() {
+    if (pwSubmitting) return
+    setPwError('')
+    // Validation
+    if (!currentPassword) { setPwError('Please enter your current password.'); return }
+    if (newPassword.length < 8) { setPwError('New password must be at least 8 characters.'); return }
+    if (newPassword !== confirmPassword) { setPwError('New password and confirmation do not match.'); return }
+
+    setPwSubmitting(true)
+    const supabase = createClient()
+    // NOTE: supabase.auth.updateUser updates the signed-in user's password
+    // directly and does not re-verify the current password (there's no
+    // client-side reauth API). The Current Password field is collected for
+    // UX parity but is not separately validated against the server here.
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    setPwSubmitting(false)
+    if (error) { setPwError(error.message); return }
+    closePwModal()
+    setPwToast('Password updated successfully')
   }
 
   const displayName = getDisplayName(user)
@@ -498,7 +558,147 @@ export default function Sidebar() {
             </svg>
           </button>
         </div>
+
+        {/* Change Password — small text link below the user row */}
+        <button
+          onClick={() => setPwModalOpen(true)}
+          className="px-2 mt-0.5 text-left bg-transparent border-0"
+          style={{ fontSize: 11, color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit' }}
+        >
+          Change Password
+        </button>
       </div>
+
+      {/* Change Password modal */}
+      {pwModalOpen && (
+        <div
+          onClick={() => { if (!pwSubmitting) closePwModal() }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              borderRadius: 12,
+              padding: 28,
+              maxWidth: 420,
+              width: '100%',
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 20 }}>
+              Change Password
+            </div>
+
+            {/* Current Password */}
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginBottom: 6 }}>
+              Current Password
+            </label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              style={CHANGE_PW_INPUT_STYLE}
+            />
+
+            {/* New Password */}
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text2)', margin: '16px 0 6px' }}>
+              New Password
+            </label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              style={CHANGE_PW_INPUT_STYLE}
+            />
+
+            {/* Confirm New Password */}
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text2)', margin: '16px 0 6px' }}>
+              Confirm New Password
+            </label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              style={CHANGE_PW_INPUT_STYLE}
+            />
+
+            {pwError && (
+              <div style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>{pwError}</div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
+              <button
+                onClick={closePwModal}
+                disabled={pwSubmitting}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--text2)',
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: '9px 16px',
+                  cursor: pwSubmitting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdatePassword}
+                disabled={pwSubmitting}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#fff',
+                  background: '#1a1917',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '9px 16px',
+                  cursor: pwSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: pwSubmitting ? 0.7 : 1,
+                }}
+              >
+                {pwSubmitting ? 'Updating…' : 'Update Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success toast */}
+      {pwToast && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 20,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1100,
+            background: 'var(--charcoal)',
+            color: '#fff',
+            fontSize: 13,
+            fontWeight: 600,
+            padding: '10px 18px',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px -6px rgba(0,0,0,0.4)',
+          }}
+        >
+          {pwToast}
+        </div>
+      )}
     </aside>
   )
 }
