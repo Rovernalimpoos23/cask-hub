@@ -76,14 +76,18 @@ const NAV_SECTIONS = [
 ]
 
 // ── Role-based access ────────────────────────────────────────────────
-// Restricted roles see ONLY the Customer Journey section (Active Clients,
-// OKR Dashboard, New Client Setup) and are redirected to /customers.
+// Restricted roles see the standalone Dashboard link plus two sections:
+//   • General Meetings  — All Sessions, Generate Agenda, Action Items
+//   • Customer Journey  — Active Clients, OKR Dashboard, New Client Setup
+// They are NO LONGER redirected away from /dashboard (they have dashboard access).
 // Admin roles (Calin/president, Kai/ea, Rovern/ai_specialist) see everything
 // exactly as before. Roles are read from the `users.role` column.
 const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'member']
 const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 // Sections a restricted role is allowed to see, matched by NAV_SECTIONS label.
-const RESTRICTED_VISIBLE_SECTIONS = ['Customer Journey']
+// The General Meetings section already contains exactly the three allowed items
+// (All Sessions, Generate Agenda, Action Items), so the whole section is shown.
+const RESTRICTED_VISIBLE_SECTIONS = ['General Meetings', 'Customer Journey']
 
 // Input style for the Change Password modal — mirrors the app's form inputs
 // (see src/app/(app)/customers/new/page.tsx inputStyle).
@@ -202,6 +206,9 @@ export default function Sidebar() {
   const { theme, toggleTheme, mounted } = useTheme()
   const [user, setUser] = useState<User | null>(null)
   const [role, setRole] = useState<string | null>(null)
+  // Gates the role-dependent nav so restricted users never flash the full admin
+  // section list before their role resolves. False until the role fetch settles.
+  const [roleLoaded, setRoleLoaded] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
 
   // ── Change Password (additive) ─────────────────────────────────────────────
@@ -229,8 +236,9 @@ export default function Sidebar() {
   }, [])
 
   // Look up the current user's role from the `users` table to drive access.
-  // While unresolved (role === null) we show the full sidebar; middleware still
-  // guards routes server-side, so admins never see a flash of hidden nav.
+  // The role-dependent nav is hidden until this settles (roleLoaded), so no
+  // version of the sidebar renders before the role is confirmed. Auth is
+  // guaranteed by middleware, so a user.email always resolves here.
   useEffect(() => {
     if (!user?.email) { setRole(null); return }
     const supabase = createClient()
@@ -239,17 +247,18 @@ export default function Sidebar() {
       .select('role')
       .eq('email', user.email)
       .maybeSingle()
-      .then(({ data }) => setRole((data?.role as string | undefined) ?? null))
+      .then(
+        ({ data }) => { setRole((data?.role as string | undefined) ?? null); setRoleLoaded(true) },
+        () => { setRole(null); setRoleLoaded(true) }, // mark loaded on failure too
+      )
   }, [user?.email])
 
   // A role is restricted only when it's in RESTRICTED_ROLES and not an admin role
   // (defensive: an admin role always wins). Null role = treat as unrestricted.
   const isRestricted = role !== null && RESTRICTED_ROLES.includes(role) && !ADMIN_ROLES.includes(role)
 
-  // Restricted users land on /customers, not /dashboard, on first login.
-  useEffect(() => {
-    if (isRestricted && pathname === '/dashboard') router.replace('/customers')
-  }, [isRestricted, pathname, router])
+  // NOTE: restricted users now HAVE dashboard access, so the previous
+  // redirect-to-/customers behavior on /dashboard has been removed intentionally.
 
   // Restricted roles see only the Customer Journey section; admins see all.
   const visibleSections = isRestricted
@@ -360,21 +369,20 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-2.5 overflow-y-auto flex flex-col gap-px">
-        {/* Standalone Dashboard — hidden for restricted roles */}
-        {!isRestricted && (
-          <>
-            <SideNavLink
-              href="/dashboard"
-              icon="▣"
-              label="Dashboard"
-              isActive={pathname === '/dashboard'}
-              standalone
-            />
-            <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
-          </>
-        )}
+        {/* Standalone Dashboard — visible for ALL roles (restricted users now
+            have dashboard access). */}
+        <SideNavLink
+          href="/dashboard"
+          icon="▣"
+          label="Dashboard"
+          isActive={pathname === '/dashboard'}
+          standalone
+        />
+        <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
 
-        {visibleSections.map((section) => (
+        {/* Role-dependent sections — only render once the role has resolved, so
+            restricted users never flash the full admin section list. */}
+        {roleLoaded && visibleSections.map((section) => (
           <div key={section.label}>
             <div
               className="text-[10px] font-medium tracking-[1.5px] uppercase px-2 pt-3 pb-1"
@@ -431,8 +439,9 @@ export default function Sidebar() {
           </div>
         ))}
 
-        {/* Separator + Recent Sessions + Upcoming — hidden for restricted roles */}
-        {!isRestricted && (
+        {/* Separator + Recent Sessions + Upcoming — hidden for restricted roles,
+            and withheld entirely until the role resolves (no admin flash). */}
+        {roleLoaded && !isRestricted && (
           <>
         {/* Separator */}
         <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />

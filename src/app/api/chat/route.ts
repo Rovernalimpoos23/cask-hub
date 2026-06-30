@@ -330,6 +330,18 @@ The user is on the Action Items page. Focus on action item data:
 The user is on the main dashboard. You have full context on all CASK data — sessions, calendar, clients, action items, PIT goals, templates, and more. Answer any question about any part of CASK Hub.`
 }
 
+// Personal-view page focus for restricted dashboard users — replaces the
+// company-wide framing with one scoped to the user's own meetings + action items.
+function buildRestrictedDashboardFocus(userName: string): string {
+  const who = userName || 'this team member'
+  return `
+== CURRENT PAGE: DASHBOARD (PERSONAL VIEW) ==
+You are CASK Intelligence helping ${who} with THEIR OWN meetings and action items.
+- The live data above is already scoped to ${who}: ONLY meetings they attended and ONLY their own action items are included. There is no company-wide data here.
+- You do NOT have any calendar/schedule data, other team members' action items, or other people's meetings in this view. If asked about those, say they are not available in their view.
+- Answer "what's on today", "my action items", "what's overdue", etc. using ONLY ${who}'s own meetings and action items above. Never reference or infer other people's data.`
+}
+
 function buildSystemPrompt(
   userName: string,
   userRole: string,
@@ -337,6 +349,7 @@ function buildSystemPrompt(
   clientsContext: string,
   calendarContext: string,
   pageContext: string,
+  isRestrictedDashboard = false,
 ) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -360,7 +373,7 @@ ${clientsContext}
 
 == CALIN'S CALENDAR (Microsoft 365 — Eastern Time) ==
 ${calendarContext}
-${buildPageFocusSection(pageContext)}
+${isRestrictedDashboard ? buildRestrictedDashboardFocus(userName) : buildPageFocusSection(pageContext)}
 
 == RESPONSE BEHAVIOR ==
 - You have full knowledge of everything above — never say you don't have access to this data
@@ -446,6 +459,23 @@ export async function POST(req: NextRequest) {
     const { messages, userName, userRole, pageContext, fileName, fileData, fileType, fileMimeType, userMessage } = await req.json()
     console.log('[chat] POST hit — user:', userName, '| role:', userRole, '| messages:', messages?.length)
 
+    // ── Role-based scoping (dashboard only) ──────────────────────────────────
+    // Restricted roles get a PERSONAL dashboard AI: only meetings they attended
+    // and only their own action items; calendar/company-wide data is excluded.
+    // Admin roles, a missing role, or any non-dashboard page → unchanged below.
+    const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance']
+    const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
+    const roleLower = (userRole ?? '').toLowerCase().trim()
+    const isRestrictedDashboard =
+      pageContext === '/dashboard' &&
+      RESTRICTED_ROLES.includes(roleLower) &&
+      !ADMIN_ROLES.includes(roleLower)
+    // Case-insensitive "is this the logged-in user?" matchers (substring, matching
+    // the same approach used on the dashboard UI's My Items / attendee filtering).
+    const nameLc = (userName ?? '').toLowerCase().trim()
+    const isUserAttendee = (a: unknown) => nameLc !== '' && typeof a === 'string' && a.toLowerCase().includes(nameLc)
+    const isUserOwner = (owner: unknown) => nameLc !== '' && typeof owner === 'string' && owner.toLowerCase().includes(nameLc)
+
     // Initialise client inside handler so env var is always resolved at request time
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) {
@@ -486,14 +516,25 @@ export async function POST(req: NextRequest) {
         .limit(200),
     ])
 
-    const meetingsContext = meetings?.length
-      ? meetings.map(m => {
-          const openItems = Array.isArray(m.action_items)
-            ? m.action_items.filter((a: { done: boolean }) => !a.done).map((a: { task: string; owner: string }) => `${a.task} (${a.owner})`)
+    // For restricted dashboard users: keep only meetings they attended; admins/others unchanged.
+    const scopedMeetings = isRestrictedDashboard && Array.isArray(meetings)
+      ? meetings.filter(m => Array.isArray(m.attendees) && m.attendees.some(isUserAttendee))
+      : meetings
+
+    const meetingsContext = scopedMeetings?.length
+      ? scopedMeetings.map(m => {
+          // For restricted dashboard users: keep only the user's own action items.
+          const acts = Array.isArray(m.action_items)
+            ? (isRestrictedDashboard
+                ? m.action_items.filter((a: { owner: string }) => isUserOwner(a.owner))
+                : m.action_items)
             : []
-          const doneItems = Array.isArray(m.action_items)
-            ? m.action_items.filter((a: { done: boolean }) => a.done).map((a: { task: string; owner: string }) => `${a.task} (${a.owner})`)
-            : []
+          const openItems = acts
+            .filter((a: { done: boolean }) => !a.done)
+            .map((a: { task: string; owner: string }) => `${a.task} (${a.owner})`)
+          const doneItems = acts
+            .filter((a: { done: boolean }) => a.done)
+            .map((a: { task: string; owner: string }) => `${a.task} (${a.owner})`)
           return [
             `Meeting: ${m.title}`,
             `Date: ${m.date}`,
@@ -505,7 +546,7 @@ export async function POST(req: NextRequest) {
             doneItems.length ? `Completed Action Items: ${doneItems.join('; ')}` : '',
           ].filter(Boolean).join('\n')
         }).join('\n---\n')
-      : 'No meetings recorded yet.'
+      : (isRestrictedDashboard ? 'No meetings found for you.' : 'No meetings recorded yet.')
 
     const clientsContext = clients?.length
       ? clients.map(c => {
@@ -649,10 +690,15 @@ export async function POST(req: NextRequest) {
       processedMessages = claudeMessages as ProcessedMsg[]
     }
 
+    // Restricted dashboard users: exclude calendar/schedule data entirely.
+    const scopedCalendarContext = isRestrictedDashboard
+      ? 'Calendar/schedule data is not available in this view.'
+      : calendarContext
+
     console.log('[chat] Calling Claude API with', processedMessages.length, 'messages...', fileData ? `+ file: ${fileName}` : '')
     const completion = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      system: buildSystemPrompt(userName ?? '', userRole ?? '', meetingsContext, clientsContext, calendarContext, pageContext ?? ''),
+      system: buildSystemPrompt(userName ?? '', userRole ?? '', meetingsContext, clientsContext, scopedCalendarContext, pageContext ?? '', isRestrictedDashboard),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: processedMessages as any,
       max_tokens: 4000,

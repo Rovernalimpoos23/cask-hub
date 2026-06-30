@@ -11,6 +11,7 @@ import {
   FilterBar,
 } from '@/components/ui'
 import { fetchAllMeetings } from '@/lib/meetings-client'
+import { filterMeetingsForRole } from '@/lib/role-filter'
 import { createClient } from '@/lib/supabase'
 import type { Meeting } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
@@ -442,6 +443,10 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
+  // NEW (additive): current user's role + first name, powering the restricted-role
+  // meeting filter (admins see all meetings; restricted roles see only their own).
+  const [userRole, setUserRole] = useState('')
+  const [firstName, setFirstName] = useState('')
 
   const loadMeetings = useCallback(() => {
     setLoading(true)
@@ -458,11 +463,31 @@ export default function SessionsPage() {
     return () => window.removeEventListener('cask-meeting-saved', handler)
   }, [loadMeetings, router])
 
-  // Real-time search over loaded meetings — by title or attendees, case-insensitive.
+  // NEW (additive): resolve the logged-in user's first name + role so restricted
+  // roles only see meetings they attended. Mirrors the lookup used elsewhere.
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) return
+      const { data: userData } = await supabase
+        .from('users')
+        .select('name, role')
+        .eq('email', user.email)
+        .maybeSingle()
+      setFirstName(userData?.name?.split(' ')[0] ?? '')
+      setUserRole(userData?.role ?? '')
+    })
+  }, [])
+
+  // NEW (additive): restricted roles only see meetings where their first name is
+  // in the attendees array; admin roles get the full list, unchanged.
+  const visibleMeetings = filterMeetingsForRole(meetings, userRole, firstName)
+
+  // Real-time search over visible meetings — by title or attendees, case-insensitive.
   const q = search.trim().toLowerCase()
   const filtered = (filter === 'all'
-    ? meetings
-    : meetings.filter(m => m.meeting_type === filter)
+    ? visibleMeetings
+    : visibleMeetings.filter(m => m.meeting_type === filter)
   ).filter(m => {
     if (!q) return true
     return m.title.toLowerCase().includes(q)
@@ -473,7 +498,7 @@ export default function SessionsPage() {
     <>
       <TopBar title="Sessions" subtitle="General Meetings">
         <PillGreen>Claude AI Active</PillGreen>
-        <PillRed>{meetings.length} Sessions</PillRed>
+        <PillRed>{visibleMeetings.length} Sessions</PillRed>
         <button
           onClick={() => window.dispatchEvent(new Event('cask-open-add-modal'))}
           style={{
@@ -508,7 +533,7 @@ export default function SessionsPage() {
             All Sessions
           </h1>
           <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
-            {loading ? 'Loading…' : `${meetings.length} meetings recorded`}
+            {loading ? 'Loading…' : `${visibleMeetings.length} meetings recorded`}
           </p>
         </div>
 

@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { TopBar, ActionItemRow, SectionLabel } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
+import { isRestrictedRole } from '@/lib/role-filter'
 import type { ActionItem, Priority } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
@@ -473,6 +474,12 @@ export default function ActionsPage() {
   const [showAll, setShowAll] = useState(false)
   // NEW (additive): current user's first name, powering the "My Items" filter.
   const [currentUserFirstName, setCurrentUserFirstName] = useState('')
+  // NEW (additive): current user's role, used only to hide owner filter tabs +
+  // subtitle for restricted roles. Does not affect any filtering/list logic.
+  const [currentUserRole, setCurrentUserRole] = useState('')
+  // Gates the page until the role resolves, so restricted users never flash the
+  // full admin tab row first. False until the role fetch settles.
+  const [roleLoaded, setRoleLoaded] = useState(false)
 
   function isCoreOwner(owner: string) {
     const o = owner.toLowerCase().trim()
@@ -538,13 +545,19 @@ export default function ActionsPage() {
   useEffect(() => {
     async function loadCurrentUser() {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data: publicUser } = await supabase
-        .from('users')
-        .select('name')
-        .eq('email', user?.email ?? '')
-        .maybeSingle()
-      setCurrentUserFirstName(publicUser?.name?.split(' ')[0] ?? '')
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data: publicUser } = await supabase
+          .from('users')
+          .select('name, role')
+          .eq('email', user?.email ?? '')
+          .maybeSingle()
+        setCurrentUserFirstName(publicUser?.name?.split(' ')[0] ?? '')
+        setCurrentUserRole((publicUser?.role as string | undefined) ?? '')
+      } finally {
+        // Mark loaded on success or failure so the page never stays blank.
+        setRoleLoaded(true)
+      }
     }
     loadCurrentUser()
   }, [])
@@ -558,6 +571,11 @@ export default function ActionsPage() {
     ? items.filter(a => a.owner.toLowerCase().includes(currentUserFirstName.toLowerCase()))
     : []
   const myOpenCount = myItems.filter(a => !a.done).length
+
+  // NEW (additive): restricted roles (vp_sales/Jeff, ops_manager/Matteo,
+  // vp_ops/Chad, vp_finance/Lamont) only see the "My Items" tab + no subtitle.
+  // Admin roles (president, ea, ai_specialist) see every tab, unchanged.
+  const isRestricted = isRestrictedRole(currentUserRole)
 
   const filtered =
     ownerFilter === 'My Items'
@@ -643,6 +661,19 @@ export default function ActionsPage() {
     if (error) console.error('[actions] priority persist failed:', error)
   }
 
+  // Hold the page until the role resolves, so restricted users never see the full
+  // admin tab row (My Items, All, Calin, …) flash before their view loads.
+  if (!roleLoaded) {
+    return (
+      <>
+        <TopBar title="Action Items" subtitle="General Meetings" />
+        <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--text3)', fontSize: 13 }}>
+          Loading…
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
       <TopBar title="Action Items" subtitle="General Meetings">
@@ -668,9 +699,13 @@ export default function ActionsPage() {
           >
             Action Items
           </h1>
-          <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
-            {loading ? 'Loading…' : showAll ? 'Showing all owners.' : 'Filtered to Calin, Kai & Rovern.'}
-          </p>
+          {/* CHANGE 1: subtitle hidden for restricted roles (it describes the
+              owner-filter state, which they can't change). Admins see it as before. */}
+          {!isRestricted && (
+            <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
+              {loading ? 'Loading…' : showAll ? 'Showing all owners.' : 'Filtered to Calin, Kai & Rovern.'}
+            </p>
+          )}
         </div>
 
         {/* Owner filter */}
@@ -702,7 +737,10 @@ export default function ActionsPage() {
                 {loading ? '…' : myOpenCount}
               </span>
             </button>
-            {OWNER_FILTERS.map(f => (
+            {/* CHANGE 2: owner-specific tabs (All, Calin, Kai, Chad, Rovern, All
+                Leaders, All VPs) hidden for restricted roles — they only get the
+                "My Items" tab above. Admins see all tabs, unchanged. */}
+            {!isRestricted && OWNER_FILTERS.map(f => (
               <button
                 key={f}
                 onClick={() => setOwnerFilter(f)}
@@ -719,6 +757,10 @@ export default function ActionsPage() {
               </button>
             ))}
           </div>
+          {/* CHANGE 2: the "View All Owners" toggle is an owner-wide control that
+              has no effect on the "My Items" view, so it's hidden for restricted
+              roles. Admins keep it, unchanged. */}
+          {!isRestricted && (
           <button
             onClick={() => setShowAll(prev => !prev)}
             className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-all duration-150 shrink-0"
@@ -732,6 +774,7 @@ export default function ActionsPage() {
           >
             {showAll ? 'All Owners' : 'View All Owners'}
           </button>
+          )}
         </div>
 
         {loading ? (

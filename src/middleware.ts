@@ -50,10 +50,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Role-based page restriction ────────────────────────────────────────────
-  // Restricted roles may only view Customer Journey pages (/customers/*). Any
-  // other PAGE request is redirected to /customers. API routes, webhooks, the
-  // seed route and auth pages are intentionally excluded so app functionality
-  // (e.g. AI chat, data fetches) keeps working for these users.
+  // Restricted roles may only view an allowlist of pages: the Dashboard, the
+  // General Meetings pages (All Sessions + individual sessions, Generate Agenda,
+  // Action Items), Customer Journey (/customers/*), and the customer portal
+  // preview (/my-project). Any OTHER page (Command Center, President's Workflow,
+  // Design Center, CASK Big Vision, etc.) is redirected to /dashboard. API
+  // routes, webhooks, the seed route and auth pages are intentionally excluded
+  // so app functionality (e.g. AI chat, data fetches) keeps working for them.
   const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'member']
   const isApi = pathname.startsWith('/api/')
   if (user?.email && !isAuthPage && !isApi && !isSeedRoute && !isWebhook) {
@@ -63,16 +66,29 @@ export async function middleware(request: NextRequest) {
       .eq('email', user.email)
       .maybeSingle()
     const role = profile?.role as string | undefined
+    const isDashboardPage = pathname === '/dashboard'
+    // All Sessions list + individual session detail pages (/sessions/[id]).
+    const isSessionsPage = pathname === '/sessions' || pathname.startsWith('/sessions/')
+    // Generate Agenda.
+    const isGeneratePage = pathname === '/generate' || pathname.startsWith('/generate/')
+    // Action Items.
+    const isActionsPage = pathname === '/actions' || pathname.startsWith('/actions/')
     const isCustomersPage = pathname === '/customers' || pathname.startsWith('/customers/')
     // /my-project is the customer portal preview — allowed for ALL users,
     // including restricted roles, so it's never redirected away.
     const isMyProjectPage = pathname === '/my-project' || pathname.startsWith('/my-project/')
-    const isAllowedPage = isCustomersPage || isMyProjectPage
+    const isAllowedPage =
+      isDashboardPage ||
+      isSessionsPage ||
+      isGeneratePage ||
+      isActionsPage ||
+      isCustomersPage ||
+      isMyProjectPage
     if (role && RESTRICTED_ROLES.includes(role) && !isAllowedPage) {
-      const customersUrl = request.nextUrl.clone()
-      customersUrl.pathname = '/customers'
-      customersUrl.search = ''
-      return NextResponse.redirect(customersUrl)
+      const dashboardUrl = request.nextUrl.clone()
+      dashboardUrl.pathname = '/dashboard'
+      dashboardUrl.search = ''
+      return NextResponse.redirect(dashboardUrl)
     }
   }
 

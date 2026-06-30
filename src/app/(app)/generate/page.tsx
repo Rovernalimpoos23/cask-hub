@@ -456,6 +456,10 @@ function FloatingAgendaAI() {
 }
 
 export default function GeneratePage() {
+  // ROLE FILTERING NOTE (PART 3): this page does NOT list past meetings on the
+  // client — it only collects form inputs. Past sessions are read server-side
+  // inside /api/generate-agenda (an API route, intentionally out of scope here),
+  // so there is no client-side meeting list to filter by attendee. No change.
   const [meetingType, setMeetingType] = useState('Leadership Meeting')
   const [duration, setDuration] = useState('4 hours')
   const [time, setTime] = useState('')

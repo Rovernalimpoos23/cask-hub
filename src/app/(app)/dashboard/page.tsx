@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { TopBar, PriorityDot } from '@/components/ui'
 import { fetchAllMeetings } from '@/lib/meetings-client'
+import { filterMeetingsForRole, isRestrictedRole } from '@/lib/role-filter'
 import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem, Priority } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
@@ -197,7 +198,10 @@ function PaperclipIcon() {
 
 // ── Floating CASK Intelligence button + chat drawer ──────────────────
 
-function FloatingDashboardAI() {
+// Receives the logged-in user's role + first name from the page so the chat
+// request can be role-scoped server-side (restricted users get only their own
+// meetings/action items; admins are unaffected).
+function FloatingDashboardAI({ userRole, userName }: { userRole: string; userName: string }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<PanelMsg[]>([{ role: 'assistant', content: AI_GREETING }])
   const [input, setInput] = useState('')
@@ -305,7 +309,7 @@ function FloatingDashboardAI() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages, pageContext: '/dashboard' }),
+        body: JSON.stringify({ messages: apiMessages, pageContext: '/dashboard', userRole, userName }),
       })
       if (!res.ok) throw new Error(`API error ${res.status}`)
       const data = await res.json()
@@ -338,6 +342,8 @@ function FloatingDashboardAI() {
         body: JSON.stringify({
           messages: next.map(m => ({ role: m.role, content: m.content })),
           pageContext: '/dashboard',
+          userRole,
+          userName,
         }),
       })
       if (!res.ok) throw new Error(`API error ${res.status}`)
@@ -850,6 +856,9 @@ export default function DashboardPage() {
   // NEW (additive): the user's role from the users table, used to decide whether
   // they see every owner's action items or only their own.
   const [userRole, setUserRole] = useState('')
+  // Gates the whole dashboard until the role resolves, so restricted users never
+  // flash the full admin view first. False until the role fetch settles.
+  const [roleLoaded, setRoleLoaded] = useState(false)
   const [greeting, setGreeting] = useState('Good morning')
   const [calendarEvents, setCalendarEvents] = useState<TodayEvent[]>([])
   const [calendarLoading, setCalendarLoading] = useState(true)
@@ -910,15 +919,20 @@ export default function DashboardPage() {
     loadMeetings()
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user?.email) return
-      const { data: userData } = await supabase
-        .from('users')
-        .select('name, role')
-        .eq('email', user.email)
-        .single()
-      const name = userData?.name?.split(' ')[0] || ''
-      setFirstName(name)
-      setUserRole(userData?.role ?? '')
+      if (!user?.email) { setRoleLoaded(true); return }
+      try {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('name, role')
+          .eq('email', user.email)
+          .single()
+        const name = userData?.name?.split(' ')[0] || ''
+        setFirstName(name)
+        setUserRole(userData?.role ?? '')
+      } finally {
+        // Mark loaded on success or failure so the page never stays blank.
+        setRoleLoaded(true)
+      }
     })
     const handler = () => { loadMeetings(); router.refresh() }
     window.addEventListener('cask-meeting-saved', handler)
@@ -1234,7 +1248,16 @@ export default function DashboardPage() {
   const coreActions = actionItems.filter(a => isCoreOwner(a.owner))
   const openActions = coreActions.filter(a => !a.done)
   const completedActions = coreActions.filter(a => a.done)
-  const recentMeetings = meetings.slice(0, 3)
+
+  // NEW (additive): restricted roles (vp_sales/Jeff, ops_manager/Matteo,
+  // vp_ops/Chad, vp_finance/Lamont) only see meetings they attended — i.e. where
+  // their first name is in the meeting's attendees array. Admin roles (president,
+  // ea, ai_specialist) get the full list, unchanged. Drives Recent Sessions, the
+  // Sessions stat count, and Yesterday's Meetings below.
+  const visibleMeetings = filterMeetingsForRole(meetings, userRole, firstName)
+  const visibleYesterdayMeetings = filterMeetingsForRole(yesterdayMeetings, userRole, firstName)
+
+  const recentMeetings = visibleMeetings.slice(0, 3)
 
   // ── Derived display values (presentation only — no new fetching) ────
   const etTodayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -1257,7 +1280,7 @@ export default function DashboardPage() {
   const oldestDays = oldestOverdue ? overdueDays(oldestOverdue) : 0
 
   const thisMonthPrefix = etTodayStr.slice(0, 7)
-  const sessionsThisMonth = meetings.filter(m => m.date?.startsWith(thisMonthPrefix)).length
+  const sessionsThisMonth = visibleMeetings.filter(m => m.date?.startsWith(thisMonthPrefix)).length
 
   const completionRate = coreActions.length > 0
     ? Math.round((completedActions.length / coreActions.length) * 100)
@@ -1348,6 +1371,34 @@ export default function DashboardPage() {
     : null
   const otherGroups = allOwnerGroups.filter(g => g !== myGroup)
   const myOverdueActions = (myGroup?.items ?? []).filter(isOverdue)
+
+  // NEW (additive): restricted roles (vp_sales/Jeff, ops_manager/Matteo,
+  // vp_ops/Chad, vp_finance/Lamont) get a personalized dashboard. Admin roles
+  // (president, ea, ai_specialist) are unaffected by everything below.
+  const isRestricted = isRestrictedRole(userRole)
+  // Their own open count (open items assigned to them) for the briefing line.
+  const myOpenCount = myGroup?.items.length ?? 0
+  // CHANGE 4: Completed stat for restricted users — only THEIR action items
+  // (owner contains their first name, case-insensitive), with a personal
+  // completion rate (their completed / their total assigned).
+  const myAllActionItems = currentFirst
+    ? actionItems.filter(a => a.owner.toLowerCase().includes(currentFirst.toLowerCase()))
+    : []
+  const myCompletedCount = myAllActionItems.filter(a => a.done).length
+  const myCompletionRate = myAllActionItems.length > 0
+    ? Math.round((myCompletedCount / myAllActionItems.length) * 100)
+    : 0
+  // CHANGE: "Open action items" stat for restricted users — only THEIR open
+  // items (owner contains first name, done === false). Derived from the same
+  // includes-based match as /actions "My Items", so the count matches exactly.
+  // Overdue count + oldest-overdue age are likewise restricted to their items.
+  const myOpenItems = myAllActionItems.filter(a => !a.done)
+  const myOpenOverdue = myOpenItems.filter(isOverdue)
+  const myOpenOldestOverdue = myOpenOverdue.reduce<ActionItem | null>(
+    (oldest, a) => (!oldest || a.due_date < oldest.due_date ? a : oldest),
+    null,
+  )
+  const myOpenOldestDays = myOpenOldestOverdue ? overdueDays(myOpenOldestOverdue) : 0
 
   // Overdue banner source: leadership sees the whole core board; everyone else
   // sees only their own overdue count (so they never see "45 of them Calin's").
@@ -1559,6 +1610,19 @@ export default function DashboardPage() {
     )
   }
 
+  // Hold the entire dashboard until the role resolves, so restricted users never
+  // see the admin stat cards / briefing / schedule flash before their view loads.
+  if (!roleLoaded) {
+    return (
+      <>
+        <TopBar title="Dashboard" subtitle="CASK Construction Command Center" />
+        <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--text3)', fontSize: 13 }}>
+          Loading…
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
       <style>{`
@@ -1611,7 +1675,9 @@ export default function DashboardPage() {
           className="fb-rise"
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            // CHANGE 1: restricted roles don't see "Events this week", so the
+            // stat grid drops from 4 to 3 columns to lay out cleanly.
+            gridTemplateColumns: isRestricted ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)',
             gap: 1,
             background: 'var(--fable-line, var(--border))',
             border: '1px solid var(--fable-line, var(--border))',
@@ -1622,40 +1688,62 @@ export default function DashboardPage() {
         >
           <StatBox
             label="Sessions"
-            value={loading ? '…' : meetings.length}
+            value={loading ? '…' : visibleMeetings.length}
             delta={loading ? '' : sessionsThisMonth > 0 ? `▲ ${sessionsThisMonth} this month` : 'None this month'}
             deltaTone={sessionsThisMonth > 0 ? 'up' : 'flat'}
             note="All time"
             sparkPath="M0 17 L12 15 L24 16 L36 12 L48 13 L60 9 L72 7 L84 4"
           />
-          <StatBox
-            label="Events this week"
-            value={upcomingCount ?? '…'}
-            delta={nextEventHint}
-            deltaTone="flat"
-            note={
-              calendarLoading ? '…'
-              : nextEventToday ? `Next: ${fmtET(nextEventToday.start_time)}`
-              : allEventsDone ? 'All done today'
-              : 'No more events today'
-            }
-            sparkPath="M0 12 L12 14 L24 10 L36 13 L48 8 L60 12 L72 10 L84 11"
-          />
+          {/* NOTE: "Events this week" counts company calendar_events (a different
+              table than meetings, with a different attendees shape), so the
+              meeting-attendee role filter does not apply here and is intentionally
+              left unchanged. Revisit if calendar events need per-user filtering.
+              CHANGE 1: hidden entirely for restricted roles (calendar/schedule
+              data is not surfaced to them); admins see it exactly as before. */}
+          {!isRestricted && (
+            <StatBox
+              label="Events this week"
+              value={upcomingCount ?? '…'}
+              delta={nextEventHint}
+              deltaTone="flat"
+              note={
+                calendarLoading ? '…'
+                : nextEventToday ? `Next: ${fmtET(nextEventToday.start_time)}`
+                : allEventsDone ? 'All done today'
+                : 'No more events today'
+              }
+              sparkPath="M0 12 L12 14 L24 10 L36 13 L48 8 L60 12 L72 10 L84 11"
+            />
+          )}
+          {/* CHANGE: restricted roles see only THEIR open items here (count,
+              overdue, and oldest-overdue age); admins see the company-wide
+              numbers, unchanged. */}
           <StatBox
             label="Open action items"
-            value={actionItemsLoading ? '…' : openActions.length}
-            delta={actionItemsLoading ? '' : overdueActions.length > 0 ? `${overdueActions.length} overdue` : 'On track'}
-            deltaTone={overdueActions.length > 0 ? 'bad' : 'flat'}
-            note={overdueActions.length > 0 ? `Oldest: ${oldestDays} days` : 'Nothing overdue'}
+            value={actionItemsLoading ? '…' : (isRestricted ? myOpenItems.length : openActions.length)}
+            delta={
+              actionItemsLoading ? ''
+              : (isRestricted ? myOpenOverdue.length : overdueActions.length) > 0
+                ? `${isRestricted ? myOpenOverdue.length : overdueActions.length} overdue`
+                : 'On track'
+            }
+            deltaTone={(isRestricted ? myOpenOverdue.length : overdueActions.length) > 0 ? 'bad' : 'flat'}
+            note={
+              (isRestricted ? myOpenOverdue.length : overdueActions.length) > 0
+                ? `Oldest: ${isRestricted ? myOpenOldestDays : oldestDays} days`
+                : 'Nothing overdue'
+            }
             sparkPath="M0 16 L12 14 L24 14 L36 11 L48 9 L60 9 L72 6 L84 5"
-            flag={!actionItemsLoading && overdueActions.length > 0}
+            flag={!actionItemsLoading && (isRestricted ? myOpenOverdue.length : overdueActions.length) > 0}
           />
+          {/* CHANGE 4: restricted roles see only THEIR completed items + personal
+              completion rate; admins see the company-wide total, unchanged. */}
           <StatBox
             label="Completed"
-            value={actionItemsLoading ? '…' : completedActions.length}
-            delta={actionItemsLoading ? '' : `▲ ${completionRate}%`}
-            deltaTone={completionRate > 0 ? 'up' : 'flat'}
-            note="Completion rate · all time"
+            value={actionItemsLoading ? '…' : (isRestricted ? myCompletedCount : completedActions.length)}
+            delta={actionItemsLoading ? '' : `▲ ${isRestricted ? myCompletionRate : completionRate}%`}
+            deltaTone={(isRestricted ? myCompletionRate : completionRate) > 0 ? 'up' : 'flat'}
+            note={isRestricted ? 'Your completion rate · all time' : 'Completion rate · all time'}
             sparkPath="M0 18 L12 17 L24 15 L36 14 L48 11 L60 10 L72 7 L84 5"
           />
         </div>
@@ -1734,9 +1822,11 @@ export default function DashboardPage() {
             <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>{todayLabel}</div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', alignItems: 'start' }}>
+          {/* CHANGE 2: restricted roles don't see "Today's schedule", so the
+              briefing collapses to a single column (no right divider). */}
+          <div style={{ display: 'grid', gridTemplateColumns: isRestricted ? '1fr' : '1.4fr 1fr', alignItems: 'start' }}>
             {/* Main briefing text */}
-            <div style={{ padding: '18px 20px', borderRight: '1px solid var(--fable-line-soft, var(--border))' }}>
+            <div style={{ padding: '18px 20px', borderRight: isRestricted ? 'none' : '1px solid var(--fable-line-soft, var(--border))' }}>
               <p
                 style={{
                   fontFamily: SERIF,
@@ -1746,6 +1836,33 @@ export default function DashboardPage() {
                   fontWeight: 500,
                 }}
               >
+                {/* CHANGE 3: restricted roles get a briefing that references ONLY
+                    their own action items — no calendar/schedule data. Admins keep
+                    the existing schedule-aware briefing below, unchanged. */}
+                {isRestricted ? (
+                  actionItemsLoading ? (
+                    'Loading your action items…'
+                  ) : (
+                    <>
+                      You have{' '}
+                      <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
+                        {myOpenCount} open action item{myOpenCount === 1 ? '' : 's'}
+                      </em>
+                      {myOverdueActions.length > 0 ? (
+                        <>
+                          ,{' '}
+                          <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
+                            {myOverdueActions.length} overdue
+                          </em>
+                          .
+                        </>
+                      ) : (
+                        ', none overdue.'
+                      )}
+                    </>
+                  )
+                ) : (
+                  <>
                 {calendarLoading ? (
                   'Pulling today’s schedule…'
                 ) : calendarEvents.length === 0 ? (
@@ -1775,6 +1892,8 @@ export default function DashboardPage() {
                   </>
                 ) : (
                   'No action items are overdue — the board is clean.'
+                )}
+                  </>
                 )}
               </p>
               <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
@@ -1887,7 +2006,9 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Today's schedule */}
+            {/* Today's schedule — CHANGE 2: hidden for restricted roles (no
+                calendar/schedule data surfaced to them); admins see it as before. */}
+            {!isRestricted && (
             <div style={{ padding: '18px 20px' }}>
               <h3
                 style={{
@@ -1982,6 +2103,7 @@ export default function DashboardPage() {
                 </ul>
               )}
             </div>
+            )}
           </div>
         </section>
 
@@ -2330,8 +2452,10 @@ export default function DashboardPage() {
 
         {/* Yesterday's Meetings — moved below Row 3 (full width).
             Visible for ALL roles — gated ONLY by data presence (never by user
-            role/canSeeAllItems). Do not wrap this in a role condition. */}
-        {yesterdayMeetings.length > 0 && (
+            role/canSeeAllItems). Do not wrap this in a role condition.
+            Uses visibleYesterdayMeetings so restricted roles only see meetings
+            they attended; admins still see every meeting. */}
+        {visibleYesterdayMeetings.length > 0 && (
           <section aria-label="Yesterday's meetings">
             <div
               style={{
@@ -2354,7 +2478,7 @@ export default function DashboardPage() {
                 Yesterday&apos;s Meetings
               </h3>
               <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {yesterdayMeetings.map(m => (
+                {visibleYesterdayMeetings.map(m => (
                   <li key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
                     <Link
                       href={`/sessions/${m.id}`}
@@ -2391,8 +2515,13 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Floating CASK Intelligence button + chat drawer — bottom-right, this page only */}
-      <FloatingDashboardAI />
+      {/* Floating CASK Intelligence button + chat drawer — bottom-right, this page only.
+          ROLE-SCOPING: the dashboard's AI context is built server-side in
+          /api/chat. We pass the user's role + first name so that route can scope
+          restricted roles (Jeff/Matteo/Chad/Lamont) to ONLY their own meetings +
+          action items, excluding calendar/company-wide data. Admins (or any
+          missing role) are unaffected and still get the full context. */}
+      <FloatingDashboardAI userRole={userRole} userName={firstName} />
     </>
   )
 }
