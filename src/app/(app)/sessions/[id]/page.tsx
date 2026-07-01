@@ -8,6 +8,7 @@ import { fetchMeetingById } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
+import { isRestrictedRole } from '@/lib/role-filter'
 
 // Local display-only extension of ActionItem. `completed_at` is persisted into
 // the meetings.action_items JSON (not a schema change — it's a JSONB column).
@@ -477,6 +478,14 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   const [transcriptExpanded, setTranscriptExpanded] = useState(false)
   const [actionItems, setActionItems] = useState<ActionItemX[]>([])
   const [actionItemsLoading, setActionItemsLoading] = useState(true)
+  // Current user's first name + role, used ONLY to decide which action items are
+  // visible. Admin roles (Calin/president, Kai/ea, Rovern/ai_specialist) see every
+  // item exactly as before; restricted roles see only items owned by them.
+  const [firstName, setFirstName] = useState('')
+  const [userRole, setUserRole] = useState('')
+  // Gates the action items list until the role resolves, so a restricted user
+  // never flashes other people's items before filtering kicks in.
+  const [roleResolved, setRoleResolved] = useState(false)
 
   useEffect(() => {
     fetchMeetingById(params.id).then(data => {
@@ -484,6 +493,22 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       setLoading(false)
     })
   }, [params.id])
+
+  useEffect(() => {
+    async function loadUser() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: publicUser } = await supabase
+        .from('users')
+        .select('name, role')
+        .eq('email', user?.email ?? '')
+        .maybeSingle()
+      setFirstName(publicUser?.name?.split(' ')[0] ?? '')
+      setUserRole(publicUser?.role ?? '')
+      setRoleResolved(true)
+    }
+    loadUser()
+  }, [])
 
   useEffect(() => {
     if (!meeting) return
@@ -565,7 +590,16 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     day: 'numeric',
   })
 
-  const openActions = actionItems.filter(a => !a.done)
+  // Owner-based visibility. Restricted roles see only action items whose owner
+  // matches their first name (case-insensitive, substring — same match as the
+  // dashboard "My Items" view). Admin/unknown roles get the full list unchanged.
+  const isRestricted = isRestrictedRole(userRole)
+  const fn = firstName.trim().toLowerCase()
+  const visibleActionItems = isRestricted
+    ? (fn ? actionItems.filter(a => (a.owner ?? '').toLowerCase().includes(fn)) : [])
+    : actionItems
+
+  const openActions = visibleActionItems.filter(a => !a.done)
 
   return (
     <>
@@ -685,21 +719,31 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
             </span>
           </div>
           <div className="flex flex-col gap-[5px]">
-            {actionItemsLoading ? (
+            {actionItemsLoading || !roleResolved ? (
               [0, 1, 2].map(i => (
                 <div key={i} className="rounded-[6px] h-[56px] shimmer" style={{ border: '1px solid var(--border)' }} />
               ))
-            ) : actionItems.length === 0 ? (
-              <p className="text-[12px]" style={{ color: 'var(--text3)' }}>No action items recorded.</p>
+            ) : visibleActionItems.length === 0 ? (
+              // Restricted users get a personal empty state; admins keep the
+              // original "nothing recorded" copy.
+              <p className="text-[12px]" style={{ color: 'var(--text3)' }}>
+                {isRestricted ? 'No action items assigned to you in this meeting.' : 'No action items recorded.'}
+              </p>
             ) : (
-              actionItems.map((item, index) => (
-                // ActionItemRow passes item.id to onToggle, but webhook items
-                // have no id — inject the array index via this closure instead.
-                <div key={item.id ?? index}>
-                  <ActionItemRow item={item} onToggle={(_id, done) => handleToggle(index, done)} />
-                  <ActionItemMeta item={item} meetingTitle={meeting.title} meetingDate={meeting.date} />
-                </div>
-              ))
+              visibleActionItems.map(item => {
+                // handleToggle indexes into the full actionItems array, so pass
+                // the item's ORIGINAL index (not the filtered position) — the
+                // done toggle keeps writing back the correct item.
+                const index = actionItems.indexOf(item)
+                return (
+                  // ActionItemRow passes item.id to onToggle, but webhook items
+                  // have no id — inject the array index via this closure instead.
+                  <div key={item.id ?? index}>
+                    <ActionItemRow item={item} onToggle={(_id, done) => handleToggle(index, done)} />
+                    <ActionItemMeta item={item} meetingTitle={meeting.title} meetingDate={meeting.date} />
+                  </div>
+                )
+              })
             )}
           </div>
         </div>
