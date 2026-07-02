@@ -659,7 +659,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
             `text-white` className, which is out of scope to edit. */}
         <div
           className="rounded-[10px] p-7 mb-3.5 relative overflow-hidden"
-          style={{ background: 'var(--surface)' }}
+          style={{ background: '#111111' }}
         >
           <div
             className="absolute -bottom-[60px] -right-[60px] w-[200px] h-[200px] rounded-full"
@@ -667,25 +667,25 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
           />
           <div
             className="text-[10px] font-semibold tracking-[2px] uppercase mb-2.5"
-            style={{ color: 'var(--text3)' }}
+            style={{ color: 'rgba(255, 255, 255, 0.6)' }}
           >
             General Meetings · CASK Construction
           </div>
-          <h1 className="font-serif text-[24px] text-white mb-3 leading-[1.2] tracking-[-0.3px]" style={{ color: 'var(--text)' }}>
+          <h1 className="font-serif text-[24px] text-white mb-3 leading-[1.2] tracking-[-0.3px]" style={{ color: '#ffffff' }}>
             {meeting.title}
           </h1>
           <div className="flex gap-2 flex-wrap">
             <MeetingTypeTag type={meeting.meeting_type} />
             <span
               className="text-[11px] px-3 py-1 rounded-full"
-              style={{ color: 'var(--text2)', background: 'var(--surface2)', border: '1px solid var(--border)' }}
+              style={{ color: 'rgba(255, 255, 255, 0.8)', border: '1px solid rgba(255, 255, 255, 0.2)' }}
             >
               {formattedDate}
             </span>
             {meeting.time_start && (
               <span
                 className="text-[11px] px-3 py-1 rounded-full"
-                style={{ color: 'var(--text2)', background: 'var(--surface2)', border: '1px solid var(--border)' }}
+                style={{ color: 'rgba(255, 255, 255, 0.8)', border: '1px solid rgba(255, 255, 255, 0.2)' }}
               >
                 {meeting.time_start} – {meeting.time_end}
               </span>
@@ -693,7 +693,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
             {meeting.attendees.length > 0 && (
               <span
                 className="text-[11px] px-3 py-1 rounded-full"
-                style={{ color: 'var(--text2)', background: 'var(--surface2)', border: '1px solid var(--border)' }}
+                style={{ color: 'rgba(255, 255, 255, 0.8)', border: '1px solid rgba(255, 255, 255, 0.2)' }}
               >
                 {meeting.attendees.join(', ')}
               </span>
