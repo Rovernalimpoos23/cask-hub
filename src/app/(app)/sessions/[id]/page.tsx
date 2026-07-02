@@ -8,7 +8,7 @@ import { fetchMeetingById } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting, ActionItem } from '@/types'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
-import { isRestrictedRole } from '@/lib/role-filter'
+import { isRestrictedRole, meetingHasAttendee } from '@/lib/role-filter'
 
 // Local display-only extension of ActionItem. `completed_at` is persisted into
 // the meetings.action_items JSON (not a schema change — it's a JSONB column).
@@ -577,6 +577,50 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         <div className="flex-1 overflow-y-auto p-7">
           <BackLink />
           <p style={{ color: 'var(--text3)', fontSize: 14 }}>Session not found.</p>
+        </div>
+      </>
+    )
+  }
+
+  // ── Restricted-user attendee gate (additive) ────────────────────────────────
+  // Restricted roles (vp_sales, ops_manager, vp_ops, vp_finance, member) may only
+  // view a session they actually attended — their first name must appear in the
+  // meeting's attendees array. We reuse the shared meetingHasAttendee helper (the
+  // same case-insensitive substring match filterMeetingsForRole uses for the All
+  // Sessions list), so a meeting hidden from the list is also blocked here by URL.
+  // Admin/unknown roles are unaffected and continue to see every meeting. This
+  // does NOT alter the action-items filtering below — that stays exactly as is.
+
+  // Wait for the role to resolve before deciding access, so a legitimately
+  // attending restricted user never flashes the denial screen, and a restricted
+  // non-attendee never flashes the meeting content, before their role loads.
+  if (!roleResolved) {
+    return (
+      <>
+        <TopBar title={meeting.title} subtitle="Session Detail" />
+        <div className="flex-1 overflow-y-auto p-7">
+          <div className="rounded-[10px] h-[120px] shimmer mb-3" style={{ border: '1px solid var(--border)' }} />
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="rounded-lg h-[140px] shimmer" style={{ border: '1px solid var(--border)' }} />
+            <div className="rounded-lg h-[140px] shimmer" style={{ border: '1px solid var(--border)' }} />
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  // Restricted users who did not attend this meeting get an access-denied view
+  // instead of the meeting content (blocks direct-URL access to sessions they
+  // were not part of).
+  if (isRestrictedRole(userRole) && !meetingHasAttendee(meeting, firstName)) {
+    return (
+      <>
+        <TopBar title="Access Restricted" subtitle="Session Detail" />
+        <div className="flex-1 overflow-y-auto p-7">
+          <BackLink />
+          <p style={{ color: 'var(--text3)', fontSize: 14 }}>
+            You don&apos;t have access to this meeting.
+          </p>
         </div>
       </>
     )
