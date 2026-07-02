@@ -189,7 +189,7 @@ function FloatingActionsAI() {
           gap: 8,
           padding: '12px 18px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',
@@ -685,7 +685,7 @@ export default function ActionsPage() {
         </span>
         <span
           className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
-          style={{ background: 'var(--green-bg)', color: 'var(--green)', border: '1px solid #bbf7d0' }}
+          style={{ background: 'var(--green-bg)', color: 'var(--green)', border: '1px solid var(--pill-green-border)' }}
         >
           {loading ? '…' : completedItems.length} Done
         </span>

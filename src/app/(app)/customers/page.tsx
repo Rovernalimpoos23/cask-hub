@@ -25,17 +25,17 @@ interface Client {
 
 const HAPPINESS_CONFIG = {
   green: {
-    pill: { background: '#F0FDF4', color: '#166534' },
+    pill: { background: 'var(--green-bg)', color: '#166534' },
     label: 'Happy',
     accent: '#16a34a',
   },
   yellow: {
-    pill: { background: '#FFFBEB', color: '#92400E' },
+    pill: { background: 'var(--amber-bg)', color: '#92400E' },
     label: 'At Risk',
     accent: '#d97706',
   },
   red: {
-    pill: { background: '#FDF2F0', color: '#9B1C0E' },
+    pill: { background: 'var(--red-soft)', color: '#9B1C0E' },
     label: 'Needs Attention',
     accent: '#dc2626',
   },
@@ -359,7 +359,7 @@ function FloatingCustomerJourneyAI() {
           gap: 8,
           padding: '12px 18px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',
@@ -850,7 +850,7 @@ export default function ActiveClientsPage() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: '#fff',
+              background: 'var(--surface)',
               borderRadius: 12,
               padding: 28,
               maxWidth: 420,

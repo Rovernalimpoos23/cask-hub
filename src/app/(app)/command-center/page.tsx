@@ -802,7 +802,7 @@ function FloatingCASKOSAI() {
           gap: 9,
           padding: '12px 19px 12px 15px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',

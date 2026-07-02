@@ -39,9 +39,9 @@ const SERIF = fraunces.style.fontFamily
 
 // ── Step type → badge styling (per brief) ────────────────────────────────────
 const TYPE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
-  internal: { label: 'Internal', bg: '#ede9fe', color: '#4c1d95' },
-  window: { label: 'Work Window', bg: '#fef3c7', color: '#78350f' },
-  customer: { label: 'Customer', bg: '#fee2e2', color: '#7f1d1d' },
+  internal: { label: 'Internal', bg: 'var(--purple-bg)', color: '#4c1d95' },
+  window: { label: 'Work Window', bg: 'var(--amber-bg)', color: '#78350f' },
+  customer: { label: 'Customer', bg: 'var(--red-soft)', color: '#7f1d1d' },
 }
 
 function TypeBadge({ type }: { type: string }) {
@@ -152,7 +152,7 @@ function PhaseTracker({ completed, currentStepNumber }: { completed: Set<number>
               </div>
               {state === 'active' && (
                 <div style={{ marginTop: 4 }}>
-                  <span style={{ fontSize: 9, background: '#fee2e2', color: '#991b1b', borderRadius: 4, padding: '1px 5px', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>
+                  <span style={{ fontSize: 9, background: 'var(--red-soft)', color: '#991b1b', borderRadius: 4, padding: '1px 5px', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>
                     Current
                   </span>
                 </div>

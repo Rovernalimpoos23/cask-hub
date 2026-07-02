@@ -680,8 +680,8 @@ export function FilterBar({
           onClick={() => onSelect(tab.value)}
           className="text-[12px] font-medium px-3 py-[5px] rounded-[5px] transition-all duration-150"
           style={{
-            background: active === tab.value ? 'var(--charcoal)' : 'none',
-            color: active === tab.value ? 'white' : 'var(--text3)',
+            background: active === tab.value ? 'var(--text)' : 'var(--surface2)',
+            color: active === tab.value ? 'var(--bg)' : 'var(--text2)',
             border: 'none',
             fontFamily: 'var(--font-geist), sans-serif',
             cursor: 'pointer',

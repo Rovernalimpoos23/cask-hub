@@ -162,7 +162,7 @@ function FloatingDailyMeetingsAI() {
           gap: 8,
           padding: '12px 18px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',
@@ -552,9 +552,9 @@ export default function DailyMeetingsPage() {
                 onClick={() => setFilter(f.value)}
                 className="text-[12px] font-medium px-3 py-[5px] rounded-[5px] transition-all duration-150"
                 style={{
-                  background: isActive ? 'var(--charcoal)' : 'transparent',
-                  color: isActive ? 'white' : 'var(--text3)',
-                  border: isActive ? '1px solid var(--charcoal)' : '1px solid var(--border)',
+                  background: isActive ? 'var(--text)' : 'var(--surface2)',
+                  color: isActive ? 'var(--bg)' : 'var(--text2)',
+                  border: isActive ? '1px solid var(--text)' : '1px solid var(--border)',
                   fontFamily: 'var(--font-geist), sans-serif',
                   cursor: 'pointer',
                 }}

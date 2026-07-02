@@ -249,9 +249,9 @@ function ProgressBar({ value, total, color }: { value: number; total: number; co
 }
 
 function StatusBadge({ obtained, target }: { obtained: number; target: number }) {
-  let bg = '#dcfce7', color = '#166534', text = '✓ On Track'
-  if (obtained > target) { bg = '#dbeafe'; color = '#1e40af'; text = '↑ Ahead' }
-  else if (obtained < target) { bg = '#fee2e2'; color = '#991b1b'; text = '⚠ Behind' }
+  let bg = 'var(--green-bg)', color = '#166534', text = '✓ On Track'
+  if (obtained > target) { bg = 'rgba(59, 130, 246, 0.13)'; color = '#1e40af'; text = '↑ Ahead' }
+  else if (obtained < target) { bg = 'var(--red-soft)'; color = '#991b1b'; text = '⚠ Behind' }
   return (
     <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: bg, color, whiteSpace: 'nowrap' }}>
       {text}
@@ -925,7 +925,7 @@ Answer questions about client OKR status, PM assignments, monthly/quarterly targ
                   </thead>
                   <tbody>
                     {NPS_HISTORY.map((r, i) => {
-                      const bg = r.highlight ? '#fffbeb' : i % 2 === 1 ? 'var(--surface2)' : 'transparent'
+                      const bg = r.highlight ? 'var(--amber-bg)' : i % 2 === 1 ? 'var(--surface2)' : 'transparent'
                       const fw = r.bold ? 700 : 400
                       return (
                         <tr key={i} style={{ borderBottom: '0.5px solid var(--border)', background: bg }}>
@@ -1241,9 +1241,9 @@ function PMPhaseCells({
 // Small badge showing which phase a client is currently working in.
 function CurrentPhaseBadge({ phase }: { phase: 'Design' | 'Permit' | 'Contract' | 'Complete' }) {
   const map: Record<string, { bg: string; color: string }> = {
-    Design: { bg: '#dbeafe', color: '#1e40af' },
-    Permit: { bg: '#fef3c7', color: '#92400e' },
-    Contract: { bg: '#dcfce7', color: '#166534' },
+    Design: { bg: 'rgba(59, 130, 246, 0.13)', color: '#1e40af' },
+    Permit: { bg: 'var(--amber-bg)', color: '#92400e' },
+    Contract: { bg: 'var(--green-bg)', color: '#166534' },
     Complete: { bg: 'var(--surface2)', color: 'var(--text2)' },
   }
   const s = map[phase]
@@ -1390,7 +1390,7 @@ function FloatingOKRAI({ aiContext }: { aiContext: string }) {
           gap: 8,
           padding: '12px 18px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',

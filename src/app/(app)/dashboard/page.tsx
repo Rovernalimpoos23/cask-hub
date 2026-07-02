@@ -391,7 +391,7 @@ function FloatingDashboardAI({ userRole, userName }: { userRole: string; userNam
           gap: 9,
           padding: '12px 19px 12px 15px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',
@@ -1478,8 +1478,8 @@ export default function DashboardPage() {
               width: 22,
               height: 22,
               borderRadius: '50%',
-              background: 'var(--charcoal)',
-              color: '#fff',
+              background: 'var(--surface2)',
+              color: 'var(--text)',
               display: 'grid',
               placeItems: 'center',
               fontSize: 9.5,
@@ -1752,20 +1752,20 @@ export default function DashboardPage() {
             briefing section. Only rendered when there are overdue customer-journey tasks. */}
         {journeyOverdueAlerts.length > 0 && (
           <section aria-label="Past due customer journey alerts" className="fb-rise" style={{ marginBottom: 26 }}>
-            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '14px 18px' }}>
+            <div style={{ background: 'var(--red-soft)', border: '1px solid var(--red-border)', borderRadius: 10, padding: '14px 18px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#b91c1c' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--red)' }}>
                   ⚠️ Past Due — Customer Journey
                 </span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#b91c1c', ...NUM }}>{journeyOverdueAlerts.length}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', ...NUM }}>{journeyOverdueAlerts.length}</span>
               </div>
               <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {journeyOverdueAlerts.slice(0, 3).map((a, i) => (
                   <li key={i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
-                    <Link href={`/customers/${a.clientId}`} style={{ color: '#7f1d1d', textDecoration: 'none' }}>
+                    <Link href={`/customers/${a.clientId}`} style={{ color: 'var(--red)', textDecoration: 'none' }}>
                       <b style={{ fontWeight: 650 }}>{a.clientName}</b>
                       {' · '}STEP {String(a.stepNumber).padStart(2, '0')}{' · '}
-                      <span style={{ color: '#991b1b' }}>{a.task}</span>
+                      <span style={{ color: 'var(--red)' }}>{a.task}</span>
                     </Link>
                   </li>
                 ))}
@@ -1774,7 +1774,7 @@ export default function DashboardPage() {
                 <Link
                   href="/customers"
                   className="fb-all"
-                  style={{ display: 'inline-block', marginTop: 8, fontSize: 11.5, fontWeight: 500, color: '#b91c1c', textDecoration: 'none' }}
+                  style={{ display: 'inline-block', marginTop: 8, fontSize: 11.5, fontWeight: 500, color: 'var(--red)', textDecoration: 'none' }}
                 >
                   and {journeyOverdueAlerts.length - 3} more →
                 </Link>
@@ -1906,8 +1906,8 @@ export default function DashboardPage() {
                     borderRadius: 7,
                     padding: '8px 13px',
                     lineHeight: 1,
-                    background: 'var(--charcoal)',
-                    border: '1px solid var(--charcoal)',
+                    background: 'var(--fable-red)',
+                    border: '1px solid var(--fable-red)',
                     color: '#fff',
                     textDecoration: 'none',
                     transition: 'opacity 150ms ease',
@@ -2131,11 +2131,11 @@ export default function DashboardPage() {
                   gap: 9,
                   padding: '10px 14px',
                   marginBottom: 12,
-                  background: 'var(--fable-red-soft)',
-                  border: '1px solid #F2D4D6',
+                  background: 'var(--red-soft)',
+                  border: '1px solid var(--red-border)',
                   borderRadius: 8,
                   fontSize: 12.5,
-                  color: '#7E1018',
+                  color: 'var(--red)',
                   fontWeight: 500,
                 }}
               >

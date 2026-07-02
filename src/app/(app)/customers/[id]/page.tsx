@@ -450,7 +450,7 @@ function FloatingClientAI({ client, journeyRows, messages, onSend, onClear, open
           position: 'fixed', bottom: 24, right: 24, zIndex: 60,
           display: 'flex', alignItems: 'center', gap: 9,
           padding: '11px 18px 11px 14px', borderRadius: 999,
-          background: 'var(--charcoal)', color: '#fff', border: 'none',
+          background: 'var(--fable-red)', color: '#fff', border: 'none',
           cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, letterSpacing: '0.2px',
           boxShadow: btnHover ? '0 12px 30px -6px rgba(0,0,0,0.45)' : '0 6px 18px -4px rgba(0,0,0,0.35)',
           transform: btnHover ? 'translateY(-2px)' : 'translateY(0)',
@@ -1056,7 +1056,7 @@ function WorkflowStep({
 
         {/* Status badge */}
         {isCompleted ? (
-          <span className="shrink-0 self-center" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap' }}>
+          <span className="shrink-0 self-center" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#166534', background: 'var(--green-bg)', border: '1px solid var(--pill-green-border)', padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap' }}>
             Done
           </span>
         ) : isCurrent ? (
@@ -1150,7 +1150,7 @@ function WorkflowStep({
               </button>
             )}
             {step.hasEmail && (
-              <button type="button" onClick={() => onAction('email', step)} style={{ ...workflowActionBtn, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', fontWeight: 600 }}>✉️ Generate Recap Email</button>
+              <button type="button" onClick={() => onAction('email', step)} style={{ ...workflowActionBtn, color: '#92400e', background: 'var(--amber-bg)', border: '1px solid var(--badge-open-border)', fontWeight: 600 }}>✉️ Generate Recap Email</button>
             )}
             <button
               type="button"
@@ -1159,8 +1159,8 @@ function WorkflowStep({
               style={{
                 ...workflowActionBtn,
                 color: isCompleted ? '#166534' : '#fff',
-                background: isCompleted ? '#f0fdf4' : 'var(--charcoal)',
-                border: isCompleted ? '1px solid #bbf7d0' : '1px solid var(--charcoal)',
+                background: isCompleted ? 'var(--green-bg)' : 'var(--charcoal)',
+                border: isCompleted ? '1px solid var(--pill-green-border)' : '1px solid var(--charcoal)',
                 fontWeight: 600,
                 cursor: marking ? 'not-allowed' : 'pointer',
                 opacity: marking ? 0.5 : 1,
@@ -2242,12 +2242,12 @@ function CurrentStepTodos({
                   </span>
                   {/* NEW (additive): inline due-date indicator after the task text. */}
                   {taskDue === 'overdue' && (
-                    <span style={{ background: '#fee2e2', color: '#991b1b', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 1 }}>
+                    <span style={{ background: 'var(--red-soft)', color: '#991b1b', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 1 }}>
                       Overdue
                     </span>
                   )}
                   {taskDue === 'soon' && (
-                    <span style={{ background: '#fef3c7', color: '#92400e', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 1 }}>
+                    <span style={{ background: 'var(--amber-bg)', color: '#92400e', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 1 }}>
                       Due soon
                     </span>
                   )}
@@ -2294,10 +2294,10 @@ function CurrentStepTodos({
                   </span>
                 )}
                 {!done && state === 'overdue' && (
-                  <span style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#991b1b', borderRadius: 99, padding: '1px 7px' }}>Overdue</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--red-soft)', color: '#991b1b', borderRadius: 99, padding: '1px 7px' }}>Overdue</span>
                 )}
                 {!done && state === 'soon' && (
-                  <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', borderRadius: 99, padding: '1px 7px' }}>Due soon</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--amber-bg)', color: '#92400e', borderRadius: 99, padding: '1px 7px' }}>Due soon</span>
                 )}
                 <span style={{ fontSize: 10.5, color: 'var(--text3)', fontStyle: 'italic' }}>
                   from {recapRow.title}
@@ -3873,8 +3873,9 @@ Today's date is ${today}.
         <section
           className="rounded-[10px]"
           style={{
-            background: 'var(--charcoal)',
+            background: 'var(--sidebar)',
             color: '#E8E8EB',
+            border: '1px solid var(--border)',
             padding: '22px 24px',
             marginBottom: 24,
             display: 'flex',
@@ -3948,8 +3949,8 @@ Today's date is ${today}.
                       display: 'inline-flex', alignItems: 'center', gap: 5,
                       height: 28, padding: '0 11px', borderRadius: 7,
                       background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.14)',
-                      color: 'rgba(255,255,255,0.82)',
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      color: '#ffffff',
                       fontSize: 11.5, fontWeight: 600, lineHeight: 1, cursor: 'pointer',
                       fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', textDecoration: 'none',
                       transition: 'background 150ms ease, border-color 150ms ease',
@@ -4149,7 +4150,7 @@ Today's date is ${today}.
               </span>
               <span
                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}
+                style={{ background: 'var(--amber-bg)', color: '#92400e', border: '1px solid var(--badge-open-border)' }}
               >
                 {emailDrafts.length}
               </span>
@@ -4161,8 +4162,8 @@ Today's date is ${today}.
                   key={draft.id}
                   className="rounded-[8px] p-4"
                   style={{
-                    background: '#fffbeb',
-                    border: '1px solid #fde68a',
+                    background: 'var(--amber-bg)',
+                    border: '1px solid var(--badge-open-border)',
                     borderLeft: '3px solid #d97706',
                     boxShadow: '0 1px 4px rgba(217,119,6,0.08)',
                   }}
@@ -4209,7 +4210,7 @@ Today's date is ${today}.
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         fontSize: 11, fontWeight: 600,
-                        color: '#92400e', background: '#fff', border: '1px solid #fde68a',
+                        color: '#92400e', background: 'var(--surface)', border: '1px solid var(--badge-open-border)',
                         padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
                         transition: 'border-color 120ms ease',
                       }}
@@ -4225,7 +4226,7 @@ Today's date is ${today}.
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         fontSize: 11, fontWeight: 600,
-                        color: '#92400e', background: '#fff', border: '1px solid #fde68a',
+                        color: '#92400e', background: 'var(--surface)', border: '1px solid var(--badge-open-border)',
                         padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
                         transition: 'border-color 120ms ease',
                       }}

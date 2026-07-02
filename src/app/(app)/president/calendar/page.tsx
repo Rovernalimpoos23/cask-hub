@@ -837,7 +837,7 @@ function FloatingCalendarAI() {
           gap: 8,
           padding: '12px 18px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',
@@ -2984,8 +2984,8 @@ export default function CalendarPage() {
                 display: 'flex', alignItems: 'center', gap: 5,
                 padding: '5px 11px', borderRadius: 6, border: 'none', cursor: 'pointer',
                 fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
-                background: view === key ? 'var(--charcoal)' : 'transparent',
-                color: view === key ? '#fff' : 'var(--text3)',
+                background: view === key ? 'var(--text)' : 'transparent',
+                color: view === key ? 'var(--bg)' : 'var(--text3)',
                 transition: 'background 150ms ease, color 150ms ease',
               }}
             >

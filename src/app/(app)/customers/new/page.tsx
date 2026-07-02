@@ -76,7 +76,7 @@ function Toast({ message, type, onDone }: { message: string; type: 'success' | '
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '12px 16px', borderRadius: 10,
         background: ok ? 'var(--green-bg)' : 'var(--red-soft)',
-        border: `1px solid ${ok ? '#bbf7d0' : 'var(--red-border)'}`,
+        border: `1px solid ${ok ? 'var(--pill-green-border)' : 'var(--red-border)'}`,
         color: ok ? 'var(--green)' : 'var(--red)',
         fontSize: 13, fontWeight: 500,
         boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
@@ -722,7 +722,7 @@ export default function NewClientSetupPage() {
                 style={{
                   width: '100%',
                   padding: '13px 16px',
-                  background: saving ? 'var(--text3)' : 'var(--charcoal)',
+                  background: saving ? 'var(--text3)' : 'var(--fable-red)',
                   border: 'none',
                   borderRadius: 10,
                   color: 'white',

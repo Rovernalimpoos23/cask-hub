@@ -177,7 +177,7 @@ function FloatingAgendaAI() {
           gap: 8,
           padding: '12px 18px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',
@@ -662,7 +662,7 @@ export default function GeneratePage() {
               disabled={loading}
               className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-[22px] py-2.5 rounded-[6px] text-white transition-all duration-150 hover:-translate-y-px disabled:opacity-50 disabled:translate-y-0"
               style={{
-                background: 'var(--charcoal)',
+                background: 'var(--fable-red)',
                 border: 'none',
                 fontFamily: 'var(--font-geist), sans-serif',
                 cursor: loading ? 'not-allowed' : 'pointer',

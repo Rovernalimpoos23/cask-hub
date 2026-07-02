@@ -182,7 +182,7 @@ function FloatingSessionsAI() {
           gap: 8,
           padding: '12px 18px',
           borderRadius: 999,
-          background: 'var(--charcoal)',
+          background: 'var(--fable-red)',
           color: '#fff',
           border: 'none',
           cursor: 'pointer',
@@ -653,9 +653,13 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         <BackLink />
 
         {/* Hero */}
+        {/* Hero card — themed to var(--surface) so it reads correctly in both light
+            and dark modes. The eyebrow, title, and pills below use theme-aware text
+            colors. The h1 gets an inline color override because its color came from the
+            `text-white` className, which is out of scope to edit. */}
         <div
           className="rounded-[10px] p-7 mb-3.5 relative overflow-hidden"
-          style={{ background: 'var(--charcoal)' }}
+          style={{ background: 'var(--surface)' }}
         >
           <div
             className="absolute -bottom-[60px] -right-[60px] w-[200px] h-[200px] rounded-full"
@@ -663,25 +667,25 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
           />
           <div
             className="text-[10px] font-semibold tracking-[2px] uppercase mb-2.5"
-            style={{ color: 'rgba(255,255,255,0.35)' }}
+            style={{ color: 'var(--text3)' }}
           >
             General Meetings · CASK Construction
           </div>
-          <h1 className="font-serif text-[24px] text-white mb-3 leading-[1.2] tracking-[-0.3px]">
+          <h1 className="font-serif text-[24px] text-white mb-3 leading-[1.2] tracking-[-0.3px]" style={{ color: 'var(--text)' }}>
             {meeting.title}
           </h1>
           <div className="flex gap-2 flex-wrap">
             <MeetingTypeTag type={meeting.meeting_type} />
             <span
               className="text-[11px] px-3 py-1 rounded-full"
-              style={{ color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+              style={{ color: 'var(--text2)', background: 'var(--surface2)', border: '1px solid var(--border)' }}
             >
               {formattedDate}
             </span>
             {meeting.time_start && (
               <span
                 className="text-[11px] px-3 py-1 rounded-full"
-                style={{ color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+                style={{ color: 'var(--text2)', background: 'var(--surface2)', border: '1px solid var(--border)' }}
               >
                 {meeting.time_start} – {meeting.time_end}
               </span>
@@ -689,7 +693,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
             {meeting.attendees.length > 0 && (
               <span
                 className="text-[11px] px-3 py-1 rounded-full"
-                style={{ color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
+                style={{ color: 'var(--text2)', background: 'var(--surface2)', border: '1px solid var(--border)' }}
               >
                 {meeting.attendees.join(', ')}
               </span>
@@ -756,7 +760,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
               style={{
                 background: openActions.length > 0 ? 'var(--red-soft)' : 'var(--green-bg)',
                 color: openActions.length > 0 ? 'var(--red)' : 'var(--green)',
-                border: `1px solid ${openActions.length > 0 ? 'var(--red-border)' : '#bbf7d0'}`,
+                border: `1px solid ${openActions.length > 0 ? 'var(--red-border)' : 'var(--pill-green-border)'}`,
               }}
             >
               {openActions.length} open
