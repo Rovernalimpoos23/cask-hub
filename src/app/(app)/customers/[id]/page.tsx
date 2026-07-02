@@ -1158,9 +1158,9 @@ function WorkflowStep({
               disabled={marking}
               style={{
                 ...workflowActionBtn,
-                color: isCompleted ? '#166534' : '#fff',
-                background: isCompleted ? 'var(--green-bg)' : 'var(--charcoal)',
-                border: isCompleted ? '1px solid var(--pill-green-border)' : '1px solid var(--charcoal)',
+                color: isCompleted ? '#166534' : 'var(--btn-primary-text, #fff)',
+                background: isCompleted ? 'var(--green-bg)' : 'var(--btn-primary-bg, var(--charcoal))',
+                border: isCompleted ? '1px solid var(--pill-green-border)' : '1px solid var(--btn-primary-bg, var(--charcoal))',
                 fontWeight: 600,
                 cursor: marking ? 'not-allowed' : 'pointer',
                 opacity: marking ? 0.5 : 1,
@@ -2059,8 +2059,8 @@ function StandingAgenda({ clientId, clientName, clientProjectAddress, onToast }:
               onClick={() => persist(true)}
               disabled={saving}
               style={{
-                fontSize: 12, fontWeight: 600, color: '#fff', background: 'var(--charcoal)',
-                border: '1px solid var(--charcoal)', padding: '8px 16px', borderRadius: 7,
+                fontSize: 12, fontWeight: 600, color: 'var(--btn-primary-text, #fff)', background: 'var(--btn-primary-bg, var(--charcoal))',
+                border: '1px solid var(--btn-primary-bg, var(--charcoal))', padding: '8px 16px', borderRadius: 7,
                 cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.5 : 1, fontFamily: 'inherit',
               }}
             >
@@ -4105,7 +4105,7 @@ Today's date is ${today}.
             </button>
             <button
               onClick={() => journeyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              style={{ ...nextBtn, background: 'var(--charcoal)', borderColor: 'var(--charcoal)', color: '#fff' }}
+              style={{ ...nextBtn, background: 'var(--btn-primary-bg, var(--charcoal))', borderColor: 'var(--btn-primary-bg, var(--charcoal))', color: 'var(--btn-primary-text, #fff)' }}
               onMouseEnter={e => { e.currentTarget.style.opacity = '0.88' }}
               onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
             >
@@ -4243,7 +4243,7 @@ Today's date is ${today}.
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         fontSize: 11, fontWeight: 600,
-                        color: '#fff', background: 'var(--charcoal, #1a1917)', border: 'none',
+                        color: 'var(--btn-primary-text, #fff)', background: 'var(--btn-primary-bg, var(--charcoal, #1a1917))', border: 'none',
                         padding: '4px 12px', borderRadius: 6,
                         cursor: sendingId === draft.id ? 'not-allowed' : 'pointer',
                         opacity: sendingId === draft.id ? 0.5 : 1,

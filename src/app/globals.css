@@ -102,7 +102,7 @@
   --white:          #1A1918;
   --bg:             #121110;
   --surface:        #1A1918;
-  --surface2:       #161514;
+  --surface2:       #201F1D;
   --surface-hover:  #201F1D;
 
   /* Borders — translucent so they sit on any surface */
@@ -121,6 +121,14 @@
 
   /* Charcoal */
   --charcoal:       #ECEBE8;
+
+  /* Primary action buttons — --charcoal flips from dark (#111) in light mode to
+     light (#ECEBE8) in dark mode, which makes the hardcoded white button text
+     invisible in dark mode. These give dark-mode primary buttons a visible fill.
+     Referenced in components as var(--btn-primary-bg, var(--charcoal)) so light
+     mode (where these are undefined) keeps its exact current charcoal/white look. */
+  --btn-primary-bg:   var(--fable-red);
+  --btn-primary-text: #ffffff;
 
   /* Sidebar — one step darker than content */
   --sidebar:        #0D0C0B;

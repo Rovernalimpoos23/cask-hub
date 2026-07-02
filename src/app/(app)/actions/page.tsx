@@ -717,9 +717,9 @@ export default function ActionsPage() {
               onClick={() => setOwnerFilter('My Items')}
               className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-all duration-150 inline-flex items-center gap-1.5"
               style={{
-                background: ownerFilter === 'My Items' ? 'var(--charcoal)' : 'none',
-                color: ownerFilter === 'My Items' ? 'white' : 'var(--text3)',
-                border: ownerFilter === 'My Items' ? '1px solid var(--charcoal)' : '1px solid var(--border)',
+                background: ownerFilter === 'My Items' ? 'var(--btn-primary-bg, var(--charcoal))' : 'none',
+                color: ownerFilter === 'My Items' ? 'var(--btn-primary-text, white)' : 'var(--text3)',
+                border: ownerFilter === 'My Items' ? '1px solid var(--btn-primary-bg, var(--charcoal))' : '1px solid var(--border)',
                 fontFamily: 'var(--font-geist), sans-serif',
                 cursor: 'pointer',
               }}
@@ -746,9 +746,9 @@ export default function ActionsPage() {
                 onClick={() => setOwnerFilter(f)}
                 className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-all duration-150"
                 style={{
-                  background: ownerFilter === f ? 'var(--charcoal)' : 'none',
-                  color: ownerFilter === f ? 'white' : 'var(--text3)',
-                  border: ownerFilter === f ? '1px solid var(--charcoal)' : '1px solid var(--border)',
+                  background: ownerFilter === f ? 'var(--btn-primary-bg, var(--charcoal))' : 'none',
+                  color: ownerFilter === f ? 'var(--btn-primary-text, white)' : 'var(--text3)',
+                  border: ownerFilter === f ? '1px solid var(--btn-primary-bg, var(--charcoal))' : '1px solid var(--border)',
                   fontFamily: 'var(--font-geist), sans-serif',
                   cursor: 'pointer',
                 }}

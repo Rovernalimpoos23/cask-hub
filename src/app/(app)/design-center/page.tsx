@@ -313,7 +313,7 @@ function LeadershipBriefingModal({ onClose }: { onClose: () => void }) {
                   <div className="flex items-center gap-3 px-4 py-2.5" style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
                     <div
                       className="shrink-0 flex items-center justify-center rounded-[5px] text-[10px] font-bold text-white"
-                      style={{ width: 26, height: 26, background: '#1e293b' }}
+                      style={{ width: 26, height: 26, background: 'var(--surface2)' }}
                     >
                       {leader.initials}
                     </div>
