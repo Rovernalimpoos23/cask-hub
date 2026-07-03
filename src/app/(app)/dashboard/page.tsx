@@ -1915,24 +1915,26 @@ export default function DashboardPage() {
                 >
                   Review overdue items
                 </Link>
-                <Link
-                  href="/president/calendar"
-                  className="fb-btn"
-                  style={{
-                    fontSize: 12.5,
-                    fontWeight: 550,
-                    borderRadius: 7,
-                    padding: '8px 13px',
-                    lineHeight: 1,
-                    background: 'var(--surface)',
-                    border: '1px solid var(--fable-line, var(--border))',
-                    color: 'var(--text)',
-                    textDecoration: 'none',
-                    transition: 'border-color 150ms ease',
-                  }}
-                >
-                  Open calendar
-                </Link>
+                {!isRestricted && (
+                  <Link
+                    href="/president/calendar"
+                    className="fb-btn"
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 550,
+                      borderRadius: 7,
+                      padding: '8px 13px',
+                      lineHeight: 1,
+                      background: 'var(--surface)',
+                      border: '1px solid var(--fable-line, var(--border))',
+                      color: 'var(--text)',
+                      textDecoration: 'none',
+                      transition: 'border-color 150ms ease',
+                    }}
+                  >
+                    Open calendar
+                  </Link>
+                )}
               </div>
 
               {/* Recent Sessions — fills the space below the briefing buttons */}
