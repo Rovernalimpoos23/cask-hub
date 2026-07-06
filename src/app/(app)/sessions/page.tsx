@@ -10,6 +10,7 @@ import {
   MeetingCard,
   FilterBar,
 } from '@/components/ui'
+import { DateRangeFilter, matchesDateRange, type DateRangeValue } from '@/components/ui/DateRangeFilter'
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import { filterMeetingsForRole } from '@/lib/role-filter'
 import { createClient } from '@/lib/supabase'
@@ -443,6 +444,7 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ type: 'all' })
   // NEW (additive): current user's role + first name, powering the restricted-role
   // meeting filter (admins see all meetings; restricted roles see only their own).
   const [userRole, setUserRole] = useState('')
@@ -484,7 +486,9 @@ export default function SessionsPage() {
   const visibleMeetings = filterMeetingsForRole(meetings, userRole, firstName)
 
   // Real-time search over visible meetings — by title or attendees, case-insensitive.
+  // Date range is AND-ed on top of the search + type-tab filters (role filter runs first).
   const q = search.trim().toLowerCase()
+  const dateActive = dateRange.type !== 'all'
   const filtered = (filter === 'all'
     ? visibleMeetings
     : visibleMeetings.filter(m => m.meeting_type === filter)
@@ -492,7 +496,11 @@ export default function SessionsPage() {
     if (!q) return true
     return m.title.toLowerCase().includes(q)
       || (m.attendees ?? []).some(a => a.toLowerCase().includes(q))
-  })
+  }).filter(m => matchesDateRange(m.date, dateRange))
+
+  // When a date filter is active, the "recorded" count reflects visible meetings
+  // that fall in the range (independent of search / type tab).
+  const dateFilteredCount = visibleMeetings.filter(m => matchesDateRange(m.date, dateRange)).length
 
   return (
     <>
@@ -533,7 +541,11 @@ export default function SessionsPage() {
             All Sessions
           </h1>
           <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
-            {loading ? 'Loading…' : `${visibleMeetings.length} meetings recorded`}
+            {loading
+              ? 'Loading…'
+              : dateActive
+                ? `${dateFilteredCount} of ${visibleMeetings.length} meetings in range`
+                : `${visibleMeetings.length} meetings recorded`}
           </p>
         </div>
 
@@ -552,6 +564,9 @@ export default function SessionsPage() {
             style={{ color: 'var(--text)', fontFamily: 'inherit', border: 'none' }}
           />
         </div>
+
+        {/* Date range filter — AND-ed with search + type tabs, client-side only. */}
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
 
         <FilterBar
           tabs={FILTER_TABS}

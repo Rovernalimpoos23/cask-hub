@@ -9,6 +9,7 @@ import {
   PillRed,
   MeetingCard,
 } from '@/components/ui'
+import { DateRangeFilter, matchesDateRange, type DateRangeValue } from '@/components/ui/DateRangeFilter'
 import { fetchAllMeetings } from '@/lib/meetings-client'
 import { createClient } from '@/lib/supabase'
 import type { Meeting } from '@/types'
@@ -446,6 +447,7 @@ export default function DailyMeetingsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ type: 'all' })
 
   const loadMeetings = useCallback(() => {
     setLoading(true)
@@ -465,7 +467,9 @@ export default function DailyMeetingsPage() {
   const activeFilter = FILTERS.find(f => f.value === filter) ?? FILTERS[0]
   // Real-time search over loaded meetings — by title or attendees, case-insensitive.
   // Layered on top of the active filter tab; tab counts are intentionally unaffected.
+  // Date range is AND-ed on top of the category tab + search filters, client-side.
   const q = search.trim().toLowerCase()
+  const dateActive = dateRange.type !== 'all'
   const filtered = meetings
     .filter(m => activeFilter.match(m.title.toLowerCase()))
     .filter(m => {
@@ -473,6 +477,10 @@ export default function DailyMeetingsPage() {
       return m.title.toLowerCase().includes(q)
         || (m.attendees ?? []).some(a => a.toLowerCase().includes(q))
     })
+    .filter(m => matchesDateRange(m.date, dateRange))
+
+  // Subtitle count reflects meetings in the selected date range (ignores tab/search).
+  const dateFilteredCount = meetings.filter(m => matchesDateRange(m.date, dateRange)).length
 
   return (
     <>
@@ -515,7 +523,9 @@ export default function DailyMeetingsPage() {
           <p className="text-[13px] mt-1" style={{ color: 'var(--text3)' }}>
             {loading
               ? 'Loading…'
-              : `All CASK Construction recorded meetings · ${meetings.length} meetings recorded`}
+              : dateActive
+                ? `All CASK Construction recorded meetings · ${dateFilteredCount} of ${meetings.length} meetings in range`
+                : `All CASK Construction recorded meetings · ${meetings.length} meetings recorded`}
           </p>
         </div>
 
@@ -534,6 +544,9 @@ export default function DailyMeetingsPage() {
             style={{ color: 'var(--text)', fontFamily: 'inherit', border: 'none' }}
           />
         </div>
+
+        {/* Date range filter — AND-ed with category tabs + search, client-side only. */}
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
 
         {/* Filter tabs — replicates the app FilterBar style (charcoal-filled active),
             with per-tab count badges, an outline on inactive tabs, and wrapping. */}
