@@ -350,14 +350,13 @@ export default function NewClientSetupPage() {
                 {/* Client Email */}
                 <div style={fieldStyle}>
                   <label style={labelStyle}>
-                    Client Email <span style={{ color: 'var(--red)' }}>*</span>
+                    Client Email
                   </label>
                   <input
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="e.g. johnsmith@gmail.com"
-                    required
                     style={inputStyle}
                     onFocus={focusInput}
                     onBlur={blurInput}
