@@ -8,14 +8,18 @@ const THEME_EVENT = 'cask-theme-change'
 const THEME_KEY = 'cask-theme'
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>('light')
+  const [theme, setTheme] = useState<Theme>('dark')
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    // Default to dark; a saved preference (from the toggle) always wins.
     const saved = localStorage.getItem(THEME_KEY) as Theme | null
-    if (saved === 'dark') {
-      setTheme('dark')
+    const initial: Theme = saved ?? 'dark'
+    setTheme(initial)
+    if (initial === 'dark') {
       document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
     }
     setMounted(true)
 
