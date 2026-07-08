@@ -50,7 +50,8 @@ const STATS: { label: string; value: string }[] = [
   { label: 'Employee Satisfaction', value: '0%' },
 ]
 
-const REPORTS: { icon: string; name: string; description: string }[] = [
+const REPORTS: { icon: string; name: string; description: string; href?: string }[] = [
+  { icon: '🎯', name: 'Department Alignment', description: 'Goals, 1:1s, and DISC Assessments for each department leader', href: '/presidents-workflow/big-vision/department-alignment' },
   { icon: '🧑‍💼', name: 'Hiring Pipeline', description: 'Track open positions and candidates in the pipeline' },
   { icon: '📇', name: 'Employee Roster', description: 'Complete list of all active CASK employees' },
   { icon: '🎓', name: 'Training Compliance', description: 'Monitor completion of required training programs' },
@@ -188,7 +189,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
   )
 }
 
-function ReportCard({ icon, name, description }: { icon: string; name: string; description: string }) {
+function ReportCard({ icon, name, description, href }: { icon: string; name: string; description: string; href?: string }) {
   const [hovered, setHovered] = useState(false)
   return (
     <div
@@ -244,24 +245,48 @@ function ReportCard({ icon, name, description }: { icon: string; name: string; d
       </p>
 
       <div style={{ marginTop: 'auto' }}>
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '1px',
-            textTransform: 'uppercase',
-            padding: '5px 11px',
-            borderRadius: 20,
-            color: 'rgba(255,255,255,0.92)',
-            background: '#1a1a2e',
-            border: '1px solid rgba(255,255,255,0.1)',
-          }}
-        >
-          <LockIcon size={10} color="rgba(255,255,255,0.92)" /> Coming Soon
-        </span>
+        {href ? (
+          <Link
+            href={href}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '1px',
+              textTransform: 'uppercase',
+              padding: '5px 11px',
+              borderRadius: 20,
+              color: '#fff',
+              background: ACCENT,
+              border: `1px solid ${ACCENT}`,
+              textDecoration: 'none',
+              boxShadow: `0 2px 8px ${ACCENT}55`,
+            }}
+          >
+            Open →
+          </Link>
+        ) : (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '1px',
+              textTransform: 'uppercase',
+              padding: '5px 11px',
+              borderRadius: 20,
+              color: 'rgba(255,255,255,0.92)',
+              background: '#1a1a2e',
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            <LockIcon size={10} color="rgba(255,255,255,0.92)" /> Coming Soon
+          </span>
+        )}
       </div>
     </div>
   )
@@ -745,10 +770,10 @@ export default function HRDepartmentPage() {
 
         {/* Reports grid */}
         <div style={{ marginBottom: 32 }}>
-          <SectionHeader title="Reports" subtitle="9 reports · unlock by connecting your HR System" />
+          <SectionHeader title="Reports" subtitle="10 reports · unlock by connecting your HR System" />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
             {REPORTS.map((r) => (
-              <ReportCard key={r.name} icon={r.icon} name={r.name} description={r.description} />
+              <ReportCard key={r.name} icon={r.icon} name={r.name} description={r.description} href={r.href} />
             ))}
           </div>
         </div>
@@ -768,7 +793,7 @@ export default function HRDepartmentPage() {
             Connect Your Data Source
           </div>
           <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 20 }}>
-            Link your HR System to unlock all 9 reports
+            Link your HR System to unlock all 10 reports
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>

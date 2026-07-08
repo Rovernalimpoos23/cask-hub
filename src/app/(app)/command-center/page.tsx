@@ -142,6 +142,7 @@ const HR_DEPT: Department = {
   dataSource: 'HR System',
   status: 'red',
   reports: [
+    { name: 'Department Alignment', status: 'green' },
     { name: 'Hiring Pipeline', status: 'red' },
     { name: 'Employee Roster', status: 'red' },
     { name: 'Training Compliance', status: 'red' },
@@ -234,7 +235,7 @@ const DATA_SOURCES: { name: string; status: Status }[] = [
 const STATS: { value: number; label: string; note: string; noteOk?: boolean }[] = [
   { value: 5, label: 'Departments', note: 'Plus executive rollup' },
   { value: 0, label: 'Connected', note: 'Of 7 data sources' },
-  { value: 49, label: 'Reports Tracked', note: 'Executive Dashboard is live', noteOk: true },
+  { value: 50, label: 'Reports Tracked', note: 'Executive Dashboard is live', noteOk: true },
   { value: 4, label: 'Automated Alerts', note: 'Activate on first connection' },
 ]
 
@@ -1148,7 +1149,7 @@ export default function CommandCenterPage() {
             </div>
             <div style={{ color: 'var(--text3)', fontSize: 12.5, marginTop: 3 }}>
               One system, one source of truth —{' '}
-              <b style={{ fontWeight: 600, color: 'var(--text2)' }}>49 reports</b> across five departments.
+              <b style={{ fontWeight: 600, color: 'var(--text2)' }}>50 reports</b> across five departments.
             </div>
           </div>
 
