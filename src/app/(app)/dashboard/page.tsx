@@ -864,6 +864,13 @@ export default function DashboardPage() {
   const [calendarLoading, setCalendarLoading] = useState(true)
   const [upcomingCount, setUpcomingCount] = useState<number | null>(null)
   const [nextEventHint, setNextEventHint] = useState<string>('Loading…')
+  // NEW (additive) — signed-in user's email, captured from the existing auth
+  // effect below. Drives which users see the Make.com calendar feed vs. the
+  // Outlook "connect" empty state (see showCalinCalendar in the render section).
+  const [userEmail, setUserEmail] = useState('')
+  // NEW (additive) — one-shot toast driven by the ?connected / ?error params the
+  // Microsoft OAuth callback sets on its redirect back to /dashboard.
+  const [oauthToast, setOauthToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
   const [clockStr, setClockStr] = useState('')
   const [actionItems, setActionItems] = useState<ActionItemX[]>([])
   const [actionItemsLoading, setActionItemsLoading] = useState(true)
@@ -920,6 +927,8 @@ export default function DashboardPage() {
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user?.email) { setRoleLoaded(true); return }
+      // Capture the session email — drives showCalinCalendar in the render below.
+      setUserEmail(user.email)
       try {
         const { data: userData } = await supabase
           .from('users')
@@ -938,6 +947,24 @@ export default function DashboardPage() {
     window.addEventListener('cask-meeting-saved', handler)
     return () => window.removeEventListener('cask-meeting-saved', handler)
   }, [loadMeetings, router])
+
+  // NEW (additive) — surface the OAuth callback result once, then strip the query
+  // params (via replaceState, no navigation) so a refresh doesn't replay the toast.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('connected') === 'outlook') {
+      setOauthToast({ kind: 'success', message: 'Outlook connected successfully!' })
+    } else if (params.get('error') === 'oauth_state') {
+      setOauthToast({ kind: 'error', message: 'Connection failed. Please try again.' })
+    } else if (params.get('error') === 'user_not_found') {
+      setOauthToast({ kind: 'error', message: 'User not found. Contact your admin.' })
+    } else {
+      return
+    }
+    window.history.replaceState({}, '', '/dashboard')
+    const t = setTimeout(() => setOauthToast(null), 6000)
+    return () => clearTimeout(t)
+  }, [])
 
   useEffect(() => {
     const supabase = createClient()
@@ -1376,6 +1403,12 @@ export default function DashboardPage() {
   // vp_ops/Chad, vp_finance/Lamont) get a personalized dashboard. Admin roles
   // (president, ea, ai_specialist) are unaffected by everything below.
   const isRestricted = isRestrictedRole(userRole)
+  // NEW — only Calin (c.noonan) and Kai (k.mapoy) have the Make.com calendar feed
+  // wired up; everyone else sees the Outlook "connect" empty state until Microsoft
+  // Graph calendar data lands (later phase). Gated purely on the signed-in email.
+  const showCalinCalendar =
+    userEmail === 'c.noonan@caskconstruction.com' ||
+    userEmail === 'k.mapoy@caskconstruction.com'
   // Their own open count (open items assigned to them) for the briefing line.
   const myOpenCount = myGroup?.items.length ?? 0
   // CHANGE 4: Completed stat for restricted users — only THEIR action items
@@ -1648,6 +1681,60 @@ export default function DashboardPage() {
       </TopBar>
 
       <div className="flex-1 overflow-y-auto p-7 animate-page-in" style={{ background: 'transparent' }}>
+        {/* NEW (additive) — OAuth result toast (Outlook connect / errors). Green
+            for success (var(--fable-ok)); red (var(--red)) only for errors. Neutral
+            var(--surface2) background keeps it theme-safe in light + dark mode. */}
+        {oauthToast && (
+          <div
+            role="status"
+            className="fb-rise"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              marginBottom: 18,
+              padding: '11px 14px',
+              borderRadius: 9,
+              background: 'var(--surface2)',
+              border: `1px solid ${oauthToast.kind === 'success' ? 'var(--fable-ok)' : 'var(--red-border)'}`,
+            }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                flexShrink: 0,
+                background: oauthToast.kind === 'success' ? 'var(--fable-ok)' : 'var(--red)',
+              }}
+            />
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 550, color: 'var(--text)' }}>
+              {oauthToast.message}
+            </span>
+            <button
+              onClick={() => setOauthToast(null)}
+              aria-label="Dismiss"
+              style={{
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 22,
+                height: 22,
+                borderRadius: 6,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text3)',
+                cursor: 'pointer',
+                fontSize: 16,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Greeting */}
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 26 }}>
           <div>
@@ -1694,26 +1781,52 @@ export default function DashboardPage() {
             note="All time"
             sparkPath="M0 17 L12 15 L24 16 L36 12 L48 13 L60 9 L72 7 L84 4"
           />
-          {/* NOTE: "Events this week" counts company calendar_events (a different
+          {/* "Events this week" — gated by user. Calin (c.noonan) and Kai (k.mapoy)
+              see the live Make.com calendar_events count as before; everyone else
+              gets an em-dash + a subtle "Connect Outlook" link until Graph calendar
+              data lands. Still hidden entirely for restricted roles.
+              NOTE: "Events this week" counts company calendar_events (a different
               table than meetings, with a different attendees shape), so the
               meeting-attendee role filter does not apply here and is intentionally
-              left unchanged. Revisit if calendar events need per-user filtering.
-              CHANGE 1: hidden entirely for restricted roles (calendar/schedule
-              data is not surfaced to them); admins see it exactly as before. */}
+              left unchanged. */}
           {!isRestricted && (
-            <StatBox
-              label="Events this week"
-              value={upcomingCount ?? '…'}
-              delta={nextEventHint}
-              deltaTone="flat"
-              note={
-                calendarLoading ? '…'
-                : nextEventToday ? `Next: ${fmtET(nextEventToday.start_time)}`
-                : allEventsDone ? 'All done today'
-                : 'No more events today'
-              }
-              sparkPath="M0 12 L12 14 L24 10 L36 13 L48 8 L60 12 L72 10 L84 11"
-            />
+            showCalinCalendar ? (
+              <StatBox
+                label="Events this week"
+                value={upcomingCount ?? '…'}
+                delta={nextEventHint}
+                deltaTone="flat"
+                note={
+                  calendarLoading ? '…'
+                  : nextEventToday ? `Next: ${fmtET(nextEventToday.start_time)}`
+                  : allEventsDone ? 'All done today'
+                  : 'No more events today'
+                }
+                sparkPath="M0 12 L12 14 L24 10 L36 13 L48 8 L60 12 L72 10 L84 11"
+              />
+            ) : (
+              // Non-Calin variant — mirrors StatBox's cell (background/padding/
+              // typography) but swaps the trend line for a Connect Outlook link.
+              <div style={{ background: 'var(--surface)', padding: '16px 18px 14px' }}>
+                <div style={{ fontSize: 10, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: 600 }}>
+                  Events this week
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginTop: 8, ...NUM }}>
+                  <span style={{ fontSize: 26, fontWeight: 650, letterSpacing: '-0.5px', lineHeight: 1, color: 'var(--text)' }}>—</span>
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  {/* Plain <a> (not next/link) so the browser issues a real GET to
+                      the API route, which redirects into the Microsoft OAuth flow. */}
+                  <a
+                    href="/api/auth/microsoft"
+                    className="fb-all"
+                    style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none' }}
+                  >
+                    Connect Outlook →
+                  </a>
+                </div>
+              </div>
+            )
           )}
           {/* CHANGE: restricted roles see only THEIR open items here (count,
               overdue, and oldest-overdue age); admins see the company-wide
@@ -2024,85 +2137,138 @@ export default function DashboardPage() {
               >
                 Today&apos;s schedule
               </h3>
-              {calendarLoading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div className="shimmer" style={{ height: 18, borderRadius: 5 }} />
-                  <div className="shimmer" style={{ height: 18, borderRadius: 5, opacity: 0.6 }} />
-                </div>
-              ) : calendarEvents.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No meetings scheduled today.</div>
-              ) : (
-                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {calendarEvents.map(ev => {
-                    const startMs = new Date(ev.start_time).getTime()
-                    const endMs = ev.end_time ? new Date(ev.end_time).getTime() : null
-                    const isDone = !ev.is_all_day && endMs !== null && endMs < nowMs
-                    const isNow = !ev.is_all_day && startMs <= nowMs && endMs !== null && endMs >= nowMs
-                    const title = ev.web_link ? (
-                      <a
-                        href={ev.web_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: 'inherit', textDecoration: 'none' }}
-                      >
-                        {ev.title}
-                      </a>
-                    ) : (
-                      ev.title
-                    )
-                    return (
-                      <li
-                        key={ev.id}
-                        style={{ display: 'flex', gap: 10, fontSize: 12.5, padding: '5px 0', color: 'var(--text2)' }}
-                      >
-                        <span
-                          style={{
-                            fontWeight: 600,
-                            color: 'var(--text)',
-                            width: 62,
-                            flexShrink: 0,
-                            ...NUM,
-                          }}
+              {/* Gated by user — Calin (c.noonan) and Kai (k.mapoy) see the live
+                  Make.com calendar feed as before; everyone else gets the Outlook
+                  "connect" empty state until Graph calendar data lands. */}
+              {showCalinCalendar ? (
+                calendarLoading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className="shimmer" style={{ height: 18, borderRadius: 5 }} />
+                    <div className="shimmer" style={{ height: 18, borderRadius: 5, opacity: 0.6 }} />
+                  </div>
+                ) : calendarEvents.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No meetings scheduled today.</div>
+                ) : (
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                    {calendarEvents.map(ev => {
+                      const startMs = new Date(ev.start_time).getTime()
+                      const endMs = ev.end_time ? new Date(ev.end_time).getTime() : null
+                      const isDone = !ev.is_all_day && endMs !== null && endMs < nowMs
+                      const isNow = !ev.is_all_day && startMs <= nowMs && endMs !== null && endMs >= nowMs
+                      const title = ev.web_link ? (
+                        <a
+                          href={ev.web_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: 'inherit', textDecoration: 'none' }}
                         >
-                          {ev.is_all_day ? 'All day' : fmtET(ev.start_time)}
-                        </span>
-                        <span
-                          style={{
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            ...(isDone
-                              ? {
-                                  color: 'var(--text3)',
-                                  textDecoration: 'line-through',
-                                  textDecorationColor: 'var(--border2)',
-                                }
-                              : {}),
-                          }}
+                          {ev.title}
+                        </a>
+                      ) : (
+                        ev.title
+                      )
+                      return (
+                        <li
+                          key={ev.id}
+                          style={{ display: 'flex', gap: 10, fontSize: 12.5, padding: '5px 0', color: 'var(--text2)' }}
                         >
-                          {title}
-                        </span>
-                        {isDone && <span style={{ color: 'var(--fable-ok)', fontWeight: 600, flexShrink: 0 }}>✓</span>}
-                        {isNow && (
                           <span
                             style={{
-                              color: 'var(--fable-ok)',
-                              fontWeight: 650,
-                              fontSize: 10.5,
+                              fontWeight: 600,
+                              color: 'var(--text)',
+                              width: 62,
                               flexShrink: 0,
-                              alignSelf: 'center',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.5px',
+                              ...NUM,
                             }}
                           >
-                            ● Now
+                            {ev.is_all_day ? 'All day' : fmtET(ev.start_time)}
                           </span>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
+                          <span
+                            style={{
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              ...(isDone
+                                ? {
+                                    color: 'var(--text3)',
+                                    textDecoration: 'line-through',
+                                    textDecorationColor: 'var(--border2)',
+                                  }
+                                : {}),
+                            }}
+                          >
+                            {title}
+                          </span>
+                          {isDone && <span style={{ color: 'var(--fable-ok)', fontWeight: 600, flexShrink: 0 }}>✓</span>}
+                          {isNow && (
+                            <span
+                              style={{
+                                color: 'var(--fable-ok)',
+                                fontWeight: 650,
+                                fontSize: 10.5,
+                                flexShrink: 0,
+                                alignSelf: 'center',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px',
+                              }}
+                            >
+                              ● Now
+                            </span>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )
+              ) : (
+                <div
+                  style={{
+                    background: 'var(--surface2)',
+                    borderRadius: 10,
+                    padding: '22px 20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    textAlign: 'center',
+                    gap: 11,
+                  }}
+                >
+                  {/* Calendar icon — matches the file's inline-SVG icon style
+                      (stroke: currentColor, rounded caps). */}
+                  <span style={{ color: 'var(--text3)', display: 'inline-flex' }}>
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="18" rx="2" />
+                      <line x1="16" y1="2" x2="16" y2="6" />
+                      <line x1="8" y1="2" x2="8" y2="6" />
+                      <line x1="3" y1="10" x2="21" y2="10" />
+                    </svg>
+                  </span>
+                  <div style={{ fontSize: 13, color: 'var(--text2)', maxWidth: 260, lineHeight: 1.5 }}>
+                    Connect your Outlook to see today&apos;s schedule
+                  </div>
+                  {/* Plain <a> (not next/link) so the browser issues a real GET to
+                      the API route, which redirects into the Microsoft OAuth flow.
+                      Styled to match the dashboard's primary button (fb-btn-primary). */}
+                  <a
+                    href="/api/auth/microsoft"
+                    className="fb-btn-primary"
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 550,
+                      borderRadius: 7,
+                      padding: '8px 14px',
+                      lineHeight: 1,
+                      background: 'var(--fable-red)',
+                      border: '1px solid var(--fable-red)',
+                      color: '#fff',
+                      textDecoration: 'none',
+                      transition: 'opacity 150ms ease',
+                    }}
+                  >
+                    Connect Outlook
+                  </a>
+                </div>
               )}
             </div>
             )}
