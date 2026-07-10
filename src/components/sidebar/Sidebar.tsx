@@ -33,6 +33,16 @@ const NAV_SECTIONS = [
       { href: '/daily-meetings', icon: '🗓', label: 'Daily Meetings Recap', locked: false },
     ],
   },
+  // MY WORKSPACE — the signed-in user's own tools. Placed between President's
+  // Workflow and Customer Journey for admins. Restricted roles don't see
+  // President's Workflow, so (via RESTRICTED_VISIBLE_SECTIONS below) this falls
+  // between General Meetings and Customer Journey for them.
+  {
+    label: 'My Workspace',
+    items: [
+      { href: '/my-workspace/calendar', icon: '📅', label: 'My Calendar', locked: false },
+    ],
+  },
   {
     label: 'Customer Journey',
     items: [
@@ -87,7 +97,7 @@ const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 // Sections a restricted role is allowed to see, matched by NAV_SECTIONS label.
 // The General Meetings section already contains exactly the three allowed items
 // (All Sessions, Generate Agenda, Action Items), so the whole section is shown.
-const RESTRICTED_VISIBLE_SECTIONS = ['General Meetings', 'Customer Journey']
+const RESTRICTED_VISIBLE_SECTIONS = ['General Meetings', 'My Workspace', 'Customer Journey']
 
 // Input style for the Change Password modal — mirrors the app's form inputs
 // (see src/app/(app)/customers/new/page.tsx inputStyle).
