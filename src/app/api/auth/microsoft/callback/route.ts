@@ -99,7 +99,9 @@ export async function GET(req: NextRequest) {
     const { data: userRow, error: userErr } = await supabase
       .from('users')
       .select('id')
-      .eq('email', email)
+      // Case-insensitive match. Escape % and _ so ILIKE wildcards in the email
+      // (underscores are common in local-parts) can't match the wrong user.
+      .ilike('email', email.replace(/[%_]/g, '\\$&'))
       .maybeSingle()
 
     if (userErr) {
