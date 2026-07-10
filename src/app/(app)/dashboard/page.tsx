@@ -1459,12 +1459,17 @@ export default function DashboardPage() {
   // Loading flag for the Graph fetch — drives the "Pulling today's schedule…"
   // line in the briefing for non-Calin/Kai users.
   const [myCalendarLoading, setMyCalendarLoading] = useState(true)
+  // Loading flag that gates the Today's Schedule / Events This Week UI so the
+  // "Connect Outlook" empty state doesn't flash before the Graph fetch settles.
+  // Defaults true; set false in the /api/calendar/my-events effect below.
+  const [outlookLoading, setOutlookLoading] = useState(true)
 
   useEffect(() => {
     // Wait until the role/email has resolved so we don't fire for Calin/Kai (whose
     // showCalinCalendar only flips true once their email loads).
     if (!roleLoaded || showCalinCalendar) return
     let cancelled = false
+    setOutlookLoading(true)
     fetch('/api/calendar/my-events')
       .then(r => r.json())
       .then((json: { todayEvents?: GraphEventLite[]; weekEvents?: GraphEventLite[]; error?: string }) => {
@@ -1480,10 +1485,14 @@ export default function DashboardPage() {
         // Any other error: leave disconnected so the existing Connect Outlook
         // empty state shows.
         setMyCalendarLoading(false)
+        setOutlookLoading(false)
       })
       .catch(() => {
         // network error — leave disconnected
-        if (!cancelled) setMyCalendarLoading(false)
+        if (!cancelled) {
+          setMyCalendarLoading(false)
+          setOutlookLoading(false)
+        }
       })
     return () => { cancelled = true }
   }, [roleLoaded, showCalinCalendar])
@@ -1915,17 +1924,22 @@ export default function DashboardPage() {
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginTop: 8, ...NUM }}>
                   <span style={{ fontSize: 26, fontWeight: 650, letterSpacing: '-0.5px', lineHeight: 1, color: 'var(--text)' }}>—</span>
                 </div>
-                <div style={{ marginTop: 10 }}>
-                  {/* Plain <a> (not next/link) so the browser issues a real GET to
-                      the API route, which redirects into the Microsoft OAuth flow. */}
-                  <a
-                    href="/api/auth/microsoft"
-                    className="fb-all"
-                    style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none' }}
-                  >
-                    Connect Outlook →
-                  </a>
-                </div>
+                {/* While the Graph fetch is in flight, show just the "—" count with no
+                    Connect Outlook link yet — avoids flashing "connect" before we know
+                    whether the calendar is actually connected. */}
+                {!outlookLoading && (
+                  <div style={{ marginTop: 10 }}>
+                    {/* Plain <a> (not next/link) so the browser issues a real GET to
+                        the API route, which redirects into the Microsoft OAuth flow. */}
+                    <a
+                      href="/api/auth/microsoft"
+                      className="fb-all"
+                      style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none' }}
+                    >
+                      Connect Outlook →
+                    </a>
+                  </div>
+                )}
               </div>
             )
           )}
@@ -2381,6 +2395,25 @@ export default function DashboardPage() {
                     })}
                   </ul>
                 )
+              ) : outlookLoading ? (
+                // Graph fetch still in flight — show a subtle skeleton instead of
+                // flashing the "Connect Outlook" empty state. 3 placeholder rows,
+                // each the height of a normal event row (padding 5px 0).
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }} aria-hidden="true">
+                  {[0, 1, 2].map(i => (
+                    <li key={i} style={{ padding: '5px 0' }}>
+                      <div
+                        className="animate-pulse"
+                        style={{
+                          height: 18,
+                          borderRadius: 5,
+                          background: 'var(--surface2)',
+                          width: i === 2 ? '60%' : '100%',
+                        }}
+                      />
+                    </li>
+                  ))}
+                </ul>
               ) : (
                 <div
                   style={{
