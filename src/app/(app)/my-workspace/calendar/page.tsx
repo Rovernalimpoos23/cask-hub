@@ -663,6 +663,254 @@ function GroupedEventList({
   )
 }
 
+// ── Add Event modal ──────────────────────────────────────────────────
+// CASK team roster shown as attendee chips (name → email).
+const CASK_TEAM: { name: string; email: string }[] = [
+  { name: 'Calin Noonan', email: 'c.noonan@caskconstruction.com' },
+  { name: 'Kai Mapoy', email: 'k.mapoy@caskconstruction.com' },
+  { name: 'Rovern Alimpoos', email: 'r.alimpoos@caskconstruction.com' },
+  { name: 'Jeff Azcona', email: 'j.azcona@caskconstruction.com' },
+  { name: 'Matteo Carpani', email: 'm.carpani@caskconstruction.com' },
+  { name: 'Chad Holman', email: 'c.holman@caskconstruction.com' },
+  { name: 'Lamont Gilyot', email: 'l.gilyot@caskconstruction.com' },
+  { name: 'Kaitlyn Grunenberg', email: 'k.grunenberg@caskconstruction.com' },
+]
+
+// Shared input/label classes (CSS-variable driven so light/dark both work).
+const LABEL_CLS = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[var(--text2)]'
+const INPUT_CLS =
+  'w-full rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text3)]'
+
+// Small pill switch used for the All Day / Teams toggles.
+function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button type="button" onClick={() => onChange(!checked)} className="flex items-center gap-2.5">
+      <span
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+          checked ? 'bg-[var(--red)]' : 'border border-[var(--border)] bg-[var(--surface2)]'
+        }`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${checked ? 'translate-x-4' : 'translate-x-1'}`}
+        />
+      </span>
+      <span className="text-sm text-[var(--text2)]">{label}</span>
+    </button>
+  )
+}
+
+function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: ET })
+
+  const [title, setTitle] = useState('')
+  const [isAllDay, setIsAllDay] = useState(false)
+  const [date, setDate] = useState(todayStr)
+  // Kept even when All Day hides them: the API requires start/end, so we still
+  // send these defaults. (Graph's own all-day handling lives server-side.)
+  const [startTime, setStartTime] = useState('09:00')
+  const [endTime, setEndTime] = useState('09:30')
+  const [location, setLocation] = useState('')
+  const [isTeamsMeeting, setIsTeamsMeeting] = useState(false)
+  const [attendees, setAttendees] = useState<string[]>([])
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  function toggleAttendee(email: string) {
+    setAttendees(prev => (prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]))
+  }
+
+  async function handleSubmit() {
+    if (submitting) return
+    setFormError('')
+    if (!title.trim() || !date || !startTime || !endTime) {
+      setFormError('Title, date, start time, and end time are required.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/calendar/add-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim(),
+          date,
+          startTime,
+          endTime,
+          location: location.trim() || undefined,
+          body: notes.trim() || undefined,
+          isAllDay,
+          isTeamsMeeting,
+          attendees,
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json?.success) {
+        setFormError(
+          json?.message
+            ? `Could not add event (${json.message}). Please try again.`
+            : 'Could not add event. Please try again.',
+        )
+        setSubmitting(false)
+        return
+      }
+      // Success — parent closes this modal (unmount resets the form) and refetches.
+      onSuccess()
+    } catch {
+      setFormError('Network error. Please try again.')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      onClick={() => { if (!submitting) onClose() }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5"
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="max-h-[calc(100vh-40px)] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6"
+      >
+        {/* Header */}
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div className="text-lg font-bold text-[var(--text)]">Add Event</div>
+          <button
+            onClick={() => { if (!submitting) onClose() }}
+            aria-label="Close"
+            className="shrink-0 rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {/* Title */}
+          <div>
+            <label className={LABEL_CLS}>Title</label>
+            <input
+              type="text"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Event title"
+              className={INPUT_CLS}
+            />
+          </div>
+
+          {/* All Day */}
+          <Toggle checked={isAllDay} onChange={setIsAllDay} label="All day" />
+
+          {/* Date (+ times when not all-day) */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className={isAllDay ? 'sm:col-span-3' : ''}>
+              <label className={LABEL_CLS}>Date</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} className={INPUT_CLS} />
+            </div>
+            {!isAllDay && (
+              <>
+                <div>
+                  <label className={LABEL_CLS}>Start Time</label>
+                  <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={INPUT_CLS} />
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>End Time</label>
+                  <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className={INPUT_CLS} />
+                </div>
+              </>
+            )}
+          </div>
+          {!isAllDay && (
+            <div className="-mt-2 text-xs text-[var(--text3)]">Enter time in ET (Florida time)</div>
+          )}
+
+          {/* Location */}
+          <div>
+            <label className={LABEL_CLS}>Location</label>
+            <input
+              type="text"
+              value={location}
+              onChange={e => setLocation(e.target.value)}
+              placeholder="Conference room, address, etc."
+              className={INPUT_CLS}
+            />
+          </div>
+
+          {/* Teams Meeting */}
+          <div>
+            <Toggle checked={isTeamsMeeting} onChange={setIsTeamsMeeting} label="Teams meeting" />
+            {isTeamsMeeting && (
+              <div className="mt-2 text-xs text-[var(--text3)]">Microsoft Teams link will be auto-generated</div>
+            )}
+          </div>
+
+          {/* Attendees */}
+          <div>
+            <label className={LABEL_CLS}>Attendees</label>
+            <div className="flex flex-wrap gap-2">
+              {CASK_TEAM.map(person => {
+                const selected = attendees.includes(person.email)
+                return (
+                  <button
+                    key={person.email}
+                    type="button"
+                    onClick={() => toggleAttendee(person.email)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      selected
+                        ? 'bg-[var(--red)] text-white'
+                        : 'border border-[var(--border)] bg-[var(--surface2)] text-[var(--text2)] hover:text-[var(--text)]'
+                    }`}
+                  >
+                    {person.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Body / Notes */}
+          <div>
+            <label className={LABEL_CLS}>Notes</label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={4}
+              placeholder="Add notes, agenda, or description..."
+              className={`${INPUT_CLS} resize-none`}
+            />
+          </div>
+
+          {formError && <div className="text-sm text-[var(--red)]">{formError}</div>}
+        </div>
+
+        {/* Buttons */}
+        <div className="mt-6 flex items-center justify-end gap-3">
+          <button
+            onClick={() => { if (!submitting) onClose() }}
+            disabled={submitting}
+            className="rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--text2)] transition-colors hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting && (
+              <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+                <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+              </svg>
+            )}
+            {submitting ? 'Adding…' : 'Add Event'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────
 export default function MyCalendarPage() {
   const router = useRouter()
@@ -685,6 +933,11 @@ export default function MyCalendarPage() {
   })
   const [monthEvents, setMonthEvents] = useState<GraphEvent[]>([])
   const [monthLoading, setMonthLoading] = useState(false)
+  // Add Event modal + success toast. monthRefreshKey bumps to force the month
+  // effect to re-fetch after an event is added (only re-runs when the grid is up).
+  const [addOpen, setAddOpen] = useState(false)
+  const [successMsg, setSuccessMsg] = useState('')
+  const [monthRefreshKey, setMonthRefreshKey] = useState(0)
 
   const load = useCallback(async () => {
     try {
@@ -756,7 +1009,14 @@ export default function MyCalendarPage() {
       .catch(() => { if (!cancelled) setMonthEvents([]) })
       .finally(() => { if (!cancelled) setMonthLoading(false) })
     return () => { cancelled = true }
-  }, [view, calendarMonth])
+  }, [view, calendarMonth, monthRefreshKey])
+
+  // Auto-dismiss the "Event added" success toast after 3 seconds.
+  useEffect(() => {
+    if (!successMsg) return
+    const t = setTimeout(() => setSuccessMsg(''), 3000)
+    return () => clearTimeout(t)
+  }, [successMsg])
 
   const todayEvents = data?.todayEvents ?? []
   const weekEvents = data?.weekEvents ?? []
@@ -784,6 +1044,15 @@ export default function MyCalendarPage() {
     [router],
   )
 
+  // After an event is added: close the modal, refresh today/week data, and force
+  // the calendar grid's month fetch to re-run (a no-op while the list view is up).
+  function handleEventAdded() {
+    setAddOpen(false)
+    setSuccessMsg('Event added successfully!')
+    load()
+    setMonthRefreshKey(k => k + 1)
+  }
+
   return (
     <div className="flex flex-1 flex-col overflow-y-auto animate-page-in">
       <div className="flex flex-1 flex-col gap-6 p-7">
@@ -793,18 +1062,26 @@ export default function MyCalendarPage() {
             <h1 className="text-2xl font-bold text-[var(--text)]">My Calendar</h1>
             <div className="mt-0.5 text-sm text-[var(--text3)]">Microsoft 365</div>
           </div>
-          <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
-            {(['list', 'calendar'] as const).map(key => (
-              <button
-                key={key}
-                onClick={() => setView(key)}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
-                  view === key ? 'bg-[var(--surface2)] text-[var(--text)]' : 'text-[var(--text3)] hover:text-[var(--text2)]'
-                }`}
-              >
-                {key === 'list' ? '📋 List' : '📅 Calendar'}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85"
+            >
+              + Add Event
+            </button>
+            <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
+              {(['list', 'calendar'] as const).map(key => (
+                <button
+                  key={key}
+                  onClick={() => setView(key)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                    view === key ? 'bg-[var(--surface2)] text-[var(--text)]' : 'text-[var(--text3)] hover:text-[var(--text2)]'
+                  }`}
+                >
+                  {key === 'list' ? '📋 List' : '📅 Calendar'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -884,6 +1161,15 @@ export default function MyCalendarPage() {
       </div>
 
       {selected && <EventPopup event={selected} onClose={() => setSelected(null)} />}
+
+      {addOpen && <AddEventModal onClose={() => setAddOpen(false)} onSuccess={handleEventAdded} />}
+
+      {/* Success toast — fades after 3s (see effect above). */}
+      {successMsg && (
+        <div className="fixed left-1/2 top-5 z-[60] -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-semibold text-[var(--green)] shadow-lg">
+          {successMsg}
+        </div>
+      )}
     </div>
   )
 }
