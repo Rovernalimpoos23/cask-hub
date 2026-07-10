@@ -269,10 +269,20 @@ export default function Sidebar() {
   // NOTE: restricted users now HAVE dashboard access, so the previous
   // redirect-to-/customers behavior on /dashboard has been removed intentionally.
 
+  // Calin (c.noonan) and Kai (k.mapoy) don't get the MY WORKSPACE section — their
+  // calendar lives on the Make.com feed elsewhere. (No existing hideMyWorkspace
+  // condition was present, so it's introduced here.) Keyed off the signed-in email,
+  // which in this file is `user?.email` (there is no `userEmail` variable).
+  const hideMyWorkspace =
+    user?.email === 'c.noonan@caskconstruction.com' ||
+    user?.email === 'k.mapoy@caskconstruction.com'
+
   // Restricted roles see only the Customer Journey section; admins see all.
-  const visibleSections = isRestricted
+  // MY WORKSPACE is then dropped for Calin/Kai when hideMyWorkspace is true.
+  const visibleSections = (isRestricted
     ? NAV_SECTIONS.filter((s) => RESTRICTED_VISIBLE_SECTIONS.includes(s.label))
     : NAV_SECTIONS
+  ).filter((s) => !(hideMyWorkspace && s.label === 'My Workspace'))
 
   async function handleSignOut() {
     setSigningOut(true)
