@@ -59,6 +59,16 @@ interface GraphEventLite {
   location?: { displayName?: string } | null
   onlineMeeting?: { joinUrl?: string } | null
   isAllDay?: boolean
+  isCancelled?: boolean
+}
+
+// A Graph event is cancelled when isCancelled is true, or its subject is prefixed
+// with "Cancelled:" / "Canceled:" (Microsoft uses both spellings). Used to drop
+// cancelled meetings from the dashboard's Today's Schedule quick-glance view.
+function isCancelledGraphEvent(ev: GraphEventLite): boolean {
+  if (ev.isCancelled === true) return true
+  const s = (ev.subject ?? '').trimStart().toLowerCase()
+  return s.startsWith('cancelled:') || s.startsWith('canceled:')
 }
 
 // Graph calendarView returns UTC datetimes with up to 7 fractional-second digits
@@ -2361,11 +2371,15 @@ export default function DashboardPage() {
               ) : !showCalinCalendar && isOutlookConnected ? (
                 // Outlook-connected users: their own Microsoft Graph calendar for
                 // today, styled to match Calin's Make.com schedule items above.
-                myTodayEvents.length === 0 ? (
+                // Cancelled meetings are dropped here — the dashboard is a quick
+                // glance view, so they'd just add noise (see isCancelledGraphEvent).
+                (() => {
+                const visibleTodayEvents = myTodayEvents.filter(ev => !isCancelledGraphEvent(ev))
+                return visibleTodayEvents.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No meetings today</div>
                 ) : (
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                    {myTodayEvents.slice(0, 8).map(ev => {
+                    {visibleTodayEvents.slice(0, 8).map(ev => {
                       const endMs = ev.end?.dateTime ? parseGraphDate(ev.end.dateTime).getTime() : null
                       const isDone = !ev.isAllDay && endMs !== null && endMs < nowMs
                       return (
@@ -2395,6 +2409,7 @@ export default function DashboardPage() {
                     })}
                   </ul>
                 )
+                })()
               ) : outlookLoading ? (
                 // Graph fetch still in flight — show a subtle skeleton instead of
                 // flashing the "Connect Outlook" empty state. 3 placeholder rows,

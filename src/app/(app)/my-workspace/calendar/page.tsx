@@ -33,10 +33,12 @@ interface GraphEvent {
   recurrence?: unknown | null
   organizer?: { emailAddress?: { name?: string; address?: string } } | null
   isAllDay?: boolean
+  isCancelled?: boolean
 }
 interface MyEventsResponse {
   todayEvents?: GraphEvent[]
   weekEvents?: GraphEvent[]
+  monthEvents?: GraphEvent[]
   upcomingCount?: number
   nextMeeting?: GraphEvent | null
   error?: string
@@ -111,6 +113,28 @@ function dayHeaderLabel(dateStr: string): string {
 
 function dedupeById(events: GraphEvent[]): GraphEvent[] {
   return Array.from(new Map(events.map(e => [e.id, e])).values())
+}
+
+// Mon–Sun ET week range label ("Jul 6 – Jul 12") for a given offset from the
+// current week (matches the Mon–Sun window the API uses for weekEvents).
+function weekRangeLabel(now: Date, weekOffset: number): string {
+  const todayStr = now.toLocaleDateString('en-CA', { timeZone: ET })
+  const etWeekday = new Date(now.toLocaleString('en-US', { timeZone: ET })).getDay() // 0=Sun … 6=Sat
+  const daysFromMonday = (etWeekday + 6) % 7
+  const monday = addDays(todayStr, -daysFromMonday + weekOffset * 7)
+  const sunday = addDays(monday, 6)
+  const fmt = (ds: string) =>
+    new Date(ds + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return `${fmt(monday)} – ${fmt(sunday)}`
+}
+
+// A Graph event is cancelled when isCancelled is true, or its subject is prefixed
+// with "Cancelled:" / "Canceled:" (Microsoft uses both spellings). Cancelled
+// events are marked visually rather than hidden.
+function isCancelledEvent(ev: GraphEvent): boolean {
+  if (ev.isCancelled === true) return true
+  const s = (ev.subject ?? '').trimStart().toLowerCase()
+  return s.startsWith('cancelled:') || s.startsWith('canceled:')
 }
 
 // ── Small presentational pieces ──────────────────────────────────────
@@ -214,9 +238,12 @@ function EventCard({ event, onGenerateAgenda }: { event: GraphEvent; onGenerateA
   const location = event.location?.displayName
   const organizer = event.organizer?.emailAddress?.name
   const joinUrl = event.onlineMeeting?.joinUrl
+  const cancelled = isCancelledEvent(event)
 
   return (
-    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-4">
+    // Cancelled events: whole card dimmed (opacity-40) so time / duration /
+    // location stay visible but greyed; subject also gets a strikethrough below.
+    <div className={`flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-4 ${cancelled ? 'opacity-40' : ''}`}>
       {/* Left: time + badges */}
       <div className="flex w-36 shrink-0 flex-col gap-2">
         <span className="text-sm font-medium text-[var(--text)]">{formatTimeRange(event)}</span>
@@ -236,7 +263,18 @@ function EventCard({ event, onGenerateAgenda }: { event: GraphEvent; onGenerateA
 
       {/* Center: subject + location/organizer */}
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold text-[var(--text)]">{event.subject || '(No subject)'}</div>
+        <div className="flex items-center gap-2">
+          <span className={`text-sm font-semibold text-[var(--text)] ${cancelled ? 'line-through' : ''}`}>
+            {event.subject || '(No subject)'}
+          </span>
+          {cancelled && (
+            // Spec: var(--surface2) bg + var(--text3) text, small rounded pill. A
+            // hairline border is added so the pill stays legible on the surface2 card.
+            <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface2)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text3)]">
+              Cancelled
+            </span>
+          )}
+        </div>
         {location ? (
           <div className="mt-1 truncate text-xs text-[var(--text2)]">📍 {location}</div>
         ) : organizer ? (
@@ -244,16 +282,19 @@ function EventCard({ event, onGenerateAgenda }: { event: GraphEvent; onGenerateA
         ) : null}
       </div>
 
-      {/* Right: actions */}
-      <div className="flex shrink-0 flex-col items-end gap-2">
-        {joinUrl && <TeamsButton url={joinUrl} />}
-        <button
-          onClick={() => onGenerateAgenda(event)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--red)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-85 whitespace-nowrap"
-        >
-          ✦ Generate Agenda
-        </button>
-      </div>
+      {/* Right: actions — hidden entirely for cancelled events (no Join Teams /
+          Generate Agenda). */}
+      {!cancelled && (
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {joinUrl && <TeamsButton url={joinUrl} />}
+          <button
+            onClick={() => onGenerateAgenda(event)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--red)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-85 whitespace-nowrap"
+          >
+            ✦ Generate Agenda
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -364,36 +405,30 @@ function buildMonthGrid(year: number, month: number, events: GraphEvent[], today
 }
 
 function CalendarGridView({
-  events, now, onSelect,
+  monthEvents, monthLoading, calendarMonth, now, onSelect, onPrev, onNext, onToday,
 }: {
-  events: GraphEvent[]
+  monthEvents: GraphEvent[]
+  monthLoading: boolean
+  calendarMonth: { month: number; year: number }
   now: Date
   onSelect: (e: GraphEvent) => void
+  onPrev: () => void
+  onNext: () => void
+  onToday: () => void
 }) {
   const todayStr = now.toLocaleDateString('en-CA', { timeZone: ET })
-  const [viewYear, setViewYear] = useState(() => Number(todayStr.split('-')[0]))
-  const [viewMonth, setViewMonth] = useState(() => Number(todayStr.split('-')[1]) - 1)
+  // Month state is lifted to the page (drives the API fetch); calendarMonth.month
+  // is 1-indexed, so convert to the 0-indexed month buildMonthGrid/Date expect.
+  const viewYear = calendarMonth.year
+  const viewMonth = calendarMonth.month - 1
 
   const cells = useMemo(
-    () => buildMonthGrid(viewYear, viewMonth, events, todayStr),
-    [viewYear, viewMonth, events, todayStr],
+    () => buildMonthGrid(viewYear, viewMonth, monthEvents, todayStr),
+    [viewYear, viewMonth, monthEvents, todayStr],
   )
 
   const monthLabel = new Date(Date.UTC(viewYear, viewMonth, 1, 12))
     .toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-
-  function shiftMonth(delta: number) {
-    let m = viewMonth + delta
-    let y = viewYear
-    if (m < 0) { m = 11; y -= 1 }
-    if (m > 11) { m = 0; y += 1 }
-    setViewMonth(m)
-    setViewYear(y)
-  }
-  function goToday() {
-    setViewYear(Number(todayStr.split('-')[0]))
-    setViewMonth(Number(todayStr.split('-')[1]) - 1)
-  }
 
   const weekdays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
@@ -404,20 +439,20 @@ function CalendarGridView({
         <div className="text-xl font-bold text-[var(--text)]">{monthLabel}</div>
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => shiftMonth(-1)}
+            onClick={onPrev}
             aria-label="Previous month"
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface2)] text-[var(--text2)] transition-colors hover:text-[var(--text)]"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
           </button>
           <button
-            onClick={goToday}
+            onClick={onToday}
             className="rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-1.5 text-xs font-semibold text-[var(--text2)] transition-colors hover:text-[var(--text)]"
           >
             Today
           </button>
           <button
-            onClick={() => shiftMonth(1)}
+            onClick={onNext}
             aria-label="Next month"
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface2)] text-[var(--text2)] transition-colors hover:text-[var(--text)]"
           >
@@ -434,7 +469,12 @@ function CalendarGridView({
       </div>
 
       {/* Day grid */}
-      <div className="grid grid-cols-7">
+      <div className="relative">
+        {/* Subtle pulsing overlay while the month's events are being fetched. */}
+        {monthLoading && (
+          <div className="pointer-events-none absolute inset-0 z-10 animate-pulse bg-[var(--surface)] opacity-40" aria-hidden="true" />
+        )}
+        <div className="grid grid-cols-7">
         {cells.map(cell => {
           const visible = cell.events.slice(0, 3)
           const extra = cell.events.length - visible.length
@@ -456,6 +496,7 @@ function CalendarGridView({
               </div>
               {visible.map(ev => {
                 const isTeams = !!ev.onlineMeeting?.joinUrl
+                const cancelled = isCancelledEvent(ev)
                 return (
                   <button
                     key={ev.id}
@@ -463,9 +504,11 @@ function CalendarGridView({
                     title={ev.subject}
                     className={`w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-semibold transition-opacity hover:opacity-85 ${
                       isTeams ? 'bg-[#7C3AED] text-white' : 'bg-[var(--surface2)] text-[var(--text2)]'
-                    }`}
+                    } ${cancelled ? 'opacity-40' : ''}`}
                   >
-                    {ev.isAllDay ? '' : `${formatTime(ev.start.dateTime)} `}{ev.subject || '(No subject)'}
+                    {/* Cancelled: strikethrough the subject only (leave the time legible). */}
+                    {ev.isAllDay ? '' : `${formatTime(ev.start.dateTime)} `}
+                    <span className={cancelled ? 'line-through' : ''}>{ev.subject || '(No subject)'}</span>
                   </button>
                 )
               })}
@@ -480,6 +523,7 @@ function CalendarGridView({
             </div>
           )
         })}
+        </div>
       </div>
     </div>
   )
@@ -521,12 +565,100 @@ function EventPopup({ event, onClose }: { event: GraphEvent; onClose: () => void
           {organizer && <div>👤 {organizer}</div>}
         </div>
 
-        {joinUrl && (
+        {joinUrl && !isCancelledEvent(event) && (
           <div className="mt-4">
             <TeamsButton url={joinUrl} />
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Week navigation (list view) ──────────────────────────────────────
+// Left arrow is disabled at the current week (can't go before it); right arrow
+// is enabled up to 8 weeks out. Full width to match the event cards below.
+function WeekNav({
+  weekOffset, rangeLabel, onPrev, onNext,
+}: {
+  weekOffset: number
+  rangeLabel: string
+  onPrev: () => void
+  onNext: () => void
+}) {
+  const canPrev = weekOffset > 0
+  const canNext = weekOffset < 8
+  const arrowBase =
+    'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] transition-colors'
+  return (
+    <div className="flex w-full items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface2)] px-4 py-2.5">
+      <button
+        onClick={onPrev}
+        disabled={!canPrev}
+        aria-label="Previous week"
+        className={`${arrowBase} ${canPrev ? 'text-[var(--text2)] hover:text-[var(--text)]' : 'cursor-not-allowed text-[var(--text3)] opacity-40'}`}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+      </button>
+      <span className="text-sm font-semibold text-[var(--text)]">{rangeLabel}</span>
+      <button
+        onClick={onNext}
+        disabled={!canNext}
+        aria-label="Next week"
+        className={`${arrowBase} ${canNext ? 'text-[var(--text2)] hover:text-[var(--text)]' : 'cursor-not-allowed text-[var(--text3)] opacity-40'}`}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+      </button>
+    </div>
+  )
+}
+
+// animate-pulse skeleton shown while a non-current week is being fetched.
+function WeekSkeleton() {
+  return (
+    <div className="flex flex-col gap-3">
+      {[0, 1, 2].map(i => (
+        <div key={i} className="rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-4">
+          <div className="animate-pulse h-4 w-32 rounded bg-[var(--surface)]" />
+          <div className="animate-pulse mt-3 h-5 w-2/3 rounded bg-[var(--surface)]" />
+          <div className="animate-pulse mt-2 h-3 w-1/3 rounded bg-[var(--surface)]" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Events grouped by ET date (ascending), each date its own section. Used for
+// non-current weeks, where the TODAY/TOMORROW framing of ListView doesn't apply.
+function GroupedEventList({
+  events, onGenerateAgenda,
+}: {
+  events: GraphEvent[]
+  onGenerateAgenda: (e: GraphEvent) => void
+}) {
+  const groups = useMemo(() => {
+    const byDate: Record<string, GraphEvent[]> = {}
+    for (const e of events) {
+      ;(byDate[etDateStr(e.start.dateTime)] ??= []).push(e)
+    }
+    return Object.entries(byDate)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, evs]) => ({
+        date,
+        events: evs.slice().sort((a, b) => a.start.dateTime.localeCompare(b.start.dateTime)),
+      }))
+  }, [events])
+
+  return (
+    <div className="flex flex-col gap-8">
+      {groups.map(g => (
+        <section key={g.date}>
+          <SectionHeader label={dayHeaderLabel(g.date)} />
+          <div className="flex flex-col gap-2">
+            {g.events.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={onGenerateAgenda} />)}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }
@@ -540,6 +672,19 @@ export default function MyCalendarPage() {
   const [view, setView] = useState<'list' | 'calendar'>('list')
   const [now, setNow] = useState(() => new Date())
   const [selected, setSelected] = useState<GraphEvent | null>(null)
+  // Week navigation (list view). 0 = this week, 1 = next week, etc. weekOffset 0
+  // reuses the existing `data` fetch below; >0 does a one-off fetch into weekData.
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [weekData, setWeekData] = useState<GraphEvent[] | null>(null)
+  const [weekLoading, setWeekLoading] = useState(false)
+  // Calendar grid month navigation (month is 1-indexed). Drives the month/year
+  // fetch below; monthEvents is what the grid plots for the visible month.
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date()
+    return { month: now.getMonth() + 1, year: now.getFullYear() }
+  })
+  const [monthEvents, setMonthEvents] = useState<GraphEvent[]>([])
+  const [monthLoading, setMonthLoading] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -573,12 +718,71 @@ export default function MyCalendarPage() {
     return () => clearInterval(id)
   }, [])
 
+  // Fetch a specific week when navigating past the current one. weekOffset 0 keeps
+  // the existing behavior (served by `load` above); >0 does a one-off fetch.
+  useEffect(() => {
+    if (weekOffset === 0) {
+      setWeekData(null)
+      setWeekLoading(false)
+      return
+    }
+    let cancelled = false
+    setWeekLoading(true)
+    // TODO: API route needs weekOffset query param support for weekOffset > 0 — currently returns this week only
+    fetch(`/api/calendar/my-events?weekOffset=${weekOffset}`)
+      .then(r => r.json())
+      .then((json: MyEventsResponse) => {
+        if (cancelled) return
+        setWeekData(json.weekEvents ?? [])
+      })
+      .catch(() => { if (!cancelled) setWeekData([]) })
+      .finally(() => { if (!cancelled) setWeekLoading(false) })
+    return () => { cancelled = true }
+  }, [weekOffset])
+
+  // Fetch the visible month's events for the calendar grid — only while the grid
+  // view is active, and whenever the navigated month changes. Uses the API's
+  // month/year params; monthEvents is [] when they aren't returned.
+  useEffect(() => {
+    if (view !== 'calendar') return
+    let cancelled = false
+    setMonthLoading(true)
+    fetch(`/api/calendar/my-events?month=${calendarMonth.month}&year=${calendarMonth.year}`)
+      .then(r => r.json())
+      .then((json: MyEventsResponse) => {
+        if (cancelled) return
+        setMonthEvents(Array.isArray(json.monthEvents) ? json.monthEvents : [])
+      })
+      .catch(() => { if (!cancelled) setMonthEvents([]) })
+      .finally(() => { if (!cancelled) setMonthLoading(false) })
+    return () => { cancelled = true }
+  }, [view, calendarMonth])
+
   const todayEvents = data?.todayEvents ?? []
   const weekEvents = data?.weekEvents ?? []
   const upcomingCount = data?.upcomingCount ?? 0
 
   // Grid uses today + week events, deduped by id (see file header re: data scope).
   const gridEvents = useMemo(() => dedupeById([...todayEvents, ...weekEvents]), [todayEvents, weekEvents])
+
+  // FIX 1: the API's nextMeeting can be a cancelled event. Recompute it here from
+  // the events we have — skip ALL cancelled events and pick the first future one.
+  const nextMeeting = useMemo(() => {
+    const nowMs = now.getTime()
+    return gridEvents
+      .filter(ev =>
+        !isCancelledEvent(ev) &&
+        !!ev.start?.dateTime &&
+        parseGraphDate(ev.start.dateTime).getTime() > nowMs
+      )
+      .sort((a, b) => a.start.dateTime.localeCompare(b.start.dateTime))[0] ?? null
+  }, [gridEvents, now])
+
+  // Shared by both the current-week ListView and other weeks' GroupedEventList.
+  const handleGenerateAgenda = useCallback(
+    (ev: GraphEvent) => router.push(`/generate?topic=${encodeURIComponent(ev.subject || '')}`),
+    [router],
+  )
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto animate-page-in">
@@ -620,19 +824,60 @@ export default function MyCalendarPage() {
               <StatCard label="Today" value={todayEvents.length} sublabel="meetings" />
               <StatCard label="This Week" value={weekEvents.length} sublabel="total" />
               <StatCard label="Upcoming" value={upcomingCount} sublabel="on calendar" />
-              <NextMeetingCard nextMeeting={data?.nextMeeting} now={now} />
+              <NextMeetingCard nextMeeting={nextMeeting} now={now} />
             </div>
 
             {/* View */}
             {view === 'list' ? (
-              <ListView
-                todayEvents={todayEvents}
-                weekEvents={weekEvents}
-                now={now}
-                onGenerateAgenda={ev => router.push(`/generate?topic=${encodeURIComponent(ev.subject || '')}`)}
-              />
+              <div className="flex flex-col gap-4">
+                {/* Week navigation (list view only) */}
+                <WeekNav
+                  weekOffset={weekOffset}
+                  rangeLabel={weekRangeLabel(now, weekOffset)}
+                  onPrev={() => setWeekOffset(o => Math.max(0, o - 1))}
+                  onNext={() => setWeekOffset(o => Math.min(8, o + 1))}
+                />
+                {weekOffset === 0 ? (
+                  <ListView
+                    todayEvents={todayEvents}
+                    weekEvents={weekEvents}
+                    now={now}
+                    onGenerateAgenda={handleGenerateAgenda}
+                  />
+                ) : weekLoading ? (
+                  <WeekSkeleton />
+                ) : (weekData?.length ?? 0) > 0 ? (
+                  <GroupedEventList events={weekData ?? []} onGenerateAgenda={handleGenerateAgenda} />
+                ) : (
+                  <div className="py-10 text-center text-sm text-[var(--text3)]">No meetings this week</div>
+                )}
+              </div>
             ) : (
-              <CalendarGridView events={gridEvents} now={now} onSelect={setSelected} />
+              <CalendarGridView
+                monthEvents={monthEvents}
+                monthLoading={monthLoading}
+                calendarMonth={calendarMonth}
+                now={now}
+                onSelect={setSelected}
+                onPrev={() =>
+                  setCalendarMonth(prev =>
+                    prev.month === 1
+                      ? { month: 12, year: prev.year - 1 }
+                      : { month: prev.month - 1, year: prev.year },
+                  )
+                }
+                onNext={() =>
+                  setCalendarMonth(prev =>
+                    prev.month === 12
+                      ? { month: 1, year: prev.year + 1 }
+                      : { month: prev.month + 1, year: prev.year },
+                  )
+                }
+                onToday={() => {
+                  const d = new Date()
+                  setCalendarMonth({ month: d.getMonth() + 1, year: d.getFullYear() })
+                }}
+              />
             )}
           </>
         )}

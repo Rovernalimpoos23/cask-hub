@@ -80,7 +80,7 @@ function graphStartMs(ev: { start?: { dateTime?: string } }): number {
   return new Date(hasTz ? dt : `${dt}Z`).getTime()
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     // ── 1. Require a signed-in session ───────────────────────────────
     const authClient = createServerSupabase()
@@ -223,6 +223,37 @@ export async function GET() {
     const upcomingStart = etDateTimeISO(todayStr, '00:00:00')
     const upcomingEnd = etDateTimeISO(in90Str, '23:59:59')
 
+    // ── Optional month/year window (calendar grid: any month) ─────────
+    // /api/calendar/my-events?month=8&year=2026 → also return monthEvents for the
+    // full ET month. When neither param is present we skip this and return
+    // monthEvents: [] so existing callers are unaffected. A missing-but-partial
+    // param defaults to the current ET month/year; invalid values fall back too.
+    const { searchParams } = new URL(request.url)
+    const monthParam = searchParams.get('month')
+    const yearParam = searchParams.get('year')
+    const wantMonth = monthParam !== null || yearParam !== null
+
+    const [curYear, curMonth] = todayStr.split('-').map(Number) // curMonth is 1-indexed
+    const parsedMonth = Number(monthParam)
+    const parsedYear = Number(yearParam)
+    const reqMonth =
+      monthParam !== null && Number.isInteger(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12
+        ? parsedMonth
+        : curMonth
+    const reqYear =
+      yearParam !== null && Number.isInteger(parsedYear) && parsedYear >= 1970 && parsedYear <= 9999
+        ? parsedYear
+        : curYear
+
+    // First day 00:00 ET → last day 23:59 ET. Date.UTC(y, reqMonth, 0) yields the
+    // last day of reqMonth because reqMonth (1-indexed) is the 0-indexed NEXT month.
+    const mm = String(reqMonth).padStart(2, '0')
+    const monthFirstStr = `${reqYear}-${mm}-01`
+    const monthLastDay = new Date(Date.UTC(reqYear, reqMonth, 0, 12, 0, 0)).getUTCDate()
+    const monthLastStr = `${reqYear}-${mm}-${String(monthLastDay).padStart(2, '0')}`
+    const monthStart = etDateTimeISO(monthFirstStr, '00:00:00')
+    const monthEnd = etDateTimeISO(monthLastStr, '23:59:59')
+
     // ── 5. Fire the three Graph calendarView requests in parallel ────
     const authHeaders = { Authorization: `Bearer ${accessToken}` }
 
@@ -247,14 +278,25 @@ export async function GET() {
       $top: '500',
       $count: 'true',
     })
+    // Only requested when month/year params are present (see wantMonth above).
+    const monthUrl = graphUrl('/me/calendarView', {
+      startDateTime: monthStart,
+      endDateTime: monthEnd,
+      $orderby: 'start/dateTime',
+      $select: EVENT_SELECT,
+      $top: '500',
+    })
 
-    const [todayRes, weekRes, upcomingRes] = await Promise.all([
+    const requests = [
       fetch(todayUrl, { headers: authHeaders }),
       fetch(weekUrl, { headers: authHeaders }),
       fetch(upcomingUrl, { headers: authHeaders }),
-    ])
+    ]
+    if (wantMonth) requests.push(fetch(monthUrl, { headers: authHeaders }))
 
-    const responses = [todayRes, weekRes, upcomingRes]
+    const responses = await Promise.all(requests)
+    const [todayRes, weekRes, upcomingRes] = responses
+    const monthRes = wantMonth ? responses[3] : undefined
     // A 401 here means the (freshly-refreshed) token was still rejected — reconnect.
     if (responses.some(r => r.status === 401)) {
       return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
@@ -270,10 +312,15 @@ export async function GET() {
       weekRes.json(),
       upcomingRes.json(),
     ])
+    const monthJson = monthRes ? await monthRes.json() : null
 
     // ── 6. Shape the response ────────────────────────────────────────
     const todayEvents = Array.isArray(todayJson.value) ? todayJson.value : []
     const weekEvents = Array.isArray(weekJson.value) ? weekJson.value : []
+    // Full-month events when requested; [] otherwise (no behavior change for
+    // callers that don't pass month/year).
+    const monthEvents =
+      monthJson && Array.isArray(monthJson.value) ? monthJson.value : []
     // Prefer Graph's @odata.count; fall back to the returned id array length.
     const upcomingCount =
       typeof upcomingJson['@odata.count'] === 'number'
@@ -291,6 +338,7 @@ export async function GET() {
       weekEvents,
       upcomingCount,
       nextMeeting,
+      monthEvents,
     })
   } catch (err) {
     // Never throw unhandled — surface a generic error.
