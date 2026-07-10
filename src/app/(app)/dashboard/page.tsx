@@ -49,6 +49,46 @@ function fmtET(iso: string): string {
   })
 }
 
+// ── Microsoft Graph "My Calendar" support (additive) ─────────────────
+// Shape of the events returned by /api/calendar/my-events (Graph objects).
+interface GraphEventLite {
+  id: string
+  subject: string
+  start: { dateTime: string; timeZone?: string }
+  end?: { dateTime: string; timeZone?: string } | null
+  location?: { displayName?: string } | null
+  onlineMeeting?: { joinUrl?: string } | null
+  isAllDay?: boolean
+}
+
+// Graph calendarView returns UTC datetimes with up to 7 fractional-second digits
+// and (with no Prefer header) no offset. Trim to ms and treat as UTC.
+function parseGraphDate(dt: string): Date {
+  const trimmed = dt.replace(/(\.\d{3})\d+/, '$1')
+  const hasTz = /(Z|[+-]\d{2}:\d{2})$/.test(trimmed)
+  return new Date(hasTz ? trimmed : `${trimmed}Z`)
+}
+
+function fmtGraphET(dt: string): string {
+  return fmtET(parseGraphDate(dt).toISOString())
+}
+
+// Current ET week (Monday–Sunday) formatted like "Jul 6 – Jul 12". Matches the
+// Mon–Sun window /api/calendar/my-events uses for weekEvents.
+function currentWeekRangeET(): string {
+  const now = new Date()
+  const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const [y, m, d] = todayStr.split('-').map(Number)
+  const etWeekday = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay() // 0=Sun … 6=Sat
+  const daysFromMonday = (etWeekday + 6) % 7
+  const mon = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
+  mon.setUTCDate(mon.getUTCDate() - daysFromMonday)
+  const sun = new Date(mon)
+  sun.setUTCDate(sun.getUTCDate() + 6)
+  const fmt = (dt: Date) => dt.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' })
+  return `${fmt(mon)} – ${fmt(sun)}`
+}
+
 // ── Fable design tokens (additive — semantic colors only) ────────────
 const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
 const NUM: React.CSSProperties = { fontVariantNumeric: 'tabular-nums lining-nums' }
@@ -1409,6 +1449,56 @@ export default function DashboardPage() {
   const showCalinCalendar =
     userEmail === 'c.noonan@caskconstruction.com' ||
     userEmail === 'k.mapoy@caskconstruction.com'
+
+  // NEW (additive) — Microsoft Graph "My Calendar" for everyone who ISN'T on the
+  // Make.com feed (i.e. not Calin/Kai). Fetches the signed-in user's own Outlook
+  // calendar from /api/calendar/my-events. Leaves the Make.com path untouched.
+  const [isOutlookConnected, setIsOutlookConnected] = useState(false)
+  const [myTodayEvents, setMyTodayEvents] = useState<GraphEventLite[]>([])
+  const [myWeekEvents, setMyWeekEvents] = useState<GraphEventLite[]>([])
+  // Loading flag for the Graph fetch — drives the "Pulling today's schedule…"
+  // line in the briefing for non-Calin/Kai users.
+  const [myCalendarLoading, setMyCalendarLoading] = useState(true)
+
+  useEffect(() => {
+    // Wait until the role/email has resolved so we don't fire for Calin/Kai (whose
+    // showCalinCalendar only flips true once their email loads).
+    if (!roleLoaded || showCalinCalendar) return
+    let cancelled = false
+    fetch('/api/calendar/my-events')
+      .then(r => r.json())
+      .then((json: { todayEvents?: GraphEventLite[]; weekEvents?: GraphEventLite[]; error?: string }) => {
+        if (cancelled) return
+        if (Array.isArray(json.todayEvents)) {
+          // Connected — even an empty array means a valid, connected calendar.
+          setIsOutlookConnected(true)
+          setMyTodayEvents(json.todayEvents)
+          setMyWeekEvents(Array.isArray(json.weekEvents) ? json.weekEvents : [])
+        } else if (json.error === 'not_connected' || json.error === 'token_invalid') {
+          setIsOutlookConnected(false)
+        }
+        // Any other error: leave disconnected so the existing Connect Outlook
+        // empty state shows.
+        setMyCalendarLoading(false)
+      })
+      .catch(() => {
+        // network error — leave disconnected
+        if (!cancelled) setMyCalendarLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [roleLoaded, showCalinCalendar])
+
+  // NEW (additive) — Graph equivalents for non-Calin/Kai users' briefing "Next up"
+  // line. Per spec, "next" = the first event whose END time is still in the future
+  // (an in-progress meeting counts as next up); all-day events are excluded from
+  // the "next" pick and treated as done for the all-wrapped check. nowMs is
+  // computed further below in render scope but is in scope by the time this reads.
+  const myNextEvent = myTodayEvents.find(
+    ev => !ev.isAllDay && ev.end?.dateTime != null && parseGraphDate(ev.end.dateTime).getTime() > Date.now()
+  )
+  const allMyEventsDone =
+    myTodayEvents.length > 0 &&
+    myTodayEvents.every(ev => ev.isAllDay || (ev.end?.dateTime ? parseGraphDate(ev.end.dateTime).getTime() < Date.now() : false))
   // Their own open count (open items assigned to them) for the briefing line.
   const myOpenCount = myGroup?.items.length ?? 0
   // CHANGE 4: Completed stat for restricted users — only THEIR action items
@@ -1804,6 +1894,17 @@ export default function DashboardPage() {
                 }
                 sparkPath="M0 12 L12 14 L24 10 L36 13 L48 8 L60 12 L72 10 L84 11"
               />
+            ) : !showCalinCalendar && isOutlookConnected ? (
+              // Outlook-connected users: their own week count from Microsoft Graph.
+              // delta = current ET Mon–Sun range (matches the API's weekEvents window).
+              <StatBox
+                label="Events this week"
+                value={myWeekEvents.length}
+                delta={currentWeekRangeET()}
+                deltaTone="flat"
+                note={myTodayEvents.length > 0 ? `${myTodayEvents.length} today` : 'None today'}
+                sparkPath="M0 12 L12 14 L24 10 L36 13 L48 8 L60 12 L72 10 L84 11"
+              />
             ) : (
               // Non-Calin variant — mirrors StatBox's cell (background/padding/
               // typography) but swaps the trend line for a Connect Outlook link.
@@ -1976,22 +2077,44 @@ export default function DashboardPage() {
                   )
                 ) : (
                   <>
-                {calendarLoading ? (
-                  'Pulling today’s schedule…'
-                ) : calendarEvents.length === 0 ? (
-                  'Nothing on the calendar today.'
-                ) : allEventsDone ? (
-                  'All of today’s meetings are wrapped.'
-                ) : nextEventToday ? (
-                  <>
-                    Next up:{' '}
-                    <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
-                      {nextEventToday.title} at {fmtET(nextEventToday.start_time)}
-                    </em>
-                    .
-                  </>
+                {showCalinCalendar ? (
+                  // Calin/Kai — Make.com calendar_events feed (unchanged).
+                  calendarLoading ? (
+                    'Pulling today’s schedule…'
+                  ) : calendarEvents.length === 0 ? (
+                    'Nothing on the calendar today.'
+                  ) : allEventsDone ? (
+                    'All of today’s meetings are wrapped.'
+                  ) : nextEventToday ? (
+                    <>
+                      Next up:{' '}
+                      <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
+                        {nextEventToday.title} at {fmtET(nextEventToday.start_time)}
+                      </em>
+                      .
+                    </>
+                  ) : (
+                    `${calendarEvents.length} event${calendarEvents.length === 1 ? '' : 's'} on today’s calendar.`
+                  )
                 ) : (
-                  `${calendarEvents.length} event${calendarEvents.length === 1 ? '' : 's'} on today’s calendar.`
+                  // Everyone else — their own Microsoft Graph calendar (myTodayEvents).
+                  myCalendarLoading ? (
+                    'Pulling today’s schedule…'
+                  ) : myTodayEvents.length === 0 ? (
+                    'Nothing on the calendar today.'
+                  ) : allMyEventsDone ? (
+                    'All of today’s meetings are wrapped.'
+                  ) : myNextEvent ? (
+                    <>
+                      Next up:{' '}
+                      <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
+                        {myNextEvent.subject} at {fmtGraphET(myNextEvent.start.dateTime)}
+                      </em>
+                      .
+                    </>
+                  ) : (
+                    `${myTodayEvents.length} event${myTodayEvents.length === 1 ? '' : 's'} on today’s calendar.`
+                  )
                 )}{' '}
                 {actionItemsLoading ? null : bannerOverdueCount > 0 ? (
                   <>
@@ -2030,7 +2153,7 @@ export default function DashboardPage() {
                 </Link>
                 {!isRestricted && (
                   <Link
-                    href="/president/calendar"
+                    href={showCalinCalendar ? '/president/calendar' : '/my-workspace/calendar'}
                     className="fb-btn"
                     style={{
                       fontSize: 12.5,
@@ -2216,6 +2339,43 @@ export default function DashboardPage() {
                               ● Now
                             </span>
                           )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )
+              ) : !showCalinCalendar && isOutlookConnected ? (
+                // Outlook-connected users: their own Microsoft Graph calendar for
+                // today, styled to match Calin's Make.com schedule items above.
+                myTodayEvents.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No meetings today</div>
+                ) : (
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                    {myTodayEvents.slice(0, 8).map(ev => {
+                      const endMs = ev.end?.dateTime ? parseGraphDate(ev.end.dateTime).getTime() : null
+                      const isDone = !ev.isAllDay && endMs !== null && endMs < nowMs
+                      return (
+                        <li
+                          key={ev.id}
+                          style={{ display: 'flex', gap: 10, fontSize: 12.5, padding: '5px 0', color: 'var(--text2)' }}
+                        >
+                          <span style={{ fontWeight: 600, color: 'var(--text)', width: 62, flexShrink: 0, ...NUM }}>
+                            {ev.isAllDay ? 'All day' : fmtGraphET(ev.start.dateTime)}
+                          </span>
+                          <span
+                            style={{
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              ...(isDone
+                                ? { color: 'var(--text3)', textDecoration: 'line-through', textDecorationColor: 'var(--border2)' }
+                                : {}),
+                            }}
+                          >
+                            {ev.subject}
+                          </span>
+                          {isDone && <span style={{ color: 'var(--fable-ok)', fontWeight: 600, flexShrink: 0 }}>✓</span>}
                         </li>
                       )
                     })}
