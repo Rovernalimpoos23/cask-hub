@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
 // Phase 1: Microsoft Graph OAuth callback — exchange the auth code for tokens,
 // resolve the CASK Hub user by email, and persist tokens in user_integrations.
