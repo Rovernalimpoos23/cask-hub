@@ -179,7 +179,33 @@ export async function GET(
     }
 
     const message = await graphRes.json()
-    return NextResponse.json(message)
+
+    // ── 5. Extract inline attachments (content bytes for inline images) ──
+    // With $expand=attachments, Graph returns FileAttachment items with their
+    // base64 contentBytes inline. We surface only inline attachments (isInline or
+    // a contentId, i.e. images referenced by cid: in the HTML body) with their
+    // bytes so the client can render them. Non-inline attachments keep their
+    // existing shape in message.attachments (name/size/contentType, no bytes).
+    interface GraphAttachment {
+      contentId?: string | null
+      contentType?: string | null
+      contentBytes?: string | null
+      name?: string | null
+      isInline?: boolean
+    }
+    const attachments: GraphAttachment[] = Array.isArray(message?.attachments)
+      ? message.attachments
+      : []
+    const inlineAttachments = attachments
+      .filter(a => a?.isInline === true || (a?.contentId != null && a.contentId !== ''))
+      .map(a => ({
+        contentId: a.contentId,
+        contentType: a.contentType,
+        contentBytes: a.contentBytes,
+        name: a.name,
+      }))
+
+    return NextResponse.json({ ...message, inlineAttachments })
   } catch (err) {
     console.error('[email-get] error:', err instanceof Error ? err.message : 'unknown')
     return NextResponse.json({ error: 'server_error' }, { status: 500 })

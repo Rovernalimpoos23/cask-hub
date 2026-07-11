@@ -35,6 +35,7 @@
 // styles.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import DOMPurify from 'dompurify'
 
 const ET = 'America/New_York'
 
@@ -73,6 +74,12 @@ interface EmailMessage {
   flag?: MessageFlag
   importance?: string
   attachments?: Attachment[]
+  inlineAttachments?: Array<{
+    contentId: string
+    contentType: string
+    contentBytes: string
+    name: string
+  }>
 }
 interface InboxResponse {
   messages?: EmailMessage[]
@@ -355,11 +362,73 @@ const EMAIL_BASE_STYLE = `<style>
   a { color: #F0565E; }
 </style>`
 
+// Replace cid: references in the HTML with base64 data: URIs from the message's
+// inline attachments, so inline images (embedded by Outlook as attachments and
+// referenced via cid:) render in the sandboxed iframe.
+function resolveCidImages(
+  html: string,
+  inlineAttachments: Array<{
+    contentId: string
+    contentType: string
+    contentBytes: string
+  }>
+): string {
+  let resolved = html
+  for (const att of inlineAttachments) {
+    if (!att.contentId || !att.contentBytes) continue
+    const cid = att.contentId.replace(/[<>]/g, '').trim()
+    const dataUri = `data:${att.contentType};base64,${att.contentBytes}`
+    resolved = resolved.replace(new RegExp(`cid:${cid}`, 'gi'), dataUri)
+  }
+  return resolved
+}
+
 // Build the iframe srcDoc for an HTML email, injecting EMAIL_BASE_STYLE inside
 // <head>. If the email markup already has a <head>, the style is inserted right
 // after it; otherwise the content is wrapped in a minimal document.
-function buildEmailSrcDoc(html: string): string {
-  const content = html ?? ''
+function buildEmailSrcDoc(
+  html: string,
+  inlineAttachments: Array<{
+    contentId: string
+    contentType: string
+    contentBytes: string
+  }> = []
+): string {
+  // Resolve cid: inline images to data: URIs BEFORE sanitization so the
+  // resulting <img src="data:..."> survives DOMPurify (which allows data: URIs
+  // on img). Sanitizing first would leave dead cid: srcs.
+  const resolvedHtml = resolveCidImages(html ?? '', inlineAttachments ?? [])
+
+  // Sanitize HTML email content to prevent XSS.
+  // Scripts and event handlers are stripped.
+  // Safe for multi-user rollout.
+  const cleanHtml = DOMPurify.sanitize(resolvedHtml, {
+    ALLOWED_TAGS: [
+      'p', 'br', 'b', 'i', 'u', 'strong', 'em',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td',
+      'a', 'img', 'div', 'span', 'hr', 'figure',
+      'figcaption', 'section', 'article', 'header',
+      'footer', 'nav', 'aside', 'main',
+    ],
+    ALLOWED_ATTR: [
+      'href', 'src', 'alt', 'title', 'style',
+      'class', 'id', 'width', 'height',
+      'target', 'rel', 'colspan', 'rowspan',
+      'cellpadding', 'cellspacing', 'border',
+      'align', 'valign', 'bgcolor',
+    ],
+    ALLOW_DATA_ATTR: false,
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'javascript'],
+  })
+
+  // Inject the base style into <head>. Sanitization strips <head>/<body> (not in
+  // ALLOWED_TAGS), so cleanHtml is a body-level fragment — the wrapper branch
+  // below applies, placing EMAIL_BASE_STYLE in the head. The <head> branch is
+  // kept defensively in case a future config allows those structural tags.
+  const content = cleanHtml
   if (/<head[^>]*>/i.test(content)) {
     return content.replace(/<head[^>]*>/i, match => `${match}${EMAIL_BASE_STYLE}`)
   }
@@ -1076,7 +1145,7 @@ export default function MyEmailPage() {
                     sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                     referrerPolicy="no-referrer"
                     loading="lazy"
-                    srcDoc={buildEmailSrcDoc(selected.body?.content ?? '')}
+                    srcDoc={buildEmailSrcDoc(selected.body?.content ?? '', selected.inlineAttachments ?? [])}
                     // bg-white: HTML emails are designed for a white background.
                     className="h-[600px] w-full rounded-lg border border-[var(--border)] bg-white"
                   />
