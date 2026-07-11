@@ -1,0 +1,1153 @@
+'use client'
+
+// My Emails — the signed-in user's own Outlook mailbox, powered by Microsoft
+// Graph via the /api/email/* routes (inbox / [id] / [id]/read / [id]/reply).
+// Distinct from the client-email-drafts flow; this page is scoped to whoever is
+// logged in and their connected Microsoft account.
+//
+// ── Implementation notes (why this deviates from the brief in a few spots) ──
+// 1. ICONS: the brief asks for Tabler `ti-*` classes, but this project does NOT
+//    load the Tabler icon font (no @tabler dependency, no webfont <link>, and the
+//    customers page explicitly avoids `ti` classes). To stay self-contained and
+//    match the rest of the codebase (the calendar page uses inline SVGs), each
+//    requested `ti-*` glyph is implemented as a small inline SVG below. This
+//    keeps the page working with zero new dependencies and is theme-safe via
+//    `currentColor`.
+// 2. AI BAR: the brief asks the client to POST directly to the Anthropic
+//    /v1/messages API. Doing that from the browser would expose ANTHROPIC_API_KEY
+//    and is CORS-blocked; it also violates the project rule "All Claude API calls
+//    go through /api/ routes, never from the client." Since the safety rules for
+//    this task allow creating ONLY this page (no new API routes), the AI actions
+//    are routed through the EXISTING server-side /api/chat endpoint, which keeps
+//    the key server-side. The spec's system-prompt intent + email content are
+//    passed in the user message. TODO(next PR): add a dedicated
+//    /api/email/ai route using claude-opus-4-8 with the exact system prompts.
+// 3. AI PILL COLORS: the brief references var(--bg-pro)/var(--text-pro), which are
+//    not defined in globals.css (not in the allowed theme set). The pills use the
+//    allowed --surface2/--text2/--border instead.
+// 4. FLAG button: the /api/email/[id]/read route only accepts { isRead }; it has
+//    no flag support, and the safety rules forbid modifying existing routes. Flag
+//    therefore shows a "Coming soon" toast (see handleFlag). Same for Forward and
+//    Archive (not functional yet), and Compose Send (route not built yet).
+//
+// Theming: uses ONLY the existing CSS variables via Tailwind arbitrary-value
+// classes so the app's .dark theme overrides apply automatically. No inline
+// styles.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+const ET = 'America/New_York'
+
+// ── Graph message shapes ─────────────────────────────────────────────
+interface EmailAddress {
+  name?: string
+  address?: string
+}
+interface Recipient {
+  emailAddress?: EmailAddress
+}
+interface MessageFlag {
+  flagStatus?: string
+}
+interface MessageBody {
+  contentType?: string
+  content?: string
+}
+interface Attachment {
+  id?: string
+  name?: string
+  size?: number
+  contentType?: string
+}
+interface EmailMessage {
+  id: string
+  subject?: string
+  from?: Recipient
+  toRecipients?: Recipient[]
+  ccRecipients?: Recipient[]
+  receivedDateTime?: string
+  bodyPreview?: string
+  body?: MessageBody
+  isRead?: boolean
+  hasAttachments?: boolean
+  flag?: MessageFlag
+  importance?: string
+  attachments?: Attachment[]
+}
+interface InboxResponse {
+  messages?: EmailMessage[]
+  totalCount?: number
+  hasMore?: boolean
+  error?: string
+}
+
+type FolderKey = 'inbox' | 'sent' | 'flagged' | 'drafts' | 'archive' | 'trash'
+type AiKind = 'summarize' | 'draft' | 'extract'
+
+// ── Inline SVG icons (stand in for the requested Tabler ti-* glyphs) ──
+type IconProps = { size?: number; className?: string }
+const svgBase = (size: number, className?: string) => ({
+  width: size,
+  height: size,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.7,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  className,
+})
+
+function InboxIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M4 13h4l1.5 3h5L16 13h4" />
+      <path d="M4 13V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8" />
+      <path d="M4 13v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+    </svg>
+  )
+}
+function SendIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M10 14l11-11" />
+      <path d="M21 3 14.5 21 10 14 3 9.5 21 3z" />
+    </svg>
+  )
+}
+function FlagIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M5 21V4a1 1 0 0 1 1-1h12l-2 4 2 4H6" />
+    </svg>
+  )
+}
+function FileTextIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5M9 13h6M9 17h6" />
+    </svg>
+  )
+}
+function ArchiveIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+    </svg>
+  )
+}
+function TrashIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M4 7h16M10 11v6M14 11v6" />
+      <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+    </svg>
+  )
+}
+function SearchIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  )
+}
+function MailIcon({ size = 18, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3 7 9 6 9-6" />
+    </svg>
+  )
+}
+function ReplyIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h11a5 5 0 0 1 5 5v3" />
+    </svg>
+  )
+}
+function ForwardIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="m15 14 5-5-5-5" />
+      <path d="M20 9H9a5 5 0 0 0-5 5v3" />
+    </svg>
+  )
+}
+function SparklesIcon({ size = 15, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" />
+      <path d="M19 15l.7 1.8L21.5 17.5l-1.8.7L19 20l-.7-1.8L16.5 17.5l1.8-.7z" />
+    </svg>
+  )
+}
+function PencilIcon({ size = 15, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
+      <path d="m13.5 6.5 3 3" />
+    </svg>
+  )
+}
+function ListCheckIcon({ size = 15, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M11 6h9M11 12h9M11 18h9" />
+      <path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" />
+    </svg>
+  )
+}
+function PaperclipIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M21 8.5 12.5 17a4 4 0 0 1-5.7-5.7l8-8a2.6 2.6 0 0 1 3.7 3.7l-8 8a1.2 1.2 0 0 1-1.7-1.7l7.3-7.3" />
+    </svg>
+  )
+}
+function CloseIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  )
+}
+function Spinner({ size = 14, className }: IconProps) {
+  return (
+    <svg
+      className={`animate-spin ${className ?? ''}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// ── Folder config (order + icon + label) ─────────────────────────────
+const FOLDERS: { key: FolderKey; label: string; Icon: (p: IconProps) => JSX.Element }[] = [
+  { key: 'inbox', label: 'Inbox', Icon: InboxIcon },
+  { key: 'sent', label: 'Sent', Icon: SendIcon },
+  { key: 'flagged', label: 'Flagged', Icon: FlagIcon },
+  { key: 'drafts', label: 'Drafts', Icon: FileTextIcon },
+  { key: 'archive', label: 'Archive', Icon: ArchiveIcon },
+  { key: 'trash', label: 'Trash', Icon: TrashIcon },
+]
+const FOLDER_LABEL: Record<FolderKey, string> = {
+  inbox: 'Inbox',
+  sent: 'Sent',
+  flagged: 'Flagged',
+  drafts: 'Drafts',
+  archive: 'Archive',
+  trash: 'Trash',
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+// ET calendar-date string (YYYY-MM-DD).
+function etDateStr(d: Date): string {
+  return d.toLocaleDateString('en-CA', { timeZone: ET })
+}
+
+// Today → "9:43 AM", within the last week → "Tue", older → "Jul 7". All ET.
+function formatMsgTime(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const now = new Date()
+  const todayStr = etDateStr(now)
+  const dStr = etDateStr(d)
+  if (dStr === todayStr) {
+    return d.toLocaleTimeString('en-US', { timeZone: ET, hour: 'numeric', minute: '2-digit', hour12: true })
+  }
+  // Whole-day difference (both anchored to UTC-midnight of their ET date string).
+  const diffDays = Math.round((Date.parse(todayStr) - Date.parse(dStr)) / 86_400_000)
+  if (diffDays >= 1 && diffDays < 7) {
+    return d.toLocaleDateString('en-US', { timeZone: ET, weekday: 'short' })
+  }
+  return d.toLocaleDateString('en-US', { timeZone: ET, month: 'short', day: 'numeric' })
+}
+
+// Full ET timestamp for the reading pane header.
+function formatFullTime(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', {
+    timeZone: ET,
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
+// Initials from a display name (first letter of first + last), falling back to
+// the email address, then "?".
+function initials(name?: string, address?: string): string {
+  const src = (name || address || '').trim()
+  if (!src) return '?'
+  const parts = src.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return src.slice(0, 2).toUpperCase()
+}
+
+function senderName(m: EmailMessage): string {
+  return m.from?.emailAddress?.name || m.from?.emailAddress?.address || '(Unknown sender)'
+}
+
+// Human-readable attachment size.
+function fmtSize(n?: number): string {
+  if (!n || n <= 0) return ''
+  const units = ['B', 'KB', 'MB', 'GB']
+  let v = n
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`
+}
+
+// Rough HTML→text for feeding email bodies to the AI (keeps the payload small).
+function htmlToText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>(?=)/gi, '\n')
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// Plain-text form of a message body (for AI input).
+function messageText(m: EmailMessage): string {
+  const body = m.body
+  if (body?.content) {
+    return body.contentType?.toLowerCase() === 'html' ? htmlToText(body.content) : body.content
+  }
+  return m.bodyPreview ?? ''
+}
+
+// ── Compose modal ────────────────────────────────────────────────────
+const INPUT_CLS =
+  'w-full rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text3)]'
+const LABEL_CLS = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[var(--text2)]'
+
+function ComposeModal({
+  onClose,
+  onComingSoon,
+}: {
+  onClose: () => void
+  onComingSoon: () => void
+}) {
+  const [to, setTo] = useState('')
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+
+  function handleSend() {
+    // TODO(next PR): POST to /api/email/compose (not built yet — see file header).
+    // Until that route exists, surface a "Coming soon" toast instead of failing.
+    onComingSoon()
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5"
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6"
+      >
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div className="text-lg font-bold text-[var(--text)]">New Message</div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="shrink-0 rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className={LABEL_CLS}>To</label>
+            <input
+              type="email"
+              value={to}
+              onChange={e => setTo(e.target.value)}
+              placeholder="name@company.com"
+              className={INPUT_CLS}
+            />
+          </div>
+          <div>
+            <label className={LABEL_CLS}>Subject</label>
+            <input
+              type="text"
+              value={subject}
+              onChange={e => setSubject(e.target.value)}
+              placeholder="Subject"
+              className={INPUT_CLS}
+            />
+          </div>
+          <div>
+            <label className={LABEL_CLS}>Message</label>
+            <textarea
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              rows={6}
+              placeholder="Write your message…"
+              className={`${INPUT_CLS} resize-none`}
+            />
+          </div>
+        </div>
+
+        <div className="mt-6 flex items-center justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSend}
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85"
+          >
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── List loading skeleton ────────────────────────────────────────────
+function ListSkeleton() {
+  return (
+    <div className="flex flex-col">
+      {[0, 1, 2, 3, 4].map(i => (
+        <div key={i} className="border-b border-[var(--border)] px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="shimmer h-3.5 w-28 rounded" />
+            <div className="shimmer h-3 w-10 rounded" />
+          </div>
+          <div className="shimmer mt-2.5 h-3.5 w-3/4 rounded" />
+          <div className="shimmer mt-2 h-3 w-1/2 rounded" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Not-connected / error empty state ────────────────────────────────
+function ConnectState({ title, cta }: { title: string; cta: string }) {
+  return (
+    <div className="flex flex-1 items-center justify-center p-8">
+      <div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
+        <MailIcon size={40} className="text-[var(--text3)]" />
+        <div className="text-sm text-[var(--text2)]">{title}</div>
+        <a
+          href="/api/auth/microsoft"
+          className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85"
+        >
+          {cta}
+        </a>
+      </div>
+    </div>
+  )
+}
+
+// ── Page ─────────────────────────────────────────────────────────────
+export default function MyEmailPage() {
+  const [folder, setFolder] = useState<FolderKey>('inbox')
+  const [messages, setMessages] = useState<EmailMessage[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [listLoading, setListLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+
+  // Badge counts (kept fresh independently so they show on inactive folders).
+  const [inboxUnread, setInboxUnread] = useState(0)
+  const [flaggedCount, setFlaggedCount] = useState(0)
+  const prevUnreadRef = useRef<number | null>(null)
+  const [newBanner, setNewBanner] = useState(false)
+
+  // Reading pane.
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selected, setSelected] = useState<EmailMessage | null>(null)
+  const [readingLoading, setReadingLoading] = useState(false)
+
+  // Reply.
+  const [replyText, setReplyText] = useState('')
+  const [replySending, setReplySending] = useState(false)
+  const [replySent, setReplySent] = useState(false)
+  const [replyError, setReplyError] = useState('')
+  const replyRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // AI.
+  const [aiLoading, setAiLoading] = useState<AiKind | null>(null)
+  const [aiCard, setAiCard] = useState<{ kind: AiKind; text: string } | null>(null)
+
+  // Compose + toast.
+  const [composeOpen, setComposeOpen] = useState(false)
+  const [toast, setToast] = useState('')
+
+  const showToast = useCallback((msg: string) => setToast(msg), [])
+
+  // Auto-dismiss the toast after 3s.
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(''), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  // Auto-dismiss the "Reply sent!" confirmation after 3s.
+  useEffect(() => {
+    if (!replySent) return
+    const t = setTimeout(() => setReplySent(false), 3000)
+    return () => clearTimeout(t)
+  }, [replySent])
+
+  // ── Fetch a folder's message list ──────────────────────────────────
+  const loadList = useCallback(
+    async (f: FolderKey, skip: number, append: boolean) => {
+      if (append) setLoadingMore(true)
+      else setListLoading(true)
+      try {
+        const res = await fetch(`/api/email/inbox?folder=${f}&top=50&skip=${skip}`)
+        const json: InboxResponse = await res.json()
+        if (json.error) {
+          setListError(json.error)
+          if (!append) setMessages([])
+          return
+        }
+        setListError(null)
+        const incoming = json.messages ?? []
+        setMessages(prev => (append ? [...prev, ...incoming] : incoming))
+        setTotalCount(json.totalCount ?? incoming.length)
+        setHasMore(!!json.hasMore)
+      } catch {
+        setListError('fetch_error')
+        if (!append) setMessages([])
+      } finally {
+        setListLoading(false)
+        setLoadingMore(false)
+      }
+    },
+    [],
+  )
+
+  // ── Refresh badge counts (inbox unread + flagged) ──────────────────
+  const loadCounts = useCallback(async () => {
+    try {
+      const [inboxRes, flaggedRes] = await Promise.all([
+        fetch('/api/email/inbox?folder=inbox&top=50&skip=0').then(r => r.json() as Promise<InboxResponse>),
+        fetch('/api/email/inbox?folder=flagged&top=50&skip=0').then(r => r.json() as Promise<InboxResponse>),
+      ])
+      if (!inboxRes.error) {
+        const unread = (inboxRes.messages ?? []).filter(m => !m.isRead).length
+        // Banner when unread grows vs the previous poll (skip the first sample).
+        if (prevUnreadRef.current !== null && unread > prevUnreadRef.current) {
+          setNewBanner(true)
+        }
+        prevUnreadRef.current = unread
+        setInboxUnread(unread)
+      }
+      if (!flaggedRes.error) {
+        setFlaggedCount(flaggedRes.totalCount ?? (flaggedRes.messages ?? []).length)
+      }
+    } catch {
+      /* non-fatal: badges just stay at their last value */
+    }
+  }, [])
+
+  // Load the active folder whenever it changes.
+  useEffect(() => {
+    setSearch('')
+    loadList(folder, 0, false)
+  }, [folder, loadList])
+
+  // Initial counts + 60s auto-refresh of the list and counts.
+  useEffect(() => {
+    loadCounts()
+    const id = setInterval(() => {
+      loadList(folder, 0, false)
+      loadCounts()
+    }, 60_000)
+    return () => clearInterval(id)
+    // folder is intentionally included so the interval refreshes the visible folder.
+  }, [folder, loadList, loadCounts])
+
+  // ── Select + open an email ─────────────────────────────────────────
+  const openEmail = useCallback(
+    async (m: EmailMessage) => {
+      setSelectedId(m.id)
+      setSelected(null)
+      setReadingLoading(true)
+      setAiCard(null)
+      setReplyText('')
+      setReplyError('')
+      setReplySent(false)
+
+      // Auto mark-as-read on opening an unread message.
+      if (!m.isRead) {
+        // Optimistic local update.
+        setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, isRead: true } : x)))
+        setInboxUnread(c => Math.max(0, c - 1))
+        prevUnreadRef.current = Math.max(0, (prevUnreadRef.current ?? 0) - 1)
+        fetch(`/api/email/${encodeURIComponent(m.id)}/read`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isRead: true }),
+        }).catch(() => {
+          /* non-fatal: the message still opens */
+        })
+      }
+
+      try {
+        const res = await fetch(`/api/email/${encodeURIComponent(m.id)}`)
+        const json = (await res.json()) as EmailMessage & { error?: string }
+        if (json.error) {
+          setListError(json.error)
+          setSelected(null)
+        } else {
+          setSelected(json)
+        }
+      } catch {
+        setSelected(null)
+      } finally {
+        setReadingLoading(false)
+      }
+    },
+    [],
+  )
+
+  // ── Reply ──────────────────────────────────────────────────────────
+  async function handleSendReply() {
+    if (!selected || replySending || !replyText.trim()) return
+    setReplySending(true)
+    setReplyError('')
+    try {
+      const res = await fetch(`/api/email/${encodeURIComponent(selected.id)}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: replyText }),
+      })
+      const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string }
+      if (!res.ok || !json.success) {
+        setReplyError('Could not send reply. Please try again.')
+        return
+      }
+      setReplyText('')
+      setReplySent(true)
+    } catch {
+      setReplyError('Network error. Please try again.')
+    } finally {
+      setReplySending(false)
+    }
+  }
+
+  // ── Mark unread ────────────────────────────────────────────────────
+  async function handleMarkUnread() {
+    if (!selected) return
+    setMessages(prev => prev.map(x => (x.id === selected.id ? { ...x, isRead: false } : x)))
+    setSelected(s => (s ? { ...s, isRead: false } : s))
+    setInboxUnread(c => c + 1)
+    prevUnreadRef.current = (prevUnreadRef.current ?? 0) + 1
+    try {
+      await fetch(`/api/email/${encodeURIComponent(selected.id)}/read`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isRead: false }),
+      })
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  // Flag/Forward/Archive aren't wired to a backend yet (see file header).
+  function handleComingSoon() {
+    showToast('Coming soon')
+  }
+
+  // ── AI actions (routed through /api/chat — see file header note #2) ─
+  async function runAi(kind: AiKind) {
+    if (!selected || aiLoading) return
+    setAiLoading(kind)
+    if (kind !== 'draft') setAiCard(null)
+
+    const subject = selected.subject || '(No subject)'
+    const bodyText = messageText(selected)
+    const instructions: Record<AiKind, string> = {
+      summarize:
+        'You are a senior executive communications assistant for CASK Construction. Summarize this email in 3-4 sentences. Be concise and focus on what matters most for a busy executive.',
+      draft:
+        'You are a senior executive communications assistant for CASK Construction. Draft a professional reply to this email. Be concise, match the tone, do not make up facts. Return only the reply body text with no preamble.',
+      extract:
+        'You are a senior executive communications assistant for CASK Construction. Extract all action items, deadlines, and follow-ups from this email. Format as a clean bullet list.',
+    }
+    const prompt = `${instructions[kind]}\n\nEMAIL SUBJECT: ${subject}\n\nEMAIL BODY:\n${bodyText}`
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: prompt }],
+          pageContext: '/my-workspace/email',
+        }),
+      })
+      const json = (await res.json()) as { content?: string; error?: string }
+      const text = (json.content ?? '').trim()
+      if (!res.ok || json.error || !text) {
+        showToast('AI request failed. Please try again.')
+        return
+      }
+      if (kind === 'draft') {
+        setReplyText(text)
+        replyRef.current?.focus()
+      } else {
+        setAiCard({ kind, text })
+      }
+    } catch {
+      showToast('AI request failed. Please try again.')
+    } finally {
+      setAiLoading(null)
+    }
+  }
+
+  // ── Derived list (client-side search filter) ───────────────────────
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return messages
+    return messages.filter(m => {
+      const name = senderName(m).toLowerCase()
+      const subj = (m.subject ?? '').toLowerCase()
+      const prev = (m.bodyPreview ?? '').toLowerCase()
+      return name.includes(q) || subj.includes(q) || prev.includes(q)
+    })
+  }, [messages, search])
+
+  const shownUnread = filtered.filter(m => !m.isRead).length
+  const notConnected = listError === 'not_connected' || listError === 'user_not_found'
+  const tokenInvalid = listError === 'token_invalid' || listError === 'unauthorized'
+
+  return (
+    <div className="grid h-full grid-cols-[220px_300px_1fr] overflow-hidden animate-page-in">
+      {/* ── COLUMN 1 — SIDEBAR ─────────────────────────────────────── */}
+      <div className="flex flex-col gap-4 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] p-4">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-[var(--text3)]">
+            My Workspace
+          </div>
+          <h1 className="mt-0.5 text-base font-medium text-[var(--text)]">My Emails</h1>
+        </div>
+
+        <button
+          onClick={() => setComposeOpen(true)}
+          className="w-full rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85"
+        >
+          Compose
+        </button>
+
+        <nav className="flex flex-col gap-0.5">
+          {FOLDERS.map((f, idx) => {
+            const active = folder === f.key
+            const badge =
+              f.key === 'inbox' ? inboxUnread : f.key === 'flagged' ? flaggedCount : 0
+            return (
+              <div key={f.key}>
+                {/* Divider before Archive (spec: Drafts | divider | Archive) */}
+                {idx === 4 && <div className="my-1.5 h-px bg-[var(--border)]" />}
+                <button
+                  onClick={() => setFolder(f.key)}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                    active
+                      ? 'bg-[var(--surface2)] font-medium text-[var(--text)]'
+                      : 'text-[var(--text2)] hover:bg-[var(--surface2)]'
+                  }`}
+                >
+                  <f.Icon size={17} className="shrink-0" />
+                  <span className="flex-1 text-left">{f.label}</span>
+                  {badge > 0 && (
+                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[var(--red)] px-1.5 text-[11px] font-semibold text-white">
+                      {badge}
+                    </span>
+                  )}
+                </button>
+              </div>
+            )
+          })}
+        </nav>
+      </div>
+
+      {/* ── COLUMN 2 — EMAIL LIST ──────────────────────────────────── */}
+      <div className="flex min-h-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)]">
+        {/* Header */}
+        <div className="border-b border-[var(--border)] px-4 py-3">
+          <div className="flex items-baseline justify-between">
+            <div className="text-sm font-semibold text-[var(--text)]">
+              {FOLDER_LABEL[folder]}
+            </div>
+            {shownUnread > 0 && (
+              <div className="text-xs text-[var(--text3)]">{shownUnread} unread</div>
+            )}
+          </div>
+          {/* Search */}
+          <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-[var(--surface2)] px-2.5 py-1.5">
+            <SearchIcon className="shrink-0 text-[var(--text3)]" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search"
+              className="w-full bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
+            />
+          </div>
+        </div>
+
+        {/* "New emails" banner */}
+        {newBanner && (
+          <button
+            onClick={() => {
+              setNewBanner(false)
+              setFolder('inbox')
+              loadList('inbox', 0, false)
+            }}
+            className="border-b border-[var(--border)] bg-[var(--red)] px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            New emails · tap to refresh
+          </button>
+        )}
+
+        {/* List body */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {listLoading ? (
+            <ListSkeleton />
+          ) : notConnected ? (
+            <ConnectState title="Connect your Outlook to see your email" cta="Connect Outlook" />
+          ) : tokenInvalid ? (
+            <ConnectState title="Your Outlook session expired" cta="Reconnect Outlook" />
+          ) : listError ? (
+            <ConnectState title="Couldn't load your email. Please try again." cta="Reconnect Outlook" />
+          ) : filtered.length === 0 ? (
+            <div className="p-6 text-center text-sm text-[var(--text3)]">
+              {search ? 'No emails match your search' : `No emails in ${FOLDER_LABEL[folder]}`}
+            </div>
+          ) : (
+            <>
+              {filtered.map(m => {
+                const isSel = m.id === selectedId
+                const unread = !m.isRead
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => openEmail(m)}
+                    className={`flex w-full flex-col gap-1 border-b border-[var(--border)] px-4 py-3 text-left transition-colors ${
+                      isSel ? 'bg-[var(--surface2)]' : 'hover:bg-[var(--surface2)]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {unread && (
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--red)]" aria-hidden="true" />
+                      )}
+                      <span
+                        className={`flex-1 truncate text-sm ${
+                          unread ? 'font-semibold text-[var(--text)]' : 'text-[var(--text2)]'
+                        }`}
+                      >
+                        {senderName(m)}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-[var(--text3)]">
+                        {formatMsgTime(m.receivedDateTime)}
+                      </span>
+                    </div>
+                    <div
+                      className={`truncate text-sm ${
+                        unread ? 'font-semibold text-[var(--text)]' : 'text-[var(--text2)]'
+                      }`}
+                    >
+                      {m.subject || '(No subject)'}
+                    </div>
+                    <div className="truncate text-xs text-[var(--text3)]">
+                      {m.bodyPreview || ''}
+                    </div>
+                  </button>
+                )
+              })}
+
+              {/* Load more (only when the folder itself has more, and not searching) */}
+              {hasMore && !search && (
+                <div className="p-3">
+                  <button
+                    onClick={() => loadList(folder, messages.length, true)}
+                    disabled={loadingMore}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-xs font-semibold text-[var(--text2)] transition-colors hover:text-[var(--text)] disabled:opacity-60"
+                  >
+                    {loadingMore && <Spinner />}
+                    {loadingMore ? 'Loading…' : 'Load more'}
+                  </button>
+                </div>
+              )}
+              <div className="px-4 py-2 text-center text-[11px] text-[var(--text3)]">
+                {messages.length} of {totalCount}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── COLUMN 3 — READING PANE ────────────────────────────────── */}
+      <div className="flex min-h-0 flex-col overflow-hidden bg-[var(--bg)]">
+        {!selectedId ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8">
+            <MailIcon size={54} className="text-[var(--text3)]" />
+            <div className="text-sm text-[var(--text3)]">Select an email to read</div>
+          </div>
+        ) : readingLoading ? (
+          <div className="flex flex-1 items-center justify-center text-[var(--text3)]">
+            <Spinner size={22} />
+          </div>
+        ) : !selected ? (
+          <div className="flex flex-1 items-center justify-center p-8 text-sm text-[var(--text3)]">
+            Couldn&apos;t load this email.
+          </div>
+        ) : (
+          <>
+            {/* Scrollable email content */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-6">
+              {/* Subject */}
+              <h2 className="text-[15px] font-medium text-[var(--text)]">
+                {selected.subject || '(No subject)'}
+              </h2>
+
+              {/* Sender row */}
+              <div className="mt-4 flex items-start gap-3">
+                <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[var(--red)] text-xs font-semibold text-white">
+                  {initials(selected.from?.emailAddress?.name, selected.from?.emailAddress?.address)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-[var(--text)]">
+                    {selected.from?.emailAddress?.name || selected.from?.emailAddress?.address || '(Unknown)'}
+                  </div>
+                  <div className="truncate text-xs text-[var(--text3)]">
+                    {selected.from?.emailAddress?.address || ''}
+                  </div>
+                </div>
+                <div className="shrink-0 text-xs text-[var(--text3)]">
+                  {formatFullTime(selected.receivedDateTime)}
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <ActionBtn label="Reply" onClick={() => replyRef.current?.focus()}>
+                  <ReplyIcon />
+                </ActionBtn>
+                <ActionBtn label="Forward" onClick={handleComingSoon}>
+                  <ForwardIcon />
+                </ActionBtn>
+                <ActionBtn label="Flag" onClick={handleComingSoon}>
+                  <FlagIcon size={16} />
+                </ActionBtn>
+                <ActionBtn label="Archive" onClick={handleComingSoon}>
+                  <ArchiveIcon size={16} />
+                </ActionBtn>
+                <ActionBtn label="Mark unread" onClick={handleMarkUnread}>
+                  <MailIcon size={16} />
+                </ActionBtn>
+              </div>
+
+              {/* AI bar */}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text3)]">
+                  AI
+                </span>
+                <AiPill
+                  label={aiLoading === 'summarize' ? 'Summarizing…' : 'Summarize'}
+                  loading={aiLoading === 'summarize'}
+                  disabled={aiLoading !== null}
+                  onClick={() => runAi('summarize')}
+                >
+                  <SparklesIcon />
+                </AiPill>
+                <AiPill
+                  label={aiLoading === 'draft' ? 'Drafting…' : 'Draft reply'}
+                  loading={aiLoading === 'draft'}
+                  disabled={aiLoading !== null}
+                  onClick={() => runAi('draft')}
+                >
+                  <PencilIcon />
+                </AiPill>
+                <AiPill
+                  label={aiLoading === 'extract' ? 'Extracting…' : 'Extract action items'}
+                  loading={aiLoading === 'extract'}
+                  disabled={aiLoading !== null}
+                  onClick={() => runAi('extract')}
+                >
+                  <ListCheckIcon />
+                </AiPill>
+              </div>
+
+              {/* AI result card (summarize / extract) */}
+              {aiCard && (
+                <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-4">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--text3)]">
+                    <SparklesIcon className="text-[var(--red)]" />
+                    {aiCard.kind === 'summarize' ? 'Summary' : 'Action Items'}
+                  </div>
+                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-[var(--text)]">
+                    {aiCard.text}
+                  </pre>
+                </div>
+              )}
+
+              {/* Body */}
+              <div className="mt-5 border-t border-[var(--border)] pt-5">
+                {selected.body?.contentType?.toLowerCase() === 'html' ? (
+                  // Sandboxed so remote/email markup can't script the app. A fixed
+                  // tall height with internal scroll keeps this Tailwind-only (no
+                  // dynamic inline sizing).
+                  <iframe
+                    title="Email body"
+                    sandbox="allow-same-origin"
+                    srcDoc={selected.body?.content ?? ''}
+                    className="h-[600px] w-full rounded-lg border border-[var(--border)] bg-white"
+                  />
+                ) : (
+                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-[var(--text)]">
+                    {selected.body?.content || selected.bodyPreview || ''}
+                  </pre>
+                )}
+
+                {/* Attachments */}
+                {selected.hasAttachments && (selected.attachments?.length ?? 0) > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selected.attachments!.map((a, i) => (
+                      <div
+                        key={a.id ?? i}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[var(--surface2)] px-3 py-1.5 text-xs text-[var(--text2)]"
+                      >
+                        <PaperclipIcon className="shrink-0 text-[var(--text3)]" />
+                        <span className="max-w-[200px] truncate">{a.name || 'attachment'}</span>
+                        {a.size ? <span className="text-[var(--text3)]">{fmtSize(a.size)}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Reply bar (bottom) */}
+            <div className="border-t border-[var(--border)] bg-[var(--surface)] p-4">
+              {replyError && <div className="mb-2 text-xs text-[var(--red)]">{replyError}</div>}
+              {replySent && (
+                <div className="mb-2 text-xs font-semibold text-[var(--green)]">Reply sent!</div>
+              )}
+              <div className="flex items-end gap-2">
+                <textarea
+                  ref={replyRef}
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  rows={2}
+                  placeholder={`Reply to ${senderName(selected)}…`}
+                  className="min-h-[42px] w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text3)] placeholder:text-[var(--text3)]"
+                />
+                <button
+                  onClick={handleSendReply}
+                  disabled={replySending || !replyText.trim()}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {replySending && <Spinner />}
+                  {replySending ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Compose modal */}
+      {composeOpen && (
+        <ComposeModal
+          onClose={() => setComposeOpen(false)}
+          onComingSoon={() => {
+            setComposeOpen(false)
+            showToast('Coming soon')
+          }}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed left-1/2 top-5 z-[60] -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] shadow-lg">
+          {toast}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Small button pieces ──────────────────────────────────────────────
+function ActionBtn({
+  label,
+  onClick,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-1.5 text-xs font-medium text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+    >
+      {children}
+      {label}
+    </button>
+  )
+}
+
+function AiPill({
+  label,
+  loading,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  loading: boolean
+  disabled: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface2)] px-3 py-1.5 text-xs font-medium text-[var(--text2)] transition-colors hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {loading ? <Spinner /> : children}
+      {label}
+    </button>
+  )
+}

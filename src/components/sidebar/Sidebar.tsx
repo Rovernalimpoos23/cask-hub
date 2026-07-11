@@ -41,6 +41,7 @@ const NAV_SECTIONS = [
     label: 'My Workspace',
     items: [
       { href: '/my-workspace/calendar', icon: '📅', label: 'My Calendar', locked: false },
+      { href: '/my-workspace/email', icon: '✉️', label: 'My Emails', locked: false },
     ],
   },
   {
