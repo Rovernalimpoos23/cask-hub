@@ -344,6 +344,28 @@ function messageText(m: EmailMessage): string {
   return m.bodyPreview ?? ''
 }
 
+// Base style injected into the email iframe's <head>. Kept minimal: it does NOT
+// set body background or color, so the email renders with its own colors (most
+// HTML emails are designed for a white background — that's correct and expected).
+// Only images are constrained to the container width and links get an accent.
+// Scripts remain blocked by the sandbox.
+const EMAIL_BASE_STYLE = `<style>
+  body { margin: 0; padding: 8px; }
+  img { max-width: 100% !important; height: auto !important; }
+  a { color: #F0565E; }
+</style>`
+
+// Build the iframe srcDoc for an HTML email, injecting EMAIL_BASE_STYLE inside
+// <head>. If the email markup already has a <head>, the style is inserted right
+// after it; otherwise the content is wrapped in a minimal document.
+function buildEmailSrcDoc(html: string): string {
+  const content = html ?? ''
+  if (/<head[^>]*>/i.test(content)) {
+    return content.replace(/<head[^>]*>/i, match => `${match}${EMAIL_BASE_STYLE}`)
+  }
+  return `<!doctype html><html><head><meta charset="utf-8">${EMAIL_BASE_STYLE}</head><body>${content}</body></html>`
+}
+
 // ── Compose modal ────────────────────────────────────────────────────
 const INPUT_CLS =
   'w-full rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text3)]'
@@ -498,6 +520,7 @@ export default function MyEmailPage() {
 
   // Reply.
   const [replyText, setReplyText] = useState('')
+  const [replyOpen, setReplyOpen] = useState(false)
   const [replySending, setReplySending] = useState(false)
   const [replySent, setReplySent] = useState(false)
   const [replyError, setReplyError] = useState('')
@@ -506,6 +529,7 @@ export default function MyEmailPage() {
   // AI.
   const [aiLoading, setAiLoading] = useState<AiKind | null>(null)
   const [aiCard, setAiCard] = useState<{ kind: AiKind; text: string } | null>(null)
+  const [aiError, setAiError] = useState('')
 
   // Compose + toast.
   const [composeOpen, setComposeOpen] = useState(false)
@@ -605,6 +629,7 @@ export default function MyEmailPage() {
       setReadingLoading(true)
       setAiCard(null)
       setReplyText('')
+      setReplyOpen(false)
       setReplyError('')
       setReplySent(false)
 
@@ -641,6 +666,19 @@ export default function MyEmailPage() {
     [],
   )
 
+  // ── Reply composer open/close ──────────────────────────────────────
+  function openReply() {
+    setReplyOpen(true)
+    setReplyError('')
+    // Focus once the textarea has mounted.
+    setTimeout(() => replyRef.current?.focus(), 0)
+  }
+  function closeReply() {
+    setReplyOpen(false)
+    setReplyText('')
+    setReplyError('')
+  }
+
   // ── Reply ──────────────────────────────────────────────────────────
   async function handleSendReply() {
     if (!selected || replySending || !replyText.trim()) return
@@ -657,6 +695,7 @@ export default function MyEmailPage() {
         setReplyError('Could not send reply. Please try again.')
         return
       }
+      setReplyOpen(false)
       setReplyText('')
       setReplySent(true)
     } catch {
@@ -689,47 +728,48 @@ export default function MyEmailPage() {
     showToast('Coming soon')
   }
 
-  // ── AI actions (routed through /api/chat — see file header note #2) ─
+  // ── AI actions (routed through the dedicated /api/email/ai route) ──
   async function runAi(kind: AiKind) {
     if (!selected || aiLoading) return
     setAiLoading(kind)
+    setAiError('')
     if (kind !== 'draft') setAiCard(null)
 
-    const subject = selected.subject || '(No subject)'
-    const bodyText = messageText(selected)
-    const instructions: Record<AiKind, string> = {
-      summarize:
-        'You are a senior executive communications assistant for CASK Construction. Summarize this email in 3-4 sentences. Be concise and focus on what matters most for a busy executive.',
-      draft:
-        'You are a senior executive communications assistant for CASK Construction. Draft a professional reply to this email. Be concise, match the tone, do not make up facts. Return only the reply body text with no preamble.',
-      extract:
-        'You are a senior executive communications assistant for CASK Construction. Extract all action items, deadlines, and follow-ups from this email. Format as a clean bullet list.',
-    }
-    const prompt = `${instructions[kind]}\n\nEMAIL SUBJECT: ${subject}\n\nEMAIL BODY:\n${bodyText}`
+    // Map the page's AiKind to the /api/email/ai action names.
+    const action: 'summarize' | 'draft_reply' | 'extract' =
+      kind === 'draft' ? 'draft_reply' : kind
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch('/api/email/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', content: prompt }],
-          pageContext: '/my-workspace/email',
+          action,
+          subject: selected.subject ?? '',
+          // The route strips HTML server-side, so send the raw body content
+          // (falling back to the preview if the full body is missing).
+          body: selected.body?.content ?? selected.bodyPreview ?? '',
+          senderName: senderName(selected),
         }),
       })
-      const json = (await res.json()) as { content?: string; error?: string }
-      const text = (json.content ?? '').trim()
+      const json = (await res.json().catch(() => ({}))) as { result?: string; error?: string }
+      const text = (json.result ?? '').trim()
       if (!res.ok || json.error || !text) {
-        showToast('AI request failed. Please try again.')
+        setAiError('AI unavailable, try again')
         return
       }
       if (kind === 'draft') {
+        // Draft reply → open the composer and populate it with the result so the
+        // user can read the full draft, edit, then send.
         setReplyText(text)
-        replyRef.current?.focus()
+        setReplyOpen(true)
+        setTimeout(() => replyRef.current?.focus(), 0)
       } else {
+        // Summarize / Extract → show the result in the inline card below the body.
         setAiCard({ kind, text })
       }
     } catch {
-      showToast('AI request failed. Please try again.')
+      setAiError('AI unavailable, try again')
     } finally {
       setAiLoading(null)
     }
@@ -959,7 +999,7 @@ export default function MyEmailPage() {
 
               {/* Action buttons */}
               <div className="mt-4 flex flex-wrap gap-2">
-                <ActionBtn label="Reply" onClick={() => replyRef.current?.focus()}>
+                <ActionBtn label="Reply" onClick={openReply}>
                   <ReplyIcon />
                 </ActionBtn>
                 <ActionBtn label="Forward" onClick={handleComingSoon}>
@@ -1007,6 +1047,11 @@ export default function MyEmailPage() {
                 </AiPill>
               </div>
 
+              {/* AI error */}
+              {aiError && (
+                <div className="mt-3 text-sm font-medium text-[var(--red)]">{aiError}</div>
+              )}
+
               {/* AI result card (summarize / extract) */}
               {aiCard && (
                 <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-4">
@@ -1028,8 +1073,11 @@ export default function MyEmailPage() {
                   // dynamic inline sizing).
                   <iframe
                     title="Email body"
-                    sandbox="allow-same-origin"
-                    srcDoc={selected.body?.content ?? ''}
+                    sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    srcDoc={buildEmailSrcDoc(selected.body?.content ?? '')}
+                    // bg-white: HTML emails are designed for a white background.
                     className="h-[600px] w-full rounded-lg border border-[var(--border)] bg-white"
                   />
                 ) : (
@@ -1057,30 +1105,68 @@ export default function MyEmailPage() {
             </div>
 
             {/* Reply bar (bottom) */}
-            <div className="border-t border-[var(--border)] bg-[var(--surface)] p-4">
-              {replyError && <div className="mb-2 text-xs text-[var(--red)]">{replyError}</div>}
-              {replySent && (
-                <div className="mb-2 text-xs font-semibold text-[var(--green)]">Reply sent!</div>
-              )}
-              <div className="flex items-end gap-2">
+            {/* Reply composer — collapsed slim action bar, or expanded panel.
+                flex-shrink-0 keeps it a fixed height at the bottom while the email
+                body above (flex-1 overflow-y-auto) shrinks to fit. */}
+            {!replyOpen ? (
+              <div className="flex-shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-4">
+                <button
+                  onClick={openReply}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-4 py-2 text-sm font-medium text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+                >
+                  <ReplyIcon /> Reply
+                </button>
+              </div>
+            ) : (
+              <div className="flex-shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-4">
+                {/* Header row */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] text-[var(--text2)]">
+                    Reply to {senderName(selected)}
+                  </span>
+                  <button
+                    onClick={closeReply}
+                    aria-label="Close reply"
+                    className="rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+
+                {/* Divider */}
+                <div className="my-3 h-px bg-[var(--border)]" />
+
+                {/* Textarea */}
                 <textarea
                   ref={replyRef}
                   value={replyText}
                   onChange={e => setReplyText(e.target.value)}
-                  rows={2}
-                  placeholder={`Reply to ${senderName(selected)}…`}
-                  className="min-h-[42px] w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text3)] placeholder:text-[var(--text3)]"
+                  rows={6}
+                  placeholder="Write your reply..."
+                  className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface2)] p-3 text-[13px] leading-[1.7] text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
                 />
-                <button
-                  onClick={handleSendReply}
-                  disabled={replySending || !replyText.trim()}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {replySending && <Spinner />}
-                  {replySending ? 'Sending…' : 'Send'}
-                </button>
+
+                {replyError && <div className="mt-2 text-xs text-[var(--red)]">{replyError}</div>}
+
+                {/* Bottom action row */}
+                <div className="mt-3 flex items-center justify-between">
+                  <button
+                    onClick={closeReply}
+                    className="rounded-lg border-0 bg-transparent px-2 py-2 text-sm font-medium text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+                  >
+                    Discard
+                  </button>
+                  <button
+                    onClick={handleSendReply}
+                    disabled={replySending || !replyText.trim()}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {replySending && <Spinner />}
+                    {replySending ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
       </div>
@@ -1094,6 +1180,13 @@ export default function MyEmailPage() {
             showToast('Coming soon')
           }}
         />
+      )}
+
+      {/* "Reply sent!" green toast — auto-dismisses after 3s (replySent effect). */}
+      {replySent && (
+        <div className="fixed left-1/2 top-5 z-[60] -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-semibold text-[var(--green)] shadow-lg">
+          Reply sent!
+        </div>
       )}
 
       {/* Toast */}
