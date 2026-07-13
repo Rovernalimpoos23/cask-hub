@@ -1,0 +1,361 @@
+import { NextResponse } from 'next/server'
+import { createClient as createServerSupabase } from '@/lib/supabase-server'
+import { createClient as createServiceSupabase } from '@supabase/supabase-js'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+// GET /api/calendar/president-events
+// Fetches President Calin Noonan's Microsoft Outlook calendar (today, this week,
+// an optional month, and a 90-day upcoming count) via Microsoft Graph — ALWAYS
+// using Calin's stored Graph token, regardless of who is signed in.
+//
+// This mirrors /api/calendar/my-events, with two deliberate differences:
+//  1. AUTHORIZATION: the caller must be signed in AND hold an admin role
+//     (president / ea / ai_specialist). Everyone else gets 403.
+//  2. TOKEN SOURCE: instead of the caller's own token, this always looks up
+//     Calin's row in user_integrations (by email) and uses that token for every
+//     Graph call. /me therefore resolves to Calin's mailbox/calendar.
+//
+// Auth/data pattern otherwise matches the rest of the codebase:
+//  - Session identity comes from the SSR cookie client (@/lib/supabase-server).
+//  - users + user_integrations are read/written with the SERVICE-ROLE client so
+//    the email-based lookups and token upsert bypass RLS.
+//
+// Every failure path returns JSON { error: '<reason>' } — never an unhandled throw.
+// Token/secret material is never logged (status codes only).
+
+const ET = 'America/New_York'
+const GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
+
+// The president whose calendar this route always serves.
+const CALIN_EMAIL = 'c.noonan@caskconstruction.com'
+// Roles allowed to view the president's calendar (same set used across the app).
+const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
+
+// Event fields requested from Graph (today + week + month queries).
+const EVENT_SELECT =
+  'id,subject,start,end,location,onlineMeeting,isAllDay,recurrence,organizer,attendees'
+
+// ── Eastern-Time helpers ─────────────────────────────────────────────
+// Graph's calendarView wants startDateTime/endDateTime as ISO 8601 WITH a
+// timezone offset. We anchor everything to America/New_York so the windows line
+// up with how the rest of CASK Hub treats calendar dates.
+
+// The ET UTC-offset (e.g. "-04:00" in EDT, "-05:00" in EST) that applies on the
+// given instant. Uses Intl 'longOffset' (Node 18+, available on Vercel).
+function etOffset(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: ET,
+    timeZoneName: 'longOffset',
+  }).formatToParts(date)
+  const tz = parts.find(p => p.type === 'timeZoneName')?.value ?? ''
+  const m = tz.match(/GMT([+-]\d{2}:\d{2})/)
+  return m ? m[1] : '-05:00' // fall back to EST if the format is unexpected
+}
+
+// Build an ISO-8601-with-offset string for a wall-clock ET date + time.
+// dateStr = 'YYYY-MM-DD', timeStr = 'HH:MM:SS'. The offset is sampled at the
+// approximate instant, which is DST-correct for the 00:00 / 23:59 bounds we use.
+function etDateTimeISO(dateStr: string, timeStr: string): string {
+  const [y, mo, d] = dateStr.split('-').map(Number)
+  const [h, mi, s] = timeStr.split(':').map(Number)
+  const approx = new Date(Date.UTC(y, mo - 1, d, h, mi, s))
+  return `${dateStr}T${timeStr}${etOffset(approx)}`
+}
+
+// Step a 'YYYY-MM-DD' string by n days, anchored at UTC noon to dodge DST.
+function addDays(dateStr: string, n: number): string {
+  const [y, mo, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0))
+  dt.setUTCDate(dt.getUTCDate() + n)
+  return dt.toISOString().split('T')[0]
+}
+
+// Build a Graph URL with properly-encoded OData query params.
+function graphUrl(path: string, params: Record<string, string>): string {
+  const qs = Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&')
+  return `${GRAPH_BASE}${path}?${qs}`
+}
+
+// Parse a Graph event's start into epoch ms. With no Prefer:outlook.timezone
+// header Graph returns UTC naive datetimes ("...T13:00:00.0000000", timeZone
+// "UTC"); append 'Z' when no offset is present so Date parses it as UTC.
+function graphStartMs(ev: { start?: { dateTime?: string } }): number {
+  const dt = ev?.start?.dateTime
+  if (!dt) return NaN
+  const hasTz = /(Z|[+-]\d{2}:\d{2})$/.test(dt)
+  return new Date(hasTz ? dt : `${dt}Z`).getTime()
+}
+
+export async function GET(request: Request) {
+  try {
+    // ── 1. Require a signed-in ADMIN session ─────────────────────────
+    const authClient = createServerSupabase()
+    const {
+      data: { user },
+    } = await authClient.auth.getUser()
+
+    const sessionEmail = user?.email
+    if (!sessionEmail) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!supabaseUrl || !serviceKey) {
+      return NextResponse.json({ error: 'server_config' }, { status: 500 })
+    }
+    // Service-role client for ALL Supabase ops (role check + token lookup/update).
+    const admin = createServiceSupabase(supabaseUrl, serviceKey)
+
+    // Look up the caller's role and gate on the admin set.
+    const { data: callerRow, error: callerErr } = await admin
+      .from('users')
+      .select('role')
+      .eq('email', sessionEmail)
+      .maybeSingle()
+
+    if (callerErr) {
+      console.error('[president-events] caller lookup failed')
+      return NextResponse.json({ error: 'user_lookup' }, { status: 500 })
+    }
+    // Unknown user or non-admin role → forbidden.
+    if (!callerRow || !ADMIN_ROLES.includes(callerRow.role)) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+    }
+
+    // ── 2. Look up CALIN'S Microsoft integration specifically ────────
+    const { data: integration, error: integErr } = await admin
+      .from('user_integrations')
+      .select('access_token, refresh_token, expires_at')
+      .eq('email', CALIN_EMAIL)
+      .eq('provider', 'microsoft')
+      .maybeSingle()
+
+    if (integErr) {
+      console.error('[president-events] integration lookup failed')
+      return NextResponse.json({ error: 'integration_lookup' }, { status: 500 })
+    }
+    // Not connected → 200 so the client can render a "Connect Outlook" state.
+    if (!integration) {
+      return NextResponse.json({ error: 'not_connected' }, { status: 200 })
+    }
+
+    // ── 3. Refresh Calin's access token if expired / expiring within 5 min ─
+    let accessToken: string | null = integration.access_token ?? null
+    const expiresAtMs = integration.expires_at
+      ? new Date(integration.expires_at).getTime()
+      : 0
+    const needsRefresh = Date.now() + 5 * 60 * 1000 > expiresAtMs
+
+    if (needsRefresh) {
+      const clientId = process.env.MICROSOFT_CLIENT_ID
+      const clientSecret = process.env.MICROSOFT_CLIENT_SECRET
+      const tenantId = process.env.MICROSOFT_TENANT_ID
+      if (!clientId || !clientSecret || !tenantId) {
+        return NextResponse.json({ error: 'oauth_config' }, { status: 500 })
+      }
+      if (!integration.refresh_token) {
+        // Nothing to refresh with — Calin must reconnect.
+        return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
+      }
+
+      const refreshRes = await fetch(
+        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: integration.refresh_token,
+            client_id: clientId,
+            client_secret: clientSecret,
+          }),
+        }
+      )
+
+      if (!refreshRes.ok) {
+        // Do not log token/secret material — status only.
+        console.error('[president-events] token refresh failed:', refreshRes.status)
+        return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
+      }
+
+      const refreshJson = await refreshRes.json()
+      const newAccess: string | undefined = refreshJson.access_token
+      // MS returns a rotated refresh token; keep the old one if it doesn't.
+      const newRefresh: string = refreshJson.refresh_token ?? integration.refresh_token
+      const expiresIn: number | undefined = refreshJson.expires_in
+
+      if (!newAccess || typeof expiresIn !== 'number') {
+        return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
+      }
+
+      accessToken = newAccess
+      const newExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+
+      const { error: updateErr } = await admin
+        .from('user_integrations')
+        .update({
+          access_token: newAccess,
+          refresh_token: newRefresh,
+          expires_at: newExpiresAt,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('email', CALIN_EMAIL)
+        .eq('provider', 'microsoft')
+
+      if (updateErr) {
+        // Non-fatal for this request: we still have a valid access token in memory
+        // and can serve the calendar. The stale row just gets refreshed next time.
+        console.error('[president-events] token persist failed')
+      }
+    }
+
+    if (!accessToken) {
+      return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
+    }
+
+    // ── 4. Compute ET time windows ───────────────────────────────────
+    const now = new Date()
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone: ET }) // YYYY-MM-DD (ET)
+
+    // ET weekday (0=Sun … 6=Sat) → Monday-based week bounds.
+    const etWeekday = new Date(now.toLocaleString('en-US', { timeZone: ET })).getDay()
+    const daysFromMonday = (etWeekday + 6) % 7
+    const weekStartStr = addDays(todayStr, -daysFromMonday)
+    const weekEndStr = addDays(weekStartStr, 6)
+    const in90Str = addDays(todayStr, 90)
+
+    const todayStart = etDateTimeISO(todayStr, '00:00:00')
+    const todayEnd = etDateTimeISO(todayStr, '23:59:59')
+    const weekStart = etDateTimeISO(weekStartStr, '00:00:00')
+    const weekEnd = etDateTimeISO(weekEndStr, '23:59:59')
+    const upcomingStart = etDateTimeISO(todayStr, '00:00:00')
+    const upcomingEnd = etDateTimeISO(in90Str, '23:59:59')
+
+    // ── Optional month/year window (calendar grid: any month) ─────────
+    // ?month=8&year=2026 → also return monthEvents for the full ET month. When
+    // neither param is present we skip this and return monthEvents: []. A missing-
+    // but-partial param defaults to the current ET month/year; invalid values too.
+    const { searchParams } = new URL(request.url)
+    const monthParam = searchParams.get('month')
+    const yearParam = searchParams.get('year')
+    const wantMonth = monthParam !== null || yearParam !== null
+
+    const [curYear, curMonth] = todayStr.split('-').map(Number) // curMonth is 1-indexed
+    const parsedMonth = Number(monthParam)
+    const parsedYear = Number(yearParam)
+    const reqMonth =
+      monthParam !== null && Number.isInteger(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12
+        ? parsedMonth
+        : curMonth
+    const reqYear =
+      yearParam !== null && Number.isInteger(parsedYear) && parsedYear >= 1970 && parsedYear <= 9999
+        ? parsedYear
+        : curYear
+
+    // First day 00:00 ET → last day 23:59 ET. Date.UTC(y, reqMonth, 0) yields the
+    // last day of reqMonth because reqMonth (1-indexed) is the 0-indexed NEXT month.
+    const mm = String(reqMonth).padStart(2, '0')
+    const monthFirstStr = `${reqYear}-${mm}-01`
+    const monthLastDay = new Date(Date.UTC(reqYear, reqMonth, 0, 12, 0, 0)).getUTCDate()
+    const monthLastStr = `${reqYear}-${mm}-${String(monthLastDay).padStart(2, '0')}`
+    const monthStart = etDateTimeISO(monthFirstStr, '00:00:00')
+    const monthEnd = etDateTimeISO(monthLastStr, '23:59:59')
+
+    // ── 5. Fire the Graph calendarView requests in parallel ──────────
+    // Bearer is CALIN'S token → /me resolves to Calin's calendar.
+    const authHeaders = { Authorization: `Bearer ${accessToken}` }
+
+    const todayUrl = graphUrl('/me/calendarView', {
+      startDateTime: todayStart,
+      endDateTime: todayEnd,
+      $orderby: 'start/dateTime',
+      $select: EVENT_SELECT,
+      $top: '50',
+    })
+    const weekUrl = graphUrl('/me/calendarView', {
+      startDateTime: weekStart,
+      endDateTime: weekEnd,
+      $orderby: 'start/dateTime',
+      $select: EVENT_SELECT,
+      $top: '100',
+    })
+    const upcomingUrl = graphUrl('/me/calendarView', {
+      startDateTime: upcomingStart,
+      endDateTime: upcomingEnd,
+      $select: 'id',
+      $top: '500',
+      $count: 'true',
+    })
+    // Only requested when month/year params are present (see wantMonth above).
+    const monthUrl = graphUrl('/me/calendarView', {
+      startDateTime: monthStart,
+      endDateTime: monthEnd,
+      $orderby: 'start/dateTime',
+      $select: EVENT_SELECT,
+      $top: '500',
+    })
+
+    const requests = [
+      fetch(todayUrl, { headers: authHeaders }),
+      fetch(weekUrl, { headers: authHeaders }),
+      fetch(upcomingUrl, { headers: authHeaders }),
+    ]
+    if (wantMonth) requests.push(fetch(monthUrl, { headers: authHeaders }))
+
+    const responses = await Promise.all(requests)
+    const [todayRes, weekRes, upcomingRes] = responses
+    const monthRes = wantMonth ? responses[3] : undefined
+    // A 401 here means the (freshly-refreshed) token was still rejected — reconnect.
+    if (responses.some(r => r.status === 401)) {
+      return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
+    }
+    if (!responses.every(r => r.ok)) {
+      const statuses = responses.map(r => r.status).join(',')
+      console.error('[president-events] graph error statuses:', statuses)
+      return NextResponse.json({ error: 'graph_error' }, { status: 502 })
+    }
+
+    const [todayJson, weekJson, upcomingJson] = await Promise.all([
+      todayRes.json(),
+      weekRes.json(),
+      upcomingRes.json(),
+    ])
+    const monthJson = monthRes ? await monthRes.json() : null
+
+    // ── 6. Shape the response (same shape as my-events) ──────────────
+    const todayEvents = Array.isArray(todayJson.value) ? todayJson.value : []
+    const weekEvents = Array.isArray(weekJson.value) ? weekJson.value : []
+    // Full-month events when requested; [] otherwise (no behavior change for
+    // callers that don't pass month/year).
+    const monthEvents =
+      monthJson && Array.isArray(monthJson.value) ? monthJson.value : []
+    // Prefer Graph's @odata.count; fall back to the returned id array length.
+    const upcomingCount =
+      typeof upcomingJson['@odata.count'] === 'number'
+        ? upcomingJson['@odata.count']
+        : Array.isArray(upcomingJson.value)
+          ? upcomingJson.value.length
+          : 0
+
+    const nowMs = Date.now()
+    const nextMeeting =
+      todayEvents.find((e: { start?: { dateTime?: string } }) => graphStartMs(e) > nowMs) ?? null
+
+    return NextResponse.json({
+      todayEvents,
+      weekEvents,
+      upcomingCount,
+      nextMeeting,
+      monthEvents,
+    })
+  } catch (err) {
+    // Never throw unhandled — surface a generic error.
+    console.error('[president-events] error:', err instanceof Error ? err.message : 'unknown')
+    return NextResponse.json({ error: 'server_error' }, { status: 500 })
+  }
+}

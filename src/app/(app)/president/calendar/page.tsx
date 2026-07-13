@@ -2488,7 +2488,7 @@ function CalendarGridView({ events, onEventClick, onAddOnDate, onDeleteEvent }: 
 
 // ── Microsoft Graph → CalendarEvent mapping (Phase 1) ────────────────
 // The President's Calendar now reads the president's Outlook calendar via
-// /api/calendar/my-events (Microsoft Graph) instead of the Supabase
+// /api/calendar/president-events (Microsoft Graph) instead of the Supabase
 // calendar_events table. These helpers normalize the Graph event shape into the
 // existing CalendarEvent interface the UI already renders.
 
@@ -2635,8 +2635,8 @@ export default function CalendarPage() {
   // Phase 1: Replaced Supabase/Make.com fetch with Microsoft Graph API. Add Event
   // still uses Make.com webhook (Phase 2 will replace this).
   //
-  // Fetches the president's Outlook calendar via /api/calendar/my-events (same
-  // route + token-refresh handling as the My Calendar page) and maps the Graph
+  // Fetches the president's Outlook calendar via /api/calendar/president-events
+  // (Calin's stored Graph token + server-side token refresh) and maps the Graph
   // event shape onto the existing CalendarEvent interface. Auto-refreshes every 5
   // minutes. The old calendar_events Supabase read + Realtime subscription are gone.
   useEffect(() => {
@@ -2647,7 +2647,7 @@ export default function CalendarPage() {
 
     async function fetchEvents() {
       try {
-        const res = await fetch(`/api/calendar/my-events?month=${month}&year=${year}`)
+        const res = await fetch(`/api/calendar/president-events?month=${month}&year=${year}`)
         const json: MyEventsResponse = await res.json()
         if (json.error) {
           // 'not_connected' / 'token_invalid' → show Connect/Reconnect Outlook.

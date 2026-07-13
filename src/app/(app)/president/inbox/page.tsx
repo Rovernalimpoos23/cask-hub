@@ -626,7 +626,7 @@ export default function PresidentInboxPage() {
       if (append) setLoadingMore(true)
       else setListLoading(true)
       try {
-        const res = await fetch(`/api/email/inbox?folder=${f}&top=50&skip=${skip}`)
+        const res = await fetch(`/api/email/president-inbox?folder=${f}&top=50&skip=${skip}`)
         const json: InboxResponse = await res.json()
         if (json.error) {
           setListError(json.error)
@@ -653,8 +653,8 @@ export default function PresidentInboxPage() {
   const loadCounts = useCallback(async () => {
     try {
       const [inboxRes, flaggedRes] = await Promise.all([
-        fetch('/api/email/inbox?folder=inbox&top=50&skip=0').then(r => r.json() as Promise<InboxResponse>),
-        fetch('/api/email/inbox?folder=flagged&top=50&skip=0').then(r => r.json() as Promise<InboxResponse>),
+        fetch('/api/email/president-inbox?folder=inbox&top=50&skip=0').then(r => r.json() as Promise<InboxResponse>),
+        fetch('/api/email/president-inbox?folder=flagged&top=50&skip=0').then(r => r.json() as Promise<InboxResponse>),
       ])
       if (!inboxRes.error) {
         const unread = (inboxRes.messages ?? []).filter(m => !m.isRead).length

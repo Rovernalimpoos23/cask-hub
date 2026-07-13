@@ -427,6 +427,14 @@ export default function Sidebar() {
               )}
             </div>
             {section.items.map((item) => {
+              // Hide President's Inbox from Rovern's account only. Every other
+              // admin (Calin, Kai, future admins) still sees it.
+              if (
+                item.href === '/president/inbox' &&
+                user?.email === 'r.alimpoos@caskconstruction.com'
+              ) {
+                return null
+              }
               const isActive = !item.locked && pathname === item.href
               if (item.locked) {
                 return (
