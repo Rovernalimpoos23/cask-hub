@@ -7,17 +7,31 @@ export const dynamic = 'force-dynamic'
 
 // POST /api/email/[id]/reply
 // Sends a reply to a Microsoft Outlook message FROM the signed-in user's own
-// Outlook account via Microsoft Graph (POST /me/messages/{id}/reply), using the
-// token stored in user_integrations. Refreshes the access token automatically
-// when it's expired or within 5 minutes of expiry.
+// Outlook account via Microsoft Graph, using the token stored in
+// user_integrations. Refreshes the access token automatically when it's
+// expired or within 5 minutes of expiry.
 //
-// Body: { message: string }  →  Graph body { comment: message }
+// Body: { message: string }. The reply is sent as an HTML draft
+// (createReply → PATCH HTML body → send) so line breaks are preserved.
 // Auth + token pattern mirrors src/app/api/calendar/my-events/route.ts (inlined
 // per-route to keep this change confined to the four new email routes).
 // Every failure path returns JSON { error: '<reason>' } — never an unhandled
 // throw. Token/secret material is never logged.
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
+
+// Convert the plain-text reply captured by the textarea into HTML so Outlook
+// preserves line breaks and paragraph spacing. HTML-escape first (so a literal
+// '<', '>' or '&' in the message renders as text, not markup), then turn each
+// newline into a <br> and wrap in a styled container.
+function convertToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  const withBreaks = escaped.replace(/\n/g, '<br>')
+  return `<div style="font-family: sans-serif; font-size: 14px; line-height: 1.6;">${withBreaks}</div>`
+}
 
 export async function POST(
   request: Request,
@@ -158,29 +172,67 @@ export async function POST(
       return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
     }
 
-    // ── 4. Send the reply via Graph ──────────────────────────────────
-    // POST /me/messages/{id}/reply sends immediately from the user's mailbox.
-    // A 202 Accepted with an empty body is the success response.
-    const graphRes = await fetch(
-      `${GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}/reply`,
+    // ── 4. Send the reply via Graph (createReply → PATCH body → send) ─
+    // Using the /reply endpoint with { comment } strips the sender's line
+    // breaks. Instead: create a reply DRAFT, PATCH its body with our HTML
+    // (which preserves newlines/paragraphs), then send that draft.
+    const authHeaders = {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    }
+
+    // 4a. POST /me/messages/{id}/createReply → returns the draft message.
+    const createRes = await fetch(
+      `${GRAPH_BASE}/me/messages/${encodeURIComponent(messageId)}/createReply`,
+      { method: 'POST', headers: authHeaders }
+    )
+
+    if (createRes.status === 401) {
+      return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
+    }
+    if (createRes.status === 404) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    }
+    if (!createRes.ok) {
+      console.error('[email-reply] graph createReply status:', createRes.status)
+      return NextResponse.json({ error: 'graph_error' }, { status: 502 })
+    }
+
+    const draft = (await createRes.json()) as { id?: string }
+    const draftId = draft?.id
+    if (!draftId) {
+      console.error('[email-reply] createReply returned no draft id')
+      return NextResponse.json({ error: 'graph_error' }, { status: 502 })
+    }
+
+    // 4b. PATCH /me/messages/{draftId} → set the HTML body.
+    const patchRes = await fetch(
+      `${GRAPH_BASE}/me/messages/${encodeURIComponent(draftId)}`,
       {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ comment: message }),
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({
+          body: {
+            contentType: 'HTML',
+            content: convertToHtml(message),
+          },
+        }),
       }
     )
 
-    if (graphRes.status === 401) {
-      return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
+    if (!patchRes.ok) {
+      console.error('[email-reply] graph patch status:', patchRes.status)
+      return NextResponse.json({ error: 'graph_error' }, { status: 502 })
     }
-    if (graphRes.status === 404) {
-      return NextResponse.json({ error: 'not_found' }, { status: 404 })
-    }
-    if (!graphRes.ok) {
-      console.error('[email-reply] graph error status:', graphRes.status)
+
+    // 4c. POST /me/messages/{draftId}/send → sends immediately (202 Accepted).
+    const sendRes = await fetch(
+      `${GRAPH_BASE}/me/messages/${encodeURIComponent(draftId)}/send`,
+      { method: 'POST', headers: authHeaders }
+    )
+
+    if (!sendRes.ok) {
+      console.error('[email-reply] graph send status:', sendRes.status)
       return NextResponse.json({ error: 'graph_error' }, { status: 502 })
     }
 
