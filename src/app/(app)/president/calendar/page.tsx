@@ -2646,9 +2646,7 @@ export default function CalendarPage() {
   }, [])
 
   // TEMPORARY — enable during demo meeting
-  const outlookConnectDisabled =
-    userEmail === 'c.noonan@caskconstruction.com' ||
-    userEmail === 'k.mapoy@caskconstruction.com'
+  const outlookConnectDisabled = false
 
   // Tick every minute to refresh countdowns
   useEffect(() => {

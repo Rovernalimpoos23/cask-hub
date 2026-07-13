@@ -1462,9 +1462,7 @@ export default function DashboardPage() {
 
   // TEMPORARY — enable during demo meeting
   // Disable the Connect Outlook button for Calin (c.noonan) and Kai (k.mapoy) only.
-  const outlookConnectDisabled =
-    userEmail === 'c.noonan@caskconstruction.com' ||
-    userEmail === 'k.mapoy@caskconstruction.com'
+  const outlookConnectDisabled = false
 
   // NEW (additive) — Microsoft Graph "My Calendar" for everyone who ISN'T on the
   // Make.com feed (i.e. not Calin/Kai). Fetches the signed-in user's own Outlook

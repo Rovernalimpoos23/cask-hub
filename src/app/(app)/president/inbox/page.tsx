@@ -628,9 +628,7 @@ export default function PresidentInboxPage() {
   }, [])
 
   // TEMPORARY — enable during demo meeting
-  const outlookConnectDisabled =
-    userEmail === 'c.noonan@caskconstruction.com' ||
-    userEmail === 'k.mapoy@caskconstruction.com'
+  const outlookConnectDisabled = false
 
   const showToast = useCallback((msg: string) => setToast(msg), [])
 
