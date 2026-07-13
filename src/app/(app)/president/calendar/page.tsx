@@ -2555,7 +2555,7 @@ function mapGraphEvent(ev: GraphEvent): CalendarEvent {
 // president's Microsoft account isn't linked ('not_connected') or the token has
 // expired ('token_invalid'). Links to the same /api/auth/microsoft flow the
 // My Calendar page uses.
-function OutlookConnectState({ title, cta }: { title: string; cta: string }) {
+function OutlookConnectState({ title, cta, disabled = false }: { title: string; cta: string; disabled?: boolean }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -2570,17 +2570,34 @@ function OutlookConnectState({ title, cta }: { title: string; cta: string }) {
         <line x1="3" y1="10" x2="21" y2="10" />
       </svg>
       <div style={{ fontSize: 14, color: 'var(--text2)', textAlign: 'center' }}>{title}</div>
-      <a
-        href="/api/auth/microsoft"
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 8,
-          fontSize: 14, fontWeight: 600, color: '#fff',
-          background: 'var(--red)', padding: '10px 18px', borderRadius: 8,
-          textDecoration: 'none',
-        }}
-      >
-        {cta}
-      </a>
+      {disabled ? (
+        // TEMPORARY — enable during demo meeting
+        <button
+          type="button"
+          disabled
+          className="opacity-40 cursor-not-allowed"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            fontSize: 14, fontWeight: 600, color: '#fff',
+            background: 'var(--red)', padding: '10px 18px', borderRadius: 8,
+            border: 'none', fontFamily: 'inherit',
+          }}
+        >
+          {cta}
+        </button>
+      ) : (
+        <a
+          href="/api/auth/microsoft"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            fontSize: 14, fontWeight: 600, color: '#fff',
+            background: 'var(--red)', padding: '10px 18px', borderRadius: 8,
+            textDecoration: 'none',
+          }}
+        >
+          {cta}
+        </a>
+      )}
     </div>
   )
 }
@@ -2588,6 +2605,9 @@ function OutlookConnectState({ title, cta }: { title: string; cta: string }) {
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
+  // Signed-in user's email, captured via the existing supabase.auth.getUser()
+  // session pattern used elsewhere in this file.
+  const [userEmail, setUserEmail] = useState('')
   // Graph connection status: null = OK, 'not_connected' / 'token_invalid' surface
   // a Connect/Reconnect Outlook prompt (see OutlookConnectState below).
   const [connectionError, setConnectionError] = useState<string | null>(null)
@@ -2616,6 +2636,19 @@ export default function CalendarPage() {
     repeatUntilMode: 'date' as 'date' | 'indefinitely',
     repeatUntil: '', recurringDays: [] as string[],
   })
+
+  // Capture the signed-in user's email (existing session pattern).
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) setUserEmail(user.email)
+    })
+  }, [])
+
+  // TEMPORARY — enable during demo meeting
+  const outlookConnectDisabled =
+    userEmail === 'c.noonan@caskconstruction.com' ||
+    userEmail === 'k.mapoy@caskconstruction.com'
 
   // Tick every minute to refresh countdowns
   useEffect(() => {
@@ -3209,6 +3242,7 @@ export default function CalendarPage() {
               ? 'Connect your Outlook to see the calendar'
               : 'Your Outlook session expired'}
             cta={connectionError === 'not_connected' ? 'Connect Outlook' : 'Reconnect Outlook'}
+            disabled={outlookConnectDisabled}
           />
         ) : view === 'calendar' ? (
           <CalendarGridView events={events} onEventClick={openEdit} onAddOnDate={openAdd} onDeleteEvent={ev => setDeleteEvent(ev)} />

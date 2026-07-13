@@ -1460,6 +1460,12 @@ export default function DashboardPage() {
   // Calin/Kai to the President's Calendar via a direct email check below.)
   const showCalinCalendar = false
 
+  // TEMPORARY — enable during demo meeting
+  // Disable the Connect Outlook button for Calin (c.noonan) and Kai (k.mapoy) only.
+  const outlookConnectDisabled =
+    userEmail === 'c.noonan@caskconstruction.com' ||
+    userEmail === 'k.mapoy@caskconstruction.com'
+
   // NEW (additive) — Microsoft Graph "My Calendar" for everyone who ISN'T on the
   // Make.com feed (i.e. not Calin/Kai). Fetches the signed-in user's own Outlook
   // calendar from /api/calendar/my-events. Leaves the Make.com path untouched.
@@ -1941,13 +1947,25 @@ export default function DashboardPage() {
                   <div style={{ marginTop: 10 }}>
                     {/* Plain <a> (not next/link) so the browser issues a real GET to
                         the API route, which redirects into the Microsoft OAuth flow. */}
-                    <a
-                      href="/api/auth/microsoft"
-                      className="fb-all"
-                      style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none' }}
-                    >
-                      Connect Outlook →
-                    </a>
+                    {outlookConnectDisabled ? (
+                      // TEMPORARY — enable during demo meeting
+                      <button
+                        type="button"
+                        disabled
+                        className="opacity-40 cursor-not-allowed"
+                        style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}
+                      >
+                        Connect Outlook
+                      </button>
+                    ) : (
+                      <a
+                        href="/api/auth/microsoft"
+                        className="fb-all"
+                        style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none' }}
+                      >
+                        Connect Outlook →
+                      </a>
+                    )}
                   </div>
                 )}
               </div>
@@ -2466,24 +2484,47 @@ export default function DashboardPage() {
                   {/* Plain <a> (not next/link) so the browser issues a real GET to
                       the API route, which redirects into the Microsoft OAuth flow.
                       Styled to match the dashboard's primary button (fb-btn-primary). */}
-                  <a
-                    href="/api/auth/microsoft"
-                    className="fb-btn-primary"
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 550,
-                      borderRadius: 7,
-                      padding: '8px 14px',
-                      lineHeight: 1,
-                      background: 'var(--fable-red)',
-                      border: '1px solid var(--fable-red)',
-                      color: '#fff',
-                      textDecoration: 'none',
-                      transition: 'opacity 150ms ease',
-                    }}
-                  >
-                    Connect Outlook
-                  </a>
+                  {outlookConnectDisabled ? (
+                    // TEMPORARY — enable during demo meeting
+                    <button
+                      type="button"
+                      disabled
+                      className="opacity-40 cursor-not-allowed"
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: 550,
+                        borderRadius: 7,
+                        padding: '8px 14px',
+                        lineHeight: 1,
+                        background: 'var(--fable-red)',
+                        border: '1px solid var(--fable-red)',
+                        color: '#fff',
+                        textDecoration: 'none',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      Connect Outlook
+                    </button>
+                  ) : (
+                    <a
+                      href="/api/auth/microsoft"
+                      className="fb-btn-primary"
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: 550,
+                        borderRadius: 7,
+                        padding: '8px 14px',
+                        lineHeight: 1,
+                        background: 'var(--fable-red)',
+                        border: '1px solid var(--fable-red)',
+                        color: '#fff',
+                        textDecoration: 'none',
+                        transition: 'opacity 150ms ease',
+                      }}
+                    >
+                      Connect Outlook
+                    </a>
+                  )}
                 </div>
               )}
             </div>

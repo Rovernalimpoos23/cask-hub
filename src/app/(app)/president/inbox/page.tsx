@@ -36,6 +36,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
+// Session lookup uses the app's established Supabase auth pattern (same as the
+// sibling President's Calendar page and dashboard) to read the signed-in email.
+import { createClient } from '@/lib/supabase'
 
 const ET = 'America/New_York'
 
@@ -548,18 +551,29 @@ function ListSkeleton() {
 }
 
 // ── Not-connected / error empty state ────────────────────────────────
-function ConnectState({ title, cta }: { title: string; cta: string }) {
+function ConnectState({ title, cta, disabled = false }: { title: string; cta: string; disabled?: boolean }) {
   return (
     <div className="flex flex-1 items-center justify-center p-8">
       <div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
         <MailIcon size={40} className="text-[var(--text3)]" />
         <div className="text-sm text-[var(--text2)]">{title}</div>
-        <a
-          href="/api/auth/microsoft"
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85"
-        >
-          {cta}
-        </a>
+        {disabled ? (
+          // TEMPORARY — enable during demo meeting
+          <button
+            type="button"
+            disabled
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white opacity-40 cursor-not-allowed"
+          >
+            {cta}
+          </button>
+        ) : (
+          <a
+            href="/api/auth/microsoft"
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85"
+          >
+            {cta}
+          </a>
+        )}
       </div>
     </div>
   )
@@ -603,6 +617,20 @@ export default function PresidentInboxPage() {
   // Compose + toast.
   const [composeOpen, setComposeOpen] = useState(false)
   const [toast, setToast] = useState('')
+
+  // Signed-in user's email (established Supabase auth session pattern).
+  const [userEmail, setUserEmail] = useState('')
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) setUserEmail(user.email)
+    })
+  }, [])
+
+  // TEMPORARY — enable during demo meeting
+  const outlookConnectDisabled =
+    userEmail === 'c.noonan@caskconstruction.com' ||
+    userEmail === 'k.mapoy@caskconstruction.com'
 
   const showToast = useCallback((msg: string) => setToast(msg), [])
 
@@ -952,7 +980,7 @@ export default function PresidentInboxPage() {
           {listLoading ? (
             <ListSkeleton />
           ) : notConnected ? (
-            <ConnectState title="Connect your Outlook to see your email" cta="Connect Outlook" />
+            <ConnectState title="Connect your Outlook to see your email" cta="Connect Outlook" disabled={outlookConnectDisabled} />
           ) : tokenInvalid ? (
             <ConnectState title="Your Outlook session expired" cta="Reconnect Outlook" />
           ) : listError ? (
