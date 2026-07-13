@@ -439,92 +439,370 @@ function buildEmailSrcDoc(
 }
 
 // ── Compose modal ────────────────────────────────────────────────────
-const INPUT_CLS =
-  'w-full rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text3)]'
-const LABEL_CLS = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[var(--text2)]'
+const CASK_TEAM: { name: string; email: string }[] = [
+  { name: 'Calin Noonan', email: 'c.noonan@caskconstruction.com' },
+  { name: 'Kai Mapoy', email: 'k.mapoy@caskconstruction.com' },
+  { name: 'Rovern Alimpoos', email: 'r.alimpoos@caskconstruction.com' },
+  { name: 'Jeff Azcona', email: 'j.azcona@caskconstruction.com' },
+  { name: 'Matteo Carpani', email: 'm.carpani@caskconstruction.com' },
+  { name: 'Chad Holman', email: 'c.holman@caskconstruction.com' },
+  { name: 'Lamont Gilyot', email: 'l.gilyot@caskconstruction.com' },
+  { name: 'Kaitlyn Grunenberg', email: 'k.grunenberg@caskconstruction.com' },
+]
 
-function ComposeModal({
-  onClose,
-  onComingSoon,
+// A single recipient row (To / Cc / Bcc) with CASK-team autocomplete. The
+// dropdown filters CASK_TEAM by name/email substring, supports arrow-key + Enter
+// selection, and closes on blur or Escape. Selecting replaces the whole field
+// value with the chosen email (per spec).
+function RecipientInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  right,
 }: {
-  onClose: () => void
-  onComingSoon: () => void
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+  right?: JSX.Element
 }) {
-  const [to, setTo] = useState('')
-  const [subject, setSubject] = useState('')
-  const [body, setBody] = useState('')
+  const [focused, setFocused] = useState(false)
+  const [highlight, setHighlight] = useState(0)
 
-  function handleSend() {
-    // TODO(next PR): POST to /api/email/compose (not built yet — see file header).
-    // Until that route exists, surface a "Coming soon" toast instead of failing.
-    onComingSoon()
+  const q = value.trim().toLowerCase()
+  const matches =
+    q.length >= 1
+      ? CASK_TEAM.filter(
+          m => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)
+        ).slice(0, 5)
+      : []
+  const showDropdown = focused && matches.length > 0
+
+  function select(email: string) {
+    onChange(email)
+    setFocused(false)
+    setHighlight(0)
   }
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5"
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6"
-      >
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="text-lg font-bold text-[var(--text)]">New Message</div>
+    <div className="relative flex items-center gap-2 border-b-[0.5px] border-[var(--border)] px-4 py-2">
+      <label className="w-8 flex-shrink-0 text-xs uppercase tracking-wide text-[var(--text3)]">
+        {label}
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={e => {
+          onChange(e.target.value)
+          setHighlight(0)
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={e => {
+          if (!showDropdown) return
+          if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            setHighlight(h => Math.min(h + 1, matches.length - 1))
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            setHighlight(h => Math.max(h - 1, 0))
+          } else if (e.key === 'Enter') {
+            e.preventDefault()
+            select(matches[highlight]?.email ?? value)
+          } else if (e.key === 'Escape') {
+            setFocused(false)
+          }
+        }}
+        placeholder={placeholder}
+        className="flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
+      />
+      {right}
+      {showDropdown && (
+        <div className="absolute left-4 right-4 top-full z-50 mt-1 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg">
+          {matches.map((m, i) => (
+            <button
+              key={m.email}
+              type="button"
+              // onMouseDown (not onClick) so selection fires before the input's blur.
+              onMouseDown={e => {
+                e.preventDefault()
+                select(m.email)
+              }}
+              onMouseEnter={() => setHighlight(i)}
+              className={`flex w-full flex-col items-start px-3 py-2 text-left transition-colors hover:bg-[var(--surface2)] ${
+                i === highlight ? 'bg-[var(--surface2)]' : ''
+              }`}
+            >
+              <span className="text-sm text-[var(--text)]">{m.name}</span>
+              <span className="text-xs text-[var(--text3)]">{m.email}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Fully working compose modal. All field/UI state lives here; the modal is
+// conditionally rendered ({composeOpen && <ComposeModal/>}), so closing it
+// (onClose) unmounts the component and resets every field to its default.
+function ComposeModal({ onClose }: { onClose: () => void }) {
+  const [to, setTo] = useState('')
+  const [cc, setCc] = useState('')
+  const [bcc, setBcc] = useState('')
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [sent, setSent] = useState(false)
+  const [showCc, setShowCc] = useState(false)
+  const [showBcc, setShowBcc] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiDraftLoading, setAiDraftLoading] = useState(false)
+  const [aiDraftError, setAiDraftError] = useState('')
+
+  const canSend =
+    to.trim() !== '' && subject.trim() !== '' && body.trim() !== '' && !loading
+
+  // Recipients are entered as comma/semicolon-separated lists.
+  function parseEmails(s: string): string[] {
+    return s
+      .split(/[,;]/)
+      .map(x => x.trim())
+      .filter(Boolean)
+  }
+
+  async function handleSend() {
+    if (!canSend) return
+    setLoading(true)
+    setError('')
+    const toArray = parseEmails(to)
+    const ccArray = showCc ? parseEmails(cc) : []
+    const bccArray = showBcc ? parseEmails(bcc) : []
+    try {
+      const res = await fetch('/api/email/compose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: toArray,
+          subject,
+          body,
+          ...(ccArray.length > 0 ? { cc: ccArray } : {}),
+          ...(bccArray.length > 0 ? { bcc: bccArray } : {}),
+        }),
+      })
+      const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean
+        error?: string
+      }
+      if (!res.ok || !json.success) {
+        setError('Failed to send. Try again.')
+        setLoading(false)
+        return
+      }
+      setSent(true)
+      // Show the "Email sent!" confirmation briefly, then close (unmount resets state).
+      setTimeout(() => onClose(), 2000)
+    } catch {
+      setError('Failed to send. Try again.')
+      setLoading(false)
+    }
+  }
+
+  // Draft the email body from a short prompt. Reuses the existing 'draft_reply'
+  // action (no API-route change): its system prompt composes new bodies fine,
+  // with the user's prompt passed as the "email" for the assistant to respond to.
+  async function draftWithAI() {
+    if (!aiPrompt.trim() || aiDraftLoading) return
+    setAiDraftLoading(true)
+    setAiDraftError('')
+    try {
+      const res = await fetch('/api/email/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'draft_reply',
+          subject: subject || 'New email',
+          body: aiPrompt,
+          senderName: 'CASK Construction Team',
+        }),
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        result?: string
+        error?: string
+      }
+      if (data.result) {
+        setBody(data.result)
+        setAiPrompt('')
+      } else {
+        setAiDraftError('AI unavailable, try again.')
+      }
+    } catch {
+      setAiDraftError('AI unavailable, try again.')
+    } finally {
+      setAiDraftLoading(false)
+    }
+  }
+
+  const shellCls = expanded
+    ? 'fixed inset-0 z-50 flex flex-col bg-[var(--bg)]'
+    : 'fixed bottom-4 right-4 z-50 flex max-h-[600px] w-[520px] flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg'
+
+  return (
+    <div className={shellCls}>
+      {/* Header */}
+      <div className="flex items-center justify-between border-b-[0.5px] border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
+        <span className="font-medium text-[var(--text)]">New Message</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setExpanded(v => !v)}
+            aria-label={expanded ? 'Shrink' : 'Expand'}
+            title={expanded ? 'Shrink' : 'Expand'}
+            className="rounded-md p-1 text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+          >
+            <span aria-hidden className="text-sm leading-none">
+              {expanded ? '⤡' : '⤢'}
+            </span>
+          </button>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="shrink-0 rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+            className="rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
           >
             <CloseIcon />
           </button>
         </div>
+      </div>
 
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className={LABEL_CLS}>To</label>
-            <input
-              type="email"
-              value={to}
-              onChange={e => setTo(e.target.value)}
-              placeholder="name@company.com"
-              className={INPUT_CLS}
-            />
+      {/* To */}
+      <RecipientInput
+        label="To"
+        value={to}
+        onChange={setTo}
+        placeholder="name@company.com"
+        right={
+          <div className="flex flex-shrink-0 items-center gap-2">
+            {!showCc && (
+              <button
+                type="button"
+                onClick={() => setShowCc(true)}
+                className="text-xs text-[var(--text3)] transition-colors hover:text-[var(--text2)]"
+              >
+                Cc
+              </button>
+            )}
+            {!showBcc && (
+              <button
+                type="button"
+                onClick={() => setShowBcc(true)}
+                className="text-xs text-[var(--text3)] transition-colors hover:text-[var(--text2)]"
+              >
+                Bcc
+              </button>
+            )}
           </div>
-          <div>
-            <label className={LABEL_CLS}>Subject</label>
-            <input
-              type="text"
-              value={subject}
-              onChange={e => setSubject(e.target.value)}
-              placeholder="Subject"
-              className={INPUT_CLS}
-            />
-          </div>
-          <div>
-            <label className={LABEL_CLS}>Message</label>
-            <textarea
-              value={body}
-              onChange={e => setBody(e.target.value)}
-              rows={6}
-              placeholder="Write your message…"
-              className={`${INPUT_CLS} resize-none`}
-            />
-          </div>
+        }
+      />
+
+      {/* Cc */}
+      {showCc && (
+        <RecipientInput
+          label="Cc"
+          value={cc}
+          onChange={setCc}
+          placeholder="name@company.com"
+        />
+      )}
+
+      {/* Bcc */}
+      {showBcc && (
+        <RecipientInput
+          label="Bcc"
+          value={bcc}
+          onChange={setBcc}
+          placeholder="name@company.com"
+        />
+      )}
+
+      {/* Subject */}
+      <div className="flex items-center gap-2 border-b-[0.5px] border-[var(--border)] px-4 py-2">
+        <label className="w-16 flex-shrink-0 text-xs uppercase tracking-wide text-[var(--text3)]">
+          Subject
+        </label>
+        <input
+          type="text"
+          value={subject}
+          onChange={e => setSubject(e.target.value)}
+          placeholder="Subject"
+          className="flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
+        />
+      </div>
+
+      {/* Message */}
+      <textarea
+        value={body}
+        onChange={e => setBody(e.target.value)}
+        placeholder="Write your message..."
+        className="min-h-[200px] flex-1 resize-none bg-transparent px-4 py-3 text-sm leading-[1.7] text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
+      />
+
+      {/* Draft with AI */}
+      <div className="border-t border-[var(--border)] px-4 py-3">
+        <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-[var(--text3)]">
+          <SparklesIcon size={13} />
+          Draft with AI
         </div>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="text"
+            value={aiPrompt}
+            onChange={e => setAiPrompt(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && aiPrompt.trim() !== '' && !aiDraftLoading) {
+                e.preventDefault()
+                draftWithAI()
+              }
+            }}
+            disabled={aiDraftLoading}
+            placeholder="e.g. Write a follow-up to Lamont about KPIs, or thank Kai for organizing the meeting..."
+            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text3)] disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={draftWithAI}
+            disabled={aiPrompt.trim() === '' || aiDraftLoading}
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text2)] transition-colors hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {aiDraftLoading ? 'Drafting...' : 'Draft →'}
+          </button>
+        </div>
+        {aiDraftError && (
+          <div className="mt-2 text-xs text-[var(--red)]">{aiDraftError}</div>
+        )}
+        <div className="mt-1.5 text-xs text-[var(--text3)]">
+          AI will write the email body. You can edit before sending.
+        </div>
+      </div>
 
-        <div className="mt-6 flex items-center justify-end gap-3">
+      {/* Footer */}
+      <div className="flex items-center justify-between border-t-[0.5px] border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
+        <button
+          onClick={handleSend}
+          disabled={!canSend}
+          className="rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? 'Sending...' : 'Send'}
+        </button>
+        <div className="flex items-center gap-3">
+          {sent && <span className="text-sm text-[var(--green)]">Email sent!</span>}
+          {error && <span className="text-sm text-[var(--red)]">{error}</span>}
           <button
             onClick={onClose}
-            className="rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+            className="bg-transparent text-sm text-[var(--text3)] transition-colors hover:text-[var(--text2)]"
           >
-            Cancel
-          </button>
-          <button
-            onClick={handleSend}
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85"
-          >
-            Send
+            Discard
           </button>
         </div>
       </div>
@@ -1456,13 +1734,7 @@ export default function PresidentInboxPage() {
 
       {/* Compose modal */}
       {composeOpen && (
-        <ComposeModal
-          onClose={() => setComposeOpen(false)}
-          onComingSoon={() => {
-            setComposeOpen(false)
-            showToast('Coming soon')
-          }}
-        />
+        <ComposeModal onClose={() => setComposeOpen(false)} />
       )}
 
       {/* "Reply sent!" green toast — auto-dismisses after 3s (replySent effect). */}
