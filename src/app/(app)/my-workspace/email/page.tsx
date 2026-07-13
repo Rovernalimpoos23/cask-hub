@@ -643,12 +643,10 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const shellCls = expanded
-    ? 'fixed inset-0 z-50 flex flex-col bg-[var(--bg)]'
-    : 'fixed bottom-4 right-4 z-50 flex max-h-[600px] w-[520px] flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg'
-
-  return (
-    <div className={shellCls}>
+  // Shared modal content (header, fields, message, AI, footer). Wrapped below by
+  // either the full-screen shell (expanded) or a centered backdrop (docked).
+  const content = (
+    <>
       {/* Header */}
       <div className="flex items-center justify-between border-b-[0.5px] border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
         <span className="font-medium text-[var(--text)]">New Message</span>
@@ -802,6 +800,23 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
             Discard
           </button>
         </div>
+      </div>
+    </>
+  )
+
+  return expanded ? (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">{content}</div>
+  ) : (
+    // Docked: a centered card over a click-to-close backdrop.
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="flex h-[75vh] w-[85vw] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]"
+      >
+        {content}
       </div>
     </div>
   )
