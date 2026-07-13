@@ -1453,12 +1453,12 @@ export default function DashboardPage() {
   // vp_ops/Chad, vp_finance/Lamont) get a personalized dashboard. Admin roles
   // (president, ea, ai_specialist) are unaffected by everything below.
   const isRestricted = isRestrictedRole(userRole)
-  // NEW — only Calin (c.noonan) and Kai (k.mapoy) have the Make.com calendar feed
-  // wired up; everyone else sees the Outlook "connect" empty state until Microsoft
-  // Graph calendar data lands (later phase). Gated purely on the signed-in email.
-  const showCalinCalendar =
-    userEmail === 'c.noonan@caskconstruction.com' ||
-    userEmail === 'k.mapoy@caskconstruction.com'
+  // Calin (c.noonan) and Kai (k.mapoy) previously used the Make.com calendar feed;
+  // now ALL users — including them — go through the Microsoft Graph path for
+  // Today's Schedule, Events This Week, and the briefing "Next up". Forced false so
+  // the Make.com branch is never taken. (The "Open calendar" button still routes
+  // Calin/Kai to the President's Calendar via a direct email check below.)
+  const showCalinCalendar = false
 
   // NEW (additive) — Microsoft Graph "My Calendar" for everyone who ISN'T on the
   // Make.com feed (i.e. not Calin/Kai). Fetches the signed-in user's own Outlook
@@ -2177,7 +2177,15 @@ export default function DashboardPage() {
                 </Link>
                 {!isRestricted && (
                   <Link
-                    href={showCalinCalendar ? '/president/calendar' : '/my-workspace/calendar'}
+                    // Calin/Kai have no My Workspace, so their "Open calendar"
+                    // points at the President's Calendar (now Graph-backed);
+                    // everyone else opens My Calendar.
+                    href={
+                      userEmail === 'c.noonan@caskconstruction.com' ||
+                      userEmail === 'k.mapoy@caskconstruction.com'
+                        ? '/president/calendar'
+                        : '/my-workspace/calendar'
+                    }
                     className="fb-btn"
                     style={{
                       fontSize: 12.5,

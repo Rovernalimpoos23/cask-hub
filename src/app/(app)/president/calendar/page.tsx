@@ -2486,9 +2486,111 @@ function CalendarGridView({ events, onEventClick, onAddOnDate, onDeleteEvent }: 
   )
 }
 
+// ── Microsoft Graph → CalendarEvent mapping (Phase 1) ────────────────
+// The President's Calendar now reads the president's Outlook calendar via
+// /api/calendar/my-events (Microsoft Graph) instead of the Supabase
+// calendar_events table. These helpers normalize the Graph event shape into the
+// existing CalendarEvent interface the UI already renders.
+
+interface GraphEvent {
+  id: string
+  subject?: string
+  start?: { dateTime?: string; timeZone?: string } | null
+  end?: { dateTime?: string; timeZone?: string } | null
+  organizer?: { emailAddress?: { name?: string; address?: string } } | null
+  attendees?: unknown
+  location?: { displayName?: string } | null
+  onlineMeeting?: { joinUrl?: string } | null
+  webLink?: string
+  isAllDay?: boolean
+  recurrence?: unknown | null
+}
+
+interface MyEventsResponse {
+  todayEvents?: GraphEvent[]
+  weekEvents?: GraphEvent[]
+  monthEvents?: GraphEvent[]
+  upcomingCount?: number
+  nextMeeting?: GraphEvent | null
+  error?: string
+}
+
+// calendarView returns UTC datetimes (often with 7 fractional-second digits and
+// no trailing Z). Trim to ms precision, treat as UTC when no offset is present,
+// and return a canonical UTC ISO string the existing date helpers can parse
+// (they call new Date(iso), which would otherwise misread a bare datetime as local).
+function graphToISO(dt: string | null | undefined): string | null {
+  if (!dt) return null
+  const trimmed = dt.replace(/(\.\d{3})\d+/, '$1')
+  const hasTz = /(Z|[+-]\d{2}:\d{2})$/.test(trimmed)
+  const d = new Date(hasTz ? trimmed : `${trimmed}Z`)
+  return isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+function dedupeGraphById(events: GraphEvent[]): GraphEvent[] {
+  return Array.from(new Map(events.map(e => [e.id, e])).values())
+}
+
+function mapGraphEvent(ev: GraphEvent): CalendarEvent {
+  return {
+    id: ev.id,
+    title: ev.subject ?? '',
+    start_time: graphToISO(ev.start?.dateTime) ?? '',
+    end_time: graphToISO(ev.end?.dateTime),
+    organizer: ev.organizer?.emailAddress?.name ?? null,
+    attendees: ev.attendees ?? null,
+    location: ev.location?.displayName ?? null,
+    meeting_link: ev.onlineMeeting?.joinUrl ?? null,
+    web_link: ev.webLink ?? null,
+    is_all_day: ev.isAllDay ?? null,
+    is_recurring: ev.recurrence != null,
+    recurring_id: null,         // not applicable for Graph events
+    recurring_days: null,       // not applicable
+    recurring_indefinite: null, // not applicable
+    is_exception: null,         // not applicable
+  }
+}
+
+// Connect / reconnect Outlook prompt shown when the Graph API reports the
+// president's Microsoft account isn't linked ('not_connected') or the token has
+// expired ('token_invalid'). Links to the same /api/auth/microsoft flow the
+// My Calendar page uses.
+function OutlookConnectState({ title, cta }: { title: string; cta: string }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', gap: 16, padding: '64px 0',
+    }}>
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
+        style={{ color: 'var(--text3)', opacity: 0.4 }}>
+        <rect x="3" y="4" width="18" height="18" rx="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+      <div style={{ fontSize: 14, color: 'var(--text2)', textAlign: 'center' }}>{title}</div>
+      <a
+        href="/api/auth/microsoft"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          fontSize: 14, fontWeight: 600, color: '#fff',
+          background: 'var(--red)', padding: '10px 18px', borderRadius: 8,
+          textDecoration: 'none',
+        }}
+      >
+        {cta}
+      </a>
+    </div>
+  )
+}
+
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
+  // Graph connection status: null = OK, 'not_connected' / 'token_invalid' surface
+  // a Connect/Reconnect Outlook prompt (see OutlookConnectState below).
+  const [connectionError, setConnectionError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [, setTick] = useState(0)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -2530,31 +2632,58 @@ export default function CalendarPage() {
     localStorage.setItem('cask-calendar-view', view)
   }, [view])
 
+  // Phase 1: Replaced Supabase/Make.com fetch with Microsoft Graph API. Add Event
+  // still uses Make.com webhook (Phase 2 will replace this).
+  //
+  // Fetches the president's Outlook calendar via /api/calendar/my-events (same
+  // route + token-refresh handling as the My Calendar page) and maps the Graph
+  // event shape onto the existing CalendarEvent interface. Auto-refreshes every 5
+  // minutes. The old calendar_events Supabase read + Realtime subscription are gone.
   useEffect(() => {
-    const supabase = createClient()
-    const todayStr = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const month = now.getMonth() + 1
+    const year = now.getFullYear()
+    const nowMs = now.getTime()
 
-    async function load() {
-      console.log('[calendar] supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
-      const { data, error } = await supabase
-        .from('calendar_events')
-        .select('*')
-        .gte('start_time', new Date().toISOString())
-        .order('start_time', { ascending: true })
-      console.log('[calendar] fetched events:', data)
-      console.log('[calendar] error:', error)
-      setEvents((data as CalendarEvent[]) ?? [])
-      setLoading(false)
+    async function fetchEvents() {
+      try {
+        const res = await fetch(`/api/calendar/my-events?month=${month}&year=${year}`)
+        const json: MyEventsResponse = await res.json()
+        if (json.error) {
+          // 'not_connected' / 'token_invalid' → show Connect/Reconnect Outlook.
+          setConnectionError(json.error)
+          setEvents([])
+          setLoading(false)
+          return
+        }
+        // Collect every event the response provides (month view is primary; merge
+        // today/week if present), dedupe by id, then map Graph → CalendarEvent.
+        // Keep only future events to preserve the previous query's behavior
+        // (the old Supabase read filtered start_time >= now).
+        const graphEvents = dedupeGraphById([
+          ...(json.monthEvents ?? []),
+          ...(json.weekEvents ?? []),
+          ...(json.todayEvents ?? []),
+        ])
+        const mapped = graphEvents
+          .map(mapGraphEvent)
+          .filter(e => e.start_time && new Date(e.start_time).getTime() >= nowMs)
+          .sort((a, b) => a.start_time.localeCompare(b.start_time))
+        setConnectionError(null)
+        setEvents(mapped)
+        setLoading(false)
+      } catch {
+        // Network/parse failure: clear the connection error (not an auth issue)
+        // and fall back to an empty calendar rather than a stuck spinner.
+        setConnectionError(null)
+        setEvents([])
+        setLoading(false)
+      }
     }
 
-    load()
-
-    const channel = supabase
-      .channel('calendar-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' }, load)
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
+    fetchEvents()
+    const id = setInterval(() => fetchEvents(), 5 * 60 * 1000)
+    return () => clearInterval(id)
   }, [])
 
   // Date anchors — all in Eastern Time
@@ -3074,7 +3203,14 @@ export default function CalendarPage() {
           <NextMeetingTile event={nextMeeting} />
         </div>
 
-        {view === 'calendar' ? (
+        {connectionError ? (
+          <OutlookConnectState
+            title={connectionError === 'not_connected'
+              ? 'Connect your Outlook to see the calendar'
+              : 'Your Outlook session expired'}
+            cta={connectionError === 'not_connected' ? 'Connect Outlook' : 'Reconnect Outlook'}
+          />
+        ) : view === 'calendar' ? (
           <CalendarGridView events={events} onEventClick={openEdit} onAddOnDate={openAdd} onDeleteEvent={ev => setDeleteEvent(ev)} />
         ) : loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
