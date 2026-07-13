@@ -57,6 +57,9 @@ export async function middleware(request: NextRequest) {
   // Design Center, CASK Big Vision, etc.) is redirected to /dashboard. API
   // routes, webhooks, the seed route and auth pages are intentionally excluded
   // so app functionality (e.g. AI chat, data fetches) keeps working for them.
+  // NOTE: 'ea' (Kai) is intentionally NOT a restricted role, so it bypasses the
+  // allowlist below and has full access to all non-API routes, including
+  // /my-workspace/*. No allowlist entry needed.
   const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'member']
   const isApi = pathname.startsWith('/api/')
   if (user?.email && !isAuthPage && !isApi && !isSeedRoute && !isWebhook) {

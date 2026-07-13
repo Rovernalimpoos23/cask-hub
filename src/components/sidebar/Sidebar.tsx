@@ -279,7 +279,6 @@ export default function Sidebar() {
   // isRestrictedRole(userRole), so no extra import from role-filter is needed.
   const hideMyWorkspace =
     user?.email === 'c.noonan@caskconstruction.com' ||
-    user?.email === 'k.mapoy@caskconstruction.com' ||
     isRestricted
 
   // Restricted roles see only the Customer Journey section; admins see all.
