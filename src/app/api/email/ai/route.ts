@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 // POST /api/email/ai
 // Runs an executive-assistant AI action (summarize / draft reply / extract action
-// items) over an email's contents. Calls the Anthropic Messages API directly via
+// items / revise a draft) over an email's contents. Calls the Anthropic Messages API directly via
 // fetch (no SDK) so the ANTHROPIC_API_KEY stays server-side — the browser never
 // sees it.
 //
@@ -20,13 +20,15 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const MODEL = 'claude-opus-4-8'
 const MAX_TOKENS = 2000
 
-type Action = 'summarize' | 'draft_reply' | 'extract'
+type Action = 'summarize' | 'draft_reply' | 'extract' | 'revise'
 
 interface AiRequestBody {
   action?: string
   subject?: string
   body?: string
   senderName?: string
+  currentDraft?: string // the existing draft (required for 'revise')
+  revision?: string // the revision instruction (required for 'revise')
 }
 
 // System prompts per action (verbatim from the spec).
@@ -37,10 +39,12 @@ const SYSTEM_PROMPTS: Record<Action, string> = {
     'You are a senior executive communications assistant for CASK Construction. Draft a professional reply to this email. Be concise, match the tone of the original, do not make up facts. Do not include a subject line.',
   extract:
     'You are a senior executive communications assistant for CASK Construction. Read this email and extract all action items, deadlines, and follow-ups. Format as a clean bullet list. Be specific and include names and dates where mentioned.',
+  revise:
+    'You are a senior executive communications assistant for CASK Construction. Revise the following email draft based on the instruction given. Keep the same general meaning but apply the requested change. Return only the revised email text, no explanation.',
 }
 
 function isAction(v: string): v is Action {
-  return v === 'summarize' || v === 'draft_reply' || v === 'extract'
+  return v === 'summarize' || v === 'draft_reply' || v === 'extract' || v === 'revise'
 }
 
 // Decode a handful of common HTML entities, then strip tags and collapse
@@ -103,6 +107,8 @@ export async function POST(request: Request) {
     const subject = payload.subject
     const body = payload.body
     const senderName = payload.senderName
+    const currentDraft = payload.currentDraft
+    const revision = payload.revision
 
     // All fields are required. Strings must be present; body/subject/senderName
     // must be strings (empty body is not useful, so require non-empty content).
@@ -117,12 +123,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'missing_fields' }, { status: 400 })
     }
 
+    // 'revise' additionally requires the existing draft and the instruction.
+    if (
+      action === 'revise' &&
+      (typeof currentDraft !== 'string' ||
+        currentDraft.trim() === '' ||
+        typeof revision !== 'string' ||
+        revision.trim() === '')
+    ) {
+      return NextResponse.json({ error: 'missing_fields' }, { status: 400 })
+    }
+
     // ── 3. Select the system prompt for the action ───────────────────
     const system = SYSTEM_PROMPTS[action]
 
     // ── 4. Build the user message (plain-text body only) ─────────────
     const plainBody = stripHtml(body)
-    const userMessage = `Subject: ${subject}\n\nFrom: ${senderName}\n\n${plainBody}`
+    const userMessage =
+      action === 'revise'
+        ? `Original email:\n${plainBody}\n\nCurrent draft:\n${currentDraft}\n\nRevision instruction: ${revision}\n\nPlease revise the draft accordingly.`
+        : `Subject: ${subject}\n\nFrom: ${senderName}\n\n${plainBody}`
 
     // ── 5. Call the Anthropic Messages API directly (no SDK) ─────────
     const apiKey = process.env.ANTHROPIC_API_KEY

@@ -607,6 +607,13 @@ export default function PresidentInboxPage() {
   const [replySending, setReplySending] = useState(false)
   const [replySent, setReplySent] = useState(false)
   const [replyError, setReplyError] = useState('')
+  // AI-generated draft marker + revision-pill state. aiDraft is set when a draft
+  // reply is generated (or revised); the revision pills only show when it's non-empty.
+  const [aiDraft, setAiDraft] = useState('')
+  const [revisionLoading, setRevisionLoading] = useState<string | null>(null)
+  const [revisionError, setRevisionError] = useState('')
+  const [customRevisionText, setCustomRevisionText] = useState('')
+  const [replyExpanded, setReplyExpanded] = useState(false)
   const replyRef = useRef<HTMLTextAreaElement | null>(null)
 
   // AI.
@@ -772,6 +779,11 @@ export default function PresidentInboxPage() {
     setReplyOpen(false)
     setReplyText('')
     setReplyError('')
+    setAiDraft('')
+    setRevisionLoading(null)
+    setRevisionError('')
+    setCustomRevisionText('')
+    setReplyExpanded(false)
   }
 
   // ── Reply ──────────────────────────────────────────────────────────
@@ -857,6 +869,7 @@ export default function PresidentInboxPage() {
         // Draft reply → open the composer and populate it with the result so the
         // user can read the full draft, edit, then send.
         setReplyText(text)
+        setAiDraft(text)
         setReplyOpen(true)
         setTimeout(() => replyRef.current?.focus(), 0)
       } else {
@@ -867,6 +880,53 @@ export default function PresidentInboxPage() {
       setAiError('AI unavailable, try again')
     } finally {
       setAiLoading(null)
+    }
+  }
+
+  // ── AI draft revision (pills below the reply composer) ─────────────
+  // Each pill (except Regenerate) sends the current draft + an instruction to
+  // /api/email/ai action 'revise'. Regenerate re-runs 'draft_reply' from scratch.
+  // The clicked pill's label doubles as the loading key and the revision text.
+  async function runRevision(label: string, isCustom = false) {
+    if (!selected || revisionLoading) return
+    setRevisionLoading(label)
+    setRevisionError('')
+    const isRegenerate = !isCustom && label === 'Regenerate ↺'
+    const body = selected.body?.content ?? selected.bodyPreview ?? ''
+    const payload = isRegenerate
+      ? {
+          action: 'draft_reply',
+          subject: selected.subject ?? '',
+          body,
+          senderName: senderName(selected),
+        }
+      : {
+          action: 'revise',
+          subject: selected.subject ?? '',
+          body,
+          senderName: senderName(selected),
+          currentDraft: replyText,
+          revision: label,
+        }
+    try {
+      const res = await fetch('/api/email/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = (await res.json().catch(() => ({}))) as { result?: string; error?: string }
+      const text = (json.result ?? '').trim()
+      if (!res.ok || json.error || !text) {
+        setRevisionError('AI unavailable, try again')
+        return
+      }
+      setReplyText(text)
+      setAiDraft(text)
+      if (isCustom) setCustomRevisionText('')
+    } catch {
+      setRevisionError('AI unavailable, try again')
+    } finally {
+      setRevisionLoading(null)
     }
   }
 
@@ -885,6 +945,87 @@ export default function PresidentInboxPage() {
   const shownUnread = filtered.filter(m => !m.isRead).length
   const notConnected = listError === 'not_connected' || listError === 'user_not_found'
   const tokenInvalid = listError === 'token_invalid' || listError === 'unauthorized'
+
+  // ── Shared reply-composer pieces ───────────────────────────────────
+  // Rendered identically in the inline composer and the full-screen overlay so
+  // the two views never drift. Only one composer renders at a time (see the
+  // replyExpanded ternary below), so reusing these elements is safe.
+  const revisionTools = (
+    <>
+      <div className="flex flex-wrap gap-2">
+        {(['Make it shorter', 'Make it longer', 'More formal', 'More friendly', 'More direct', 'Regenerate ↺'] as const).map(label => {
+          const isLoading = revisionLoading === label
+          const anyLoading = revisionLoading !== null
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => runRevision(label)}
+              disabled={anyLoading}
+              className={`cursor-pointer rounded-full border border-[var(--border)] bg-[var(--surface2)] px-3 py-1.5 text-xs text-[var(--text2)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--text)] disabled:cursor-not-allowed ${anyLoading && !isLoading ? 'opacity-50' : ''}`}
+            >
+              {isLoading ? '...' : label}
+            </button>
+          )
+        })}
+      </div>
+      {revisionError && (
+        <div className="mt-2 text-xs text-[var(--red)]">{revisionError}</div>
+      )}
+
+      {/* Custom revision input — free-text instruction + Apply */}
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          type="text"
+          value={customRevisionText}
+          onChange={e => setCustomRevisionText(e.target.value)}
+          onKeyDown={e => {
+            if (
+              e.key === 'Enter' &&
+              customRevisionText.trim() !== '' &&
+              revisionLoading === null
+            ) {
+              e.preventDefault()
+              runRevision(customRevisionText, true)
+            }
+          }}
+          disabled={revisionLoading !== null}
+          placeholder="Tell AI what to change..."
+          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text3)] disabled:opacity-50"
+        />
+        <button
+          type="button"
+          onClick={() => runRevision(customRevisionText, true)}
+          disabled={customRevisionText.trim() === '' || revisionLoading !== null}
+          className="rounded-lg bg-[var(--red)] px-3 py-2 text-sm text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Apply →
+        </button>
+      </div>
+
+      {/* Divider between custom input row and textarea */}
+      <div className="my-3 h-px bg-[var(--border)]" />
+    </>
+  )
+
+  const actionButtons = (
+    <>
+      <button
+        onClick={closeReply}
+        className="rounded-lg border-0 bg-transparent px-2 py-2 text-sm font-medium text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+      >
+        Discard
+      </button>
+      <button
+        onClick={handleSendReply}
+        disabled={replySending || !replyText.trim()}
+        className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {replySending && <Spinner />}
+        {replySending ? 'Sending…' : 'Send'}
+      </button>
+    </>
+  )
 
   return (
     <div className="grid h-full grid-cols-[220px_300px_1fr] overflow-hidden animate-page-in">
@@ -1212,6 +1353,53 @@ export default function PresidentInboxPage() {
                   <ReplyIcon /> Reply
                 </button>
               </div>
+            ) : replyExpanded ? (
+              // Full-screen reply composer overlay
+              <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
+                {/* Header row */}
+                <div className="flex items-center justify-between border-b border-[var(--border)] p-4">
+                  <span className="text-[13px] text-[var(--text2)]">
+                    Reply to {senderName(selected)}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setReplyExpanded(false)}
+                      aria-label="Shrink"
+                      title="Shrink"
+                      className="rounded-md p-1 text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+                    >
+                      <span aria-hidden className="text-sm leading-none">⤡</span>
+                    </button>
+                    <button
+                      onClick={closeReply}
+                      aria-label="Close reply"
+                      title="Close"
+                      className="rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+                    >
+                      <CloseIcon />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Body — revision tools + textarea; everything visible, no scroll */}
+                <div className="flex flex-1 flex-col overflow-hidden p-4">
+                  {aiDraft !== '' && revisionTools}
+                  <textarea
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    placeholder="Write your reply..."
+                    className="w-full flex-1 resize-none rounded-lg border border-[var(--border)] bg-[var(--surface2)] p-4 text-[13px] leading-[1.7] text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
+                  />
+                  {replyError && (
+                    <div className="mt-2 text-xs text-[var(--red)]">{replyError}</div>
+                  )}
+                </div>
+
+                {/* Bottom action row */}
+                <div className="flex items-center justify-between border-t border-[var(--border)] p-4">
+                  {actionButtons}
+                </div>
+              </div>
             ) : (
               <div className="flex-shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-4">
                 {/* Header row */}
@@ -1219,17 +1407,30 @@ export default function PresidentInboxPage() {
                   <span className="text-[13px] text-[var(--text2)]">
                     Reply to {senderName(selected)}
                   </span>
-                  <button
-                    onClick={closeReply}
-                    aria-label="Close reply"
-                    className="rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
-                  >
-                    <CloseIcon />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setReplyExpanded(true)}
+                      aria-label="Expand"
+                      title="Expand"
+                      className="rounded-md p-1 text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+                    >
+                      <span aria-hidden className="text-sm leading-none">⤢</span>
+                    </button>
+                    <button
+                      onClick={closeReply}
+                      aria-label="Close reply"
+                      className="rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+                    >
+                      <CloseIcon />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Divider */}
                 <div className="my-3 h-px bg-[var(--border)]" />
+
+                {/* AI revision tools — shown only after a draft has been generated */}
+                {aiDraft !== '' && revisionTools}
 
                 {/* Textarea */}
                 <textarea
@@ -1245,20 +1446,7 @@ export default function PresidentInboxPage() {
 
                 {/* Bottom action row */}
                 <div className="mt-3 flex items-center justify-between">
-                  <button
-                    onClick={closeReply}
-                    className="rounded-lg border-0 bg-transparent px-2 py-2 text-sm font-medium text-[var(--text2)] transition-colors hover:text-[var(--text)]"
-                  >
-                    Discard
-                  </button>
-                  <button
-                    onClick={handleSendReply}
-                    disabled={replySending || !replyText.trim()}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {replySending && <Spinner />}
-                    {replySending ? 'Sending…' : 'Send'}
-                  </button>
+                  {actionButtons}
                 </div>
               </div>
             )}
