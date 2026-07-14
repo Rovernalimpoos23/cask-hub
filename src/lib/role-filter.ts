@@ -11,7 +11,7 @@
 
 import type { Meeting } from '@/types'
 
-export const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'member']
+export const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member']
 export const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 
 // True only when the role is restricted and NOT an admin role (admin always wins).

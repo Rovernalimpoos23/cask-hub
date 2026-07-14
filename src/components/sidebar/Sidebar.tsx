@@ -94,7 +94,7 @@ const NAV_SECTIONS = [
 // They are NO LONGER redirected away from /dashboard (they have dashboard access).
 // Admin roles (Calin/president, Kai/ea, Rovern/ai_specialist) see everything
 // exactly as before. Roles are read from the `users.role` column.
-const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'member']
+const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member']
 const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 // Sections a restricted role is allowed to see, matched by NAV_SECTIONS label.
 // The General Meetings section already contains exactly the three allowed items

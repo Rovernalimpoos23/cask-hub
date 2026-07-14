@@ -61,7 +61,7 @@ export async function middleware(request: NextRequest) {
   // NOTE: 'ea' (Kai) is intentionally NOT a restricted role, so it bypasses the
   // allowlist below and has full access to all non-API routes, including
   // /my-workspace/*. No allowlist entry needed.
-  const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'member']
+  const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member']
   const isApi = pathname.startsWith('/api/')
   if (user?.email && !isAuthPage && !isApi && !isSeedRoute && !isWebhook) {
     const { data: profile } = await supabase
