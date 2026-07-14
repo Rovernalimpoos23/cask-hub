@@ -52,8 +52,9 @@ export async function middleware(request: NextRequest) {
   // ── Role-based page restriction ────────────────────────────────────────────
   // Restricted roles may only view an allowlist of pages: the Dashboard, the
   // General Meetings pages (All Sessions + individual sessions, Generate Agenda,
-  // Action Items), Customer Journey (/customers/*), and the customer portal
-  // preview (/my-project). Any OTHER page (Command Center, President's Workflow,
+  // Action Items), Customer Journey (/customers/*), My Workspace (/my-workspace/*
+  // — My Calendar + My Emails), and the customer portal preview (/my-project).
+  // Any OTHER page (Command Center, President's Workflow,
   // Design Center, CASK Big Vision, etc.) is redirected to /dashboard. API
   // routes, webhooks, the seed route and auth pages are intentionally excluded
   // so app functionality (e.g. AI chat, data fetches) keeps working for them.
@@ -80,13 +81,17 @@ export async function middleware(request: NextRequest) {
     // /my-project is the customer portal preview — allowed for ALL users,
     // including restricted roles, so it's never redirected away.
     const isMyProjectPage = pathname === '/my-project' || pathname.startsWith('/my-project/')
+    // /my-workspace/* (My Calendar + My Emails) — now allowed for restricted roles
+    // too, matching the sidebar which surfaces My Workspace for them.
+    const isMyWorkspacePage = pathname === '/my-workspace' || pathname.startsWith('/my-workspace/')
     const isAllowedPage =
       isDashboardPage ||
       isSessionsPage ||
       isGeneratePage ||
       isActionsPage ||
       isCustomersPage ||
-      isMyProjectPage
+      isMyProjectPage ||
+      isMyWorkspacePage
     if (role && RESTRICTED_ROLES.includes(role) && !isAllowedPage) {
       const dashboardUrl = request.nextUrl.clone()
       dashboardUrl.pathname = '/dashboard'

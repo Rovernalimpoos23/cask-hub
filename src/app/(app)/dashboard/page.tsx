@@ -1875,9 +1875,9 @@ export default function DashboardPage() {
           className="fb-rise"
           style={{
             display: 'grid',
-            // CHANGE 1: restricted roles don't see "Events this week", so the
-            // stat grid drops from 4 to 3 columns to lay out cleanly.
-            gridTemplateColumns: isRestricted ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)',
+            // All users (including restricted) see "Events this week" now, so the
+            // stat grid stays at 4 columns for everyone.
+            gridTemplateColumns: 'repeat(4, 1fr)',
             gap: 1,
             background: 'var(--fable-line, var(--border))',
             border: '1px solid var(--fable-line, var(--border))',
@@ -1894,15 +1894,16 @@ export default function DashboardPage() {
             note="All time"
             sparkPath="M0 17 L12 15 L24 16 L36 12 L48 13 L60 9 L72 7 L84 4"
           />
-          {/* "Events this week" — gated by user. Calin (c.noonan) and Kai (k.mapoy)
-              see the live Make.com calendar_events count as before; everyone else
-              gets an em-dash + a subtle "Connect Outlook" link until Graph calendar
-              data lands. Still hidden entirely for restricted roles.
+          {/* "Events this week" — shown to ALL users (including restricted roles).
+              Calin (c.noonan) and Kai (k.mapoy) see the live Make.com calendar_events
+              count as before; everyone else (restricted roles included) gets an em-dash
+              + a subtle "Connect Outlook" link until Graph calendar data lands, then the
+              real Graph week count once connected.
               NOTE: "Events this week" counts company calendar_events (a different
               table than meetings, with a different attendees shape), so the
               meeting-attendee role filter does not apply here and is intentionally
               left unchanged. */}
-          {!isRestricted && (
+          {(
             showCalinCalendar ? (
               <StatBox
                 label="Events this week"
@@ -2076,11 +2077,11 @@ export default function DashboardPage() {
             <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>{todayLabel}</div>
           </div>
 
-          {/* CHANGE 2: restricted roles don't see "Today's schedule", so the
-              briefing collapses to a single column (no right divider). */}
-          <div style={{ display: 'grid', gridTemplateColumns: isRestricted ? '1fr' : '1.4fr 1fr', alignItems: 'start' }}>
+          {/* All users (including restricted) now see "Today's schedule", so the
+              briefing keeps the two-column layout with the right divider. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', alignItems: 'start' }}>
             {/* Main briefing text */}
-            <div style={{ padding: '18px 20px', borderRight: isRestricted ? 'none' : '1px solid var(--fable-line-soft, var(--border))' }}>
+            <div style={{ padding: '18px 20px', borderRight: '1px solid var(--fable-line-soft, var(--border))' }}>
               <p
                 style={{
                   fontFamily: SERIF,
@@ -2292,9 +2293,10 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Today's schedule — CHANGE 2: hidden for restricted roles (no
-                calendar/schedule data surfaced to them); admins see it as before. */}
-            {!isRestricted && (
+            {/* Today's schedule — shown to ALL users (including restricted roles),
+                using the same Connect Outlook empty state / skeleton / Graph data
+                path as everyone else. */}
+            {(
             <div style={{ padding: '18px 20px' }}>
               <h3
                 style={{
