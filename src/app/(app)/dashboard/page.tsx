@@ -49,6 +49,32 @@ function fmtET(iso: string): string {
   })
 }
 
+// Shape of the inbox messages returned by /api/email/inbox (Microsoft Graph).
+// Only the fields the Recent Emails list reads are typed.
+interface InboxMessage {
+  id?: string
+  subject?: string
+  from?: { emailAddress?: { name?: string; address?: string } } | null
+  receivedDateTime?: string
+  isRead?: boolean
+}
+
+// Format an inbox message's timestamp for the Recent Emails list, in ET:
+// today → "9:43 AM"; within the past week → weekday ("Tue"); older → "Jul 7".
+function fmtEmailTime(iso: string): string {
+  const d = new Date(iso)
+  const etToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const etMsgDay = d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  if (etMsgDay === etToday) {
+    return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true })
+  }
+  const diffDays = Math.floor((Date.parse(etToday) - Date.parse(etMsgDay)) / 86_400_000)
+  if (diffDays >= 0 && diffDays < 7) {
+    return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' })
+  }
+  return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })
+}
+
 // ── Microsoft Graph "My Calendar" support (additive) ─────────────────
 // Shape of the events returned by /api/calendar/my-events (Graph objects).
 interface GraphEventLite {
@@ -1494,6 +1520,15 @@ export default function DashboardPage() {
   // Defaults true; set false in the /api/calendar/my-events effect below.
   const [outlookLoading, setOutlookLoading] = useState(true)
 
+  // NEW (additive) — Unread Emails stat. Signed-in user's Outlook inbox unread
+  // count (via /api/email/inbox). null = not connected / error (card shows a
+  // Connect Outlook link); a number renders the live count.
+  const [unreadCount, setUnreadCount] = useState<number | null>(null)
+  const [emailLoading, setEmailLoading] = useState(true)
+  // First 5 inbox messages (read or unread) for the Recent Emails list. Populated
+  // by the same /api/email/inbox fetch below; kept in lockstep with unreadCount.
+  const [recentEmails, setRecentEmails] = useState<InboxMessage[]>([])
+
   useEffect(() => {
     // Wait until the role/email has resolved so we don't fire for Calin/Kai (whose
     // showCalinCalendar only flips true once their email loads).
@@ -1526,6 +1561,58 @@ export default function DashboardPage() {
       })
     return () => { cancelled = true }
   }, [roleLoaded, showCalinCalendar])
+
+  // NEW (additive) — Unread inbox count for the Unread Emails stat card. Fetches
+  // the signed-in user's inbox from /api/email/inbox and counts unread messages
+  // (isRead === false). Auto-refreshes every 60s, matching the email pages.
+  //
+  // Transient-error handling differs by fetch:
+  //  - Initial load: any error / not-connected → null (card shows Connect Outlook).
+  //  - Refresh (60s): explicit not_connected → null (user disconnected); any other
+  //    error (network, token_invalid, graph_error, …) keeps the last good count so
+  //    a blip doesn't flash the card back to the Connect Outlook state.
+  useEffect(() => {
+    let cancelled = false
+    // Flag distinguishing the initial fetch from the 60s refreshes.
+    let isFirstLoad = true
+    async function loadUnread() {
+      // Capture + clear synchronously so overlapping calls resolve correctly.
+      const first = isFirstLoad
+      isFirstLoad = false
+      try {
+        const res = await fetch('/api/email/inbox?folder=inbox&top=50')
+        const json: { messages?: InboxMessage[]; error?: string } = await res.json()
+        if (cancelled) return
+        if (Array.isArray(json.messages)) {
+          // Success → live count + first 5 messages, on both initial load and refresh.
+          setUnreadCount(json.messages.filter(m => m.isRead === false).length)
+          setRecentEmails(json.messages.slice(0, 5))
+        } else if (json.error === 'not_connected') {
+          // Explicit disconnect → clear so the Connect Outlook state shows (always).
+          setUnreadCount(null)
+          setRecentEmails([])
+        } else if (first) {
+          // Any other error on the INITIAL load → no count / no emails yet.
+          setUnreadCount(null)
+          setRecentEmails([])
+        }
+        // Any other error on a REFRESH → keep the existing count + emails (unchanged).
+        setEmailLoading(false)
+      } catch {
+        // Network/parse failure: clear only on the initial load; on refresh keep
+        // the last good count + emails.
+        if (cancelled) return
+        if (first) {
+          setUnreadCount(null)
+          setRecentEmails([])
+        }
+        setEmailLoading(false)
+      }
+    }
+    loadUnread()
+    const id = setInterval(loadUnread, 60_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [])
 
   // NEW (additive) — Graph equivalents for non-Calin/Kai users' briefing "Next up"
   // line. Per spec, "next" = the first event whose END time is still in the future
@@ -1891,9 +1978,9 @@ export default function DashboardPage() {
           className="fb-rise"
           style={{
             display: 'grid',
-            // All users (including restricted) see "Events this week" now, so the
-            // stat grid stays at 4 columns for everyone.
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            // All users see Sessions, Events this week, Unread emails, Open action
+            // items, and Completed — a 5-column stat grid.
+            gridTemplateColumns: 'repeat(5, 1fr)',
             gap: 1,
             background: 'var(--fable-line, var(--border))',
             border: '1px solid var(--fable-line, var(--border))',
@@ -1986,6 +2073,76 @@ export default function DashboardPage() {
               </div>
             )
           )}
+          {/* "Unread emails" — signed-in user's Outlook inbox unread count (Graph
+              via /api/email/inbox). Mirrors StatBox's cell styling. Three states:
+              loading (—), not-connected (— + Connect Outlook link), and a live count
+              whose whole cell links to the user's inbox (Calin → President's Inbox,
+              everyone else → My Emails). Count turns red when > 0. */}
+          {(() => {
+            const cellStyle: React.CSSProperties = { background: 'var(--surface)', padding: '16px 18px 14px' }
+            const label = (
+              <div style={{ fontSize: 10, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--text3)', fontWeight: 600 }}>
+                Unread emails
+              </div>
+            )
+            const dash = (
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginTop: 8, ...NUM }}>
+                <span style={{ fontSize: 26, fontWeight: 650, letterSpacing: '-0.5px', lineHeight: 1, color: 'var(--text)' }}>—</span>
+              </div>
+            )
+            if (emailLoading) {
+              return (
+                <div style={cellStyle}>
+                  {label}
+                  {dash}
+                  <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--text3)' }}>Loading…</div>
+                </div>
+              )
+            }
+            if (unreadCount === null) {
+              return (
+                <div style={cellStyle}>
+                  {label}
+                  {dash}
+                  {/* Same Connect Outlook treatment as the Events this week card. */}
+                  <div style={{ marginTop: 10 }}>
+                    {outlookConnectDisabled ? (
+                      // TEMPORARY — enable during demo meeting
+                      <button
+                        type="button"
+                        disabled
+                        className="opacity-40 cursor-not-allowed"
+                        style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none', background: 'none', border: 'none', padding: 0, fontFamily: 'inherit' }}
+                      >
+                        Connect Outlook
+                      </button>
+                    ) : (
+                      <a
+                        href="/api/auth/microsoft"
+                        className="fb-all"
+                        style={{ fontSize: 11.5, color: 'var(--text2)', textDecoration: 'none' }}
+                      >
+                        Connect Outlook →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )
+            }
+            // Live count — whole cell links to the user's inbox.
+            const inboxHref = userEmail === 'c.noonan@caskconstruction.com' ? '/president/inbox' : '/my-workspace/email'
+            return (
+              <Link href={inboxHref} className="fb-all" style={{ ...cellStyle, display: 'block', textDecoration: 'none' }}>
+                {label}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginTop: 8, ...NUM }}>
+                  <span style={{ fontSize: 26, fontWeight: 650, letterSpacing: '-0.5px', lineHeight: 1, color: unreadCount > 0 ? 'var(--red)' : 'var(--text)' }}>
+                    {unreadCount}
+                  </span>
+                </div>
+                <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--text3)' }}>unread</div>
+              </Link>
+            )
+          })()}
           {/* CHANGE: restricted roles see only THEIR open items here (count,
               overdue, and oldest-overdue age); admins see the company-wide
               numbers, unchanged. */}
@@ -2545,6 +2702,69 @@ export default function DashboardPage() {
                   )}
                 </div>
               )}
+
+              {/* Recent Emails — below Today's Schedule, same right column. Styled
+                  with Tailwind per spec (the rest of this file uses inline styles).
+                  Reuses the /api/email/inbox data already fetched for the Unread
+                  Emails stat card. */}
+              {(() => {
+                const inboxHref = userEmail === 'c.noonan@caskconstruction.com' ? '/president/inbox' : '/my-workspace/email'
+                return (
+                  <div className="mt-[18px] pt-4 border-t border-[var(--border)]">
+                    <div className="mb-2.5 flex items-baseline justify-between">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text3)]">
+                        Recent Emails
+                      </h3>
+                      <Link href={inboxHref} className="fb-all text-xs font-medium text-[var(--text2)] no-underline">
+                        View all →
+                      </Link>
+                    </div>
+                    {emailLoading ? (
+                      // Loading — 3 placeholder rows.
+                      <ul className="m-0 list-none p-0" aria-hidden="true">
+                        {[0, 1, 2].map(i => (
+                          <li key={i} className="py-2">
+                            <div className={`h-4 animate-pulse rounded bg-[var(--surface2)] ${i === 2 ? 'w-3/5' : 'w-full'}`} />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : unreadCount === null ? (
+                      // Not connected (or error before any good load).
+                      <div className="text-xs text-[var(--text3)]">Connect Outlook to see recent emails</div>
+                    ) : recentEmails.length === 0 ? (
+                      <div className="text-xs text-[var(--text3)]">No recent emails</div>
+                    ) : (
+                      <ul className="m-0 list-none p-0">
+                        {recentEmails.slice(0, 5).map((m, i, arr) => {
+                          const unread = m.isRead === false
+                          const sender = m.from?.emailAddress?.name || m.from?.emailAddress?.address || 'Unknown sender'
+                          const last = i === arr.length - 1
+                          return (
+                            <li
+                              key={m.id ?? i}
+                              onClick={() => router.push(inboxHref)}
+                              className={`flex cursor-pointer items-center gap-2 px-0 py-2 hover:bg-[var(--surface2)] ${last ? '' : 'border-b-[0.5px] border-[var(--border)]'}`}
+                            >
+                              {unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--red)]" />}
+                              <span className={`max-w-[38%] shrink-0 truncate text-sm text-[var(--text)] ${unread ? 'font-medium' : 'font-normal'}`}>
+                                {sender}
+                              </span>
+                              <span className={`min-w-0 flex-1 truncate text-xs text-[var(--text2)] ${unread ? 'font-medium' : 'font-normal'}`}>
+                                {m.subject || '(No subject)'}
+                              </span>
+                              {m.receivedDateTime && (
+                                <span className="shrink-0 text-xs text-[var(--text3)]">
+                                  {fmtEmailTime(m.receivedDateTime)}
+                                </span>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
             )}
           </div>
