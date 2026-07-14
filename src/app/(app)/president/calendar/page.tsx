@@ -313,6 +313,9 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
   const [savingLink, setSavingLink] = useState(false)
   const borderColor = getEventBorderColor(event)
   const cancelled = isCancelledEvent(event)
+  // A past/finished event ended before now and is NOT cancelled (cancelled has its
+  // own styling). Greys the whole card + adds a ✓ after the subject.
+  const past = !cancelled && event.end_time != null && new Date(event.end_time) < new Date()
   const duration = getDuration(event.start_time, event.end_time)
   const { shown, extra } = getAttendeesDisplay(event.attendees)
 
@@ -355,9 +358,10 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
         display: 'flex',
         flexDirection: 'column',
         gap: 10,
-        // Cancelled events: whole card dimmed so time / duration / location stay
-        // visible but greyed; subject also gets a strikethrough + pill below.
-        opacity: cancelled ? 0.5 : 1,
+        // Cancelled OR past/finished events: whole card dimmed so time / duration /
+        // location stay visible but greyed. Cancelled also gets a strikethrough +
+        // pill; past gets a ✓ after the subject (see below).
+        opacity: cancelled || past ? 0.5 : 1,
         transition: 'border-color 150ms ease, box-shadow 150ms ease',
         boxShadow: hovered ? '0 2px 10px rgba(0,0,0,0.055)' : 'none',
       }}
@@ -429,6 +433,10 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
             display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
           }}>
             <span style={{ textDecoration: cancelled ? 'line-through' : 'none' }}>{event.title}</span>
+            {past && (
+              // Finished-event checkmark: subtle, text-xs (12px), ml-1 (4px).
+              <span style={{ color: 'var(--text3)', fontSize: 12, marginLeft: 4 }}>✓</span>
+            )}
             {cancelled && (
               // Spec: var(--surface) bg + var(--text3) text, text-xs, rounded-full,
               // px-2 py-0.5. A hairline border keeps it legible on the surface card.
@@ -2042,7 +2050,11 @@ function DayCellView({ cell, index, onShowDetails, onAddOnDate }: {
       {/* Event blocks — charcoal w/ purple dot = has Teams; CASK red = regular event */}
       {visible.map(ev => {
         // Cancelled events: dim the pill (opacity-40) and strike the subject text.
+        // Past/finished events (ended before now, not cancelled): dim to opacity-40
+        // as well, but no strikethrough.
         const cancelled = isCancelledEvent(ev)
+        const past = !cancelled && ev.end_time != null && new Date(ev.end_time) < new Date()
+        const dimmed = cancelled || past
         return (
         <button
           key={ev.id}
@@ -2055,15 +2067,15 @@ function DayCellView({ cell, index, onShowDetails, onAddOnDate }: {
             padding: '3px 7px', borderRadius: 5,
             background: eventColor(ev),
             color: '#fff',
-            opacity: cancelled ? 0.4 : 1,
+            opacity: dimmed ? 0.4 : 1,
             textDecoration: cancelled ? 'line-through' : 'none',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             animation: 'calEventFadeIn 240ms ease both',
             animationDelay: `${Math.min(index, 41) * 12}ms`,
             transition: 'opacity 150ms ease',
           }}
-          onMouseEnter={e => { e.currentTarget.style.opacity = cancelled ? '0.4' : '0.85' }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = cancelled ? '0.4' : '1' }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = dimmed ? '0.4' : '0.85' }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = dimmed ? '0.4' : '1' }}
         >
           {ev.title}
         </button>
@@ -2717,7 +2729,6 @@ export default function CalendarPage() {
     const now = new Date()
     const month = now.getMonth() + 1
     const year = now.getFullYear()
-    const nowMs = now.getTime()
 
     async function fetchEvents() {
       try {
@@ -2732,8 +2743,8 @@ export default function CalendarPage() {
         }
         // Collect every event the response provides (month view is primary; merge
         // today/week if present), dedupe by id, then map Graph → CalendarEvent.
-        // Keep only future events to preserve the previous query's behavior
-        // (the old Supabase read filtered start_time >= now).
+        // Past/finished events are now KEPT (previously filtered to future-only) so
+        // all of today's events show; they're greyed out in the list + grid views.
         const graphEvents = dedupeGraphById([
           ...(json.monthEvents ?? []),
           ...(json.weekEvents ?? []),
@@ -2741,7 +2752,6 @@ export default function CalendarPage() {
         ])
         const mapped = graphEvents
           .map(mapGraphEvent)
-          .filter(e => e.start_time && new Date(e.start_time).getTime() >= nowMs)
           .sort((a, b) => a.start_time.localeCompare(b.start_time))
         setConnectionError(null)
         setEvents(mapped)
@@ -3273,7 +3283,7 @@ export default function CalendarPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 32 }}>
           <StatTile value={todayEvents.length} label="Today" sublabel="meetings" accent="var(--red)" />
           <StatTile value={weekTotal} label="This Week" sublabel="total" accent="#2563eb" />
-          <StatTile value={events.length} label="Upcoming" sublabel="on calendar" accent="#059669" />
+          <StatTile value={events.filter(e => new Date(e.start_time) > new Date()).length} label="Upcoming" sublabel="on calendar" accent="#059669" />
           <NextMeetingTile event={nextMeeting} />
         </div>
 

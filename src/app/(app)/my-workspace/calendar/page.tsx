@@ -239,11 +239,15 @@ function EventCard({ event, onGenerateAgenda }: { event: GraphEvent; onGenerateA
   const organizer = event.organizer?.emailAddress?.name
   const joinUrl = event.onlineMeeting?.joinUrl
   const cancelled = isCancelledEvent(event)
+  // A past/finished event ended before now and is NOT cancelled (cancelled keeps
+  // its own styling). Uses parseGraphDate — not new Date(event.end.dateTime) — so
+  // no-offset UTC datetimes compare correctly, matching the rest of this file.
+  const past = !cancelled && !!event.end?.dateTime && parseGraphDate(event.end.dateTime).getTime() < Date.now()
 
   return (
-    // Cancelled events: whole card dimmed (opacity-40) so time / duration /
-    // location stay visible but greyed; subject also gets a strikethrough below.
-    <div className={`flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-4 ${cancelled ? 'opacity-40' : ''}`}>
+    // Cancelled events: dimmed to opacity-40 (subject also struck through below).
+    // Past/finished events: dimmed to opacity-50, no strikethrough, ✓ after subject.
+    <div className={`flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-4 ${cancelled ? 'opacity-40' : past ? 'opacity-50' : ''}`}>
       {/* Left: time + badges */}
       <div className="flex w-36 shrink-0 flex-col gap-2">
         <span className="text-sm font-medium text-[var(--text)]">{formatTimeRange(event)}</span>
@@ -267,6 +271,7 @@ function EventCard({ event, onGenerateAgenda }: { event: GraphEvent; onGenerateA
           <span className={`text-sm font-semibold text-[var(--text)] ${cancelled ? 'line-through' : ''}`}>
             {event.subject || '(No subject)'}
           </span>
+          {past && <span className="ml-1 text-xs text-[var(--text3)]">✓</span>}
           {cancelled && (
             // Spec: var(--surface2) bg + var(--text3) text, small rounded pill. A
             // hairline border is added so the pill stays legible on the surface2 card.
@@ -497,6 +502,9 @@ function CalendarGridView({
               {visible.map(ev => {
                 const isTeams = !!ev.onlineMeeting?.joinUrl
                 const cancelled = isCancelledEvent(ev)
+                // Past/finished events (ended before now, not cancelled) dim to
+                // opacity-40 too — same as cancelled, but without strikethrough.
+                const past = !cancelled && !!ev.end?.dateTime && parseGraphDate(ev.end.dateTime).getTime() < Date.now()
                 return (
                   <button
                     key={ev.id}
@@ -504,7 +512,7 @@ function CalendarGridView({
                     title={ev.subject}
                     className={`w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-semibold transition-opacity hover:opacity-85 ${
                       isTeams ? 'bg-[#7C3AED] text-white' : 'bg-[var(--surface2)] text-[var(--text2)]'
-                    } ${cancelled ? 'opacity-40' : ''}`}
+                    } ${cancelled || past ? 'opacity-40' : ''}`}
                   >
                     {/* Cancelled: strikethrough the subject only (leave the time legible). */}
                     {ev.isAllDay ? '' : `${formatTime(ev.start.dateTime)} `}
