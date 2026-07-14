@@ -83,6 +83,22 @@ function fmtGraphET(dt: string): string {
   return fmtET(parseGraphDate(dt).toISOString())
 }
 
+// Format a Graph event's start–end span in ET (12-hour), built on fmtGraphET so
+// all times stay America/New_York. When start and end share a meridiem the start's
+// AM/PM is dropped ("8:30 – 9:30 AM"); when they cross it, both are kept
+// ("11:30 AM – 12:30 PM"). With no end time, just the start is returned ("8:30 AM").
+function fmtGraphRange(startDt: string, endDt?: string | null): string {
+  const start = fmtGraphET(startDt) // e.g. "8:30 AM"
+  if (!endDt) return start
+  const end = fmtGraphET(endDt)
+  const startMeridiem = start.split(' ')[1]
+  const endMeridiem = end.split(' ')[1]
+  if (startMeridiem && startMeridiem === endMeridiem) {
+    return `${start.split(' ')[0]} – ${end}`
+  }
+  return `${start} – ${end}`
+}
+
 // Current ET week (Monday–Sunday) formatted like "Jul 6 – Jul 12". Matches the
 // Mon–Sun window /api/calendar/my-events uses for weekEvents.
 function currentWeekRangeET(): string {
@@ -2405,7 +2421,7 @@ export default function DashboardPage() {
                   <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No meetings today</div>
                 ) : (
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                    {visibleTodayEvents.slice(0, 8).map(ev => {
+                    {visibleTodayEvents.slice(0, 20).map(ev => {
                       const endMs = ev.end?.dateTime ? parseGraphDate(ev.end.dateTime).getTime() : null
                       const isDone = !ev.isAllDay && endMs !== null && endMs < nowMs
                       return (
@@ -2413,8 +2429,10 @@ export default function DashboardPage() {
                           key={ev.id}
                           style={{ display: 'flex', gap: 10, fontSize: 12.5, padding: '5px 0', color: 'var(--text2)' }}
                         >
-                          <span style={{ fontWeight: 600, color: 'var(--text)', width: 62, flexShrink: 0, ...NUM }}>
-                            {ev.isAllDay ? 'All day' : fmtGraphET(ev.start.dateTime)}
+                          {/* Time column widened + nowrap to fit the start–end range
+                              (e.g. "11:30 AM – 12:30 PM") on a single line. */}
+                          <span style={{ fontWeight: 600, color: 'var(--text)', width: 118, flexShrink: 0, whiteSpace: 'nowrap', ...NUM }}>
+                            {ev.isAllDay ? 'All Day' : fmtGraphRange(ev.start.dateTime, ev.end?.dateTime)}
                           </span>
                           <span
                             style={{
