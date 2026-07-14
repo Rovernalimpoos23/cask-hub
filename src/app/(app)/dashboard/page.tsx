@@ -2272,6 +2272,23 @@ export default function DashboardPage() {
                     'Loading your action items…'
                   ) : (
                     <>
+                      {/* Prepend a schedule line for restricted users too: "Next up"
+                          when there's an upcoming/in-progress event, or "wrapped"
+                          when the day is done. Suppressed while the calendar is still
+                          loading (no "Pulling schedule…" noise) and when there are no
+                          events / Outlook isn't connected. The action items sentence
+                          below is unchanged. */}
+                      {!myCalendarLoading && myNextEvent ? (
+                        <>
+                          Next up:{' '}
+                          <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
+                            {myNextEvent.subject} at {fmtGraphET(myNextEvent.start.dateTime)}
+                          </em>
+                          .{' '}
+                        </>
+                      ) : !myCalendarLoading && allMyEventsDone ? (
+                        'All of today’s meetings are wrapped. '
+                      ) : null}
                       You have{' '}
                       <em style={{ fontStyle: 'normal', borderBottom: '2px solid var(--fable-red-soft)' }}>
                         {myOpenCount} open action item{myOpenCount === 1 ? '' : 's'}
@@ -2574,11 +2591,19 @@ export default function DashboardPage() {
                 // glance view, so they'd just add noise (see isCancelledGraphEvent).
                 (() => {
                 const visibleTodayEvents = myTodayEvents.filter(ev => !isCancelledGraphEvent(ev))
+                // Restricted users see at most 8 events in Today's Schedule, with a
+                // "View all" link into My Calendar when there are more. Admins keep
+                // the existing behavior (up to 20) unchanged.
+                const scheduleEvents = isRestricted
+                  ? visibleTodayEvents.slice(0, 8)
+                  : visibleTodayEvents.slice(0, 20)
+                const remainingEvents = visibleTodayEvents.length - scheduleEvents.length
                 return visibleTodayEvents.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No meetings today</div>
                 ) : (
+                  <>
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                    {visibleTodayEvents.slice(0, 20).map(ev => {
+                    {scheduleEvents.map(ev => {
                       const endMs = ev.end?.dateTime ? parseGraphDate(ev.end.dateTime).getTime() : null
                       const isDone = !ev.isAllDay && endMs !== null && endMs < nowMs
                       return (
@@ -2609,6 +2634,15 @@ export default function DashboardPage() {
                       )
                     })}
                   </ul>
+                  {isRestricted && remainingEvents > 0 && (
+                    <Link
+                      href="/my-workspace/calendar"
+                      className="mt-2 block text-xs text-[var(--text2)] hover:text-[var(--text)] transition-colors text-right no-underline"
+                    >
+                      + {remainingEvents} more → View all
+                    </Link>
+                  )}
+                  </>
                 )
                 })()
               ) : outlookLoading ? (
