@@ -22,6 +22,8 @@ interface CalendarEvent {
   recurring_days?: string[] | null
   recurring_indefinite?: boolean | null
   is_exception?: boolean | null
+  // True when the underlying Graph event is cancelled (see isCancelledEvent).
+  is_cancelled?: boolean | null
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -59,6 +61,17 @@ function getEventBorderColor(event: CalendarEvent): string {
   if (event.is_all_day) return '#059669'
   if (event.meeting_link) return '#7c3aed'
   return '#2563eb'
+}
+
+// A cancelled event is one Graph flagged isCancelled, or whose title (the Graph
+// subject) is prefixed "Cancelled:" / "Canceled:" (Microsoft uses both spellings).
+// Cancelled events are shown but visually de-emphasized — same treatment as the
+// My Calendar page. In practice detection is title-prefix based, since the
+// president-events API's $select does not include isCancelled.
+function isCancelledEvent(event: CalendarEvent): boolean {
+  if (event.is_cancelled === true) return true
+  const s = (event.title ?? '').trimStart().toLowerCase()
+  return s.startsWith('cancelled:') || s.startsWith('canceled:')
 }
 
 // Step a YYYY-MM-DD date string forward by the given recurrence frequency.
@@ -299,6 +312,7 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
   const [linkInput, setLinkInput] = useState('')
   const [savingLink, setSavingLink] = useState(false)
   const borderColor = getEventBorderColor(event)
+  const cancelled = isCancelledEvent(event)
   const duration = getDuration(event.start_time, event.end_time)
   const { shown, extra } = getAttendeesDisplay(event.attendees)
 
@@ -341,6 +355,9 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
         display: 'flex',
         flexDirection: 'column',
         gap: 10,
+        // Cancelled events: whole card dimmed so time / duration / location stay
+        // visible but greyed; subject also gets a strikethrough + pill below.
+        opacity: cancelled ? 0.5 : 1,
         transition: 'border-color 150ms ease, box-shadow 150ms ease',
         boxShadow: hovered ? '0 2px 10px rgba(0,0,0,0.055)' : 'none',
       }}
@@ -409,8 +426,22 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
           <div style={{
             fontSize: 14, fontWeight: 650, color: 'var(--text)',
             marginBottom: 5, lineHeight: 1.35,
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
           }}>
-            {event.title}
+            <span style={{ textDecoration: cancelled ? 'line-through' : 'none' }}>{event.title}</span>
+            {cancelled && (
+              // Spec: var(--surface) bg + var(--text3) text, text-xs, rounded-full,
+              // px-2 py-0.5. A hairline border keeps it legible on the surface card.
+              <span style={{
+                flexShrink: 0,
+                background: 'var(--surface)', color: 'var(--text3)',
+                border: '1px solid var(--border)',
+                fontSize: 12, fontWeight: 600,
+                borderRadius: 999, padding: '2px 8px',
+              }}>
+                Cancelled
+              </span>
+            )}
           </div>
 
           {/* Organizer + Attendees */}
@@ -450,7 +481,9 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
           )}
         </div>
 
-        {/* Action buttons */}
+        {/* Action buttons — hidden entirely for cancelled events (no Join Teams /
+            Generate Agenda), matching the My Calendar page. */}
+        {!cancelled && (
         <div style={{ flexShrink: 0, alignSelf: 'center', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {teamsLink ? (
             <a
@@ -506,6 +539,7 @@ function EventCard({ event, onGenerateAgenda, onEdit, onDelete }: { event: Calen
             ✦ Generate Agenda
           </button>
         </div>
+        )}
       </div>
 
       {/* Inline paste Teams link */}
@@ -2006,7 +2040,10 @@ function DayCellView({ cell, index, onShowDetails, onAddOnDate }: {
       </div>
 
       {/* Event blocks — charcoal w/ purple dot = has Teams; CASK red = regular event */}
-      {visible.map(ev => (
+      {visible.map(ev => {
+        // Cancelled events: dim the pill (opacity-40) and strike the subject text.
+        const cancelled = isCancelledEvent(ev)
+        return (
         <button
           key={ev.id}
           onClick={e => { e.stopPropagation(); onShowDetails(ev, e.currentTarget.getBoundingClientRect()) }}
@@ -2018,17 +2055,20 @@ function DayCellView({ cell, index, onShowDetails, onAddOnDate }: {
             padding: '3px 7px', borderRadius: 5,
             background: eventColor(ev),
             color: '#fff',
+            opacity: cancelled ? 0.4 : 1,
+            textDecoration: cancelled ? 'line-through' : 'none',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             animation: 'calEventFadeIn 240ms ease both',
             animationDelay: `${Math.min(index, 41) * 12}ms`,
             transition: 'opacity 150ms ease',
           }}
-          onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = cancelled ? '0.4' : '0.85' }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = cancelled ? '0.4' : '1' }}
         >
           {ev.title}
         </button>
-      ))}
+        )
+      })}
       {extra > 0 && (
         <button
           onClick={e => {
@@ -2244,7 +2284,8 @@ function EventDetailsPopup({ event, anchor, onClose, onEdit, onDelete }: {
 
         {/* Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px' }}>
-          {teamsLink && (
+          {/* Join Teams is hidden for cancelled events (matches the My Calendar page). */}
+          {teamsLink && !isCancelledEvent(event) && (
             <a
               href={teamsLink}
               target="_blank"
@@ -2503,6 +2544,7 @@ interface GraphEvent {
   onlineMeeting?: { joinUrl?: string } | null
   webLink?: string
   isAllDay?: boolean
+  isCancelled?: boolean
   recurrence?: unknown | null
 }
 
@@ -2544,6 +2586,7 @@ function mapGraphEvent(ev: GraphEvent): CalendarEvent {
     web_link: ev.webLink ?? null,
     is_all_day: ev.isAllDay ?? null,
     is_recurring: ev.recurrence != null,
+    is_cancelled: ev.isCancelled === true,
     recurring_id: null,         // not applicable for Graph events
     recurring_days: null,       // not applicable
     recurring_indefinite: null, // not applicable

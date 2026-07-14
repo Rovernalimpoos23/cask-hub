@@ -272,8 +272,8 @@ The user is viewing the Design Center section. Prioritize this context:
   if (p.startsWith('/president/calendar')) {
     return `
 == CURRENT PAGE: PRESIDENT'S CALENDAR ==
-The user is viewing Calin's calendar. Focus exclusively on calendar data:
-- Lead every answer with specific times (ET) and event titles from CALIN'S CALENDAR above
+The user is viewing their own calendar. Focus exclusively on calendar data:
+- Lead every answer with specific times (ET) and event titles from YOUR CALENDAR above
 - Today's schedule is the primary focus; surface it proactively
 - Example questions to answer directly:
   "What's on my calendar today?" → list all Today events with exact ET times
@@ -371,7 +371,8 @@ ${meetingsContext}
 == LIVE CLIENT DATA (from Supabase) ==
 ${clientsContext}
 
-== CALIN'S CALENDAR (Microsoft 365 — Eastern Time) ==
+== YOUR CALENDAR (Microsoft 365 — Eastern Time) ==
+The following is ${userName || 'the current user'}'s personal Outlook calendar pulled directly from Microsoft Graph. This belongs to the currently logged-in user, not necessarily Calin Noonan.
 ${calendarContext}
 ${isRestrictedDashboard ? buildRestrictedDashboardFocus(userName) : buildPageFocusSection(pageContext)}
 
@@ -489,15 +490,12 @@ export async function POST(req: NextRequest) {
     const now = new Date()
     const ET = 'America/New_York'
 
-    // Compute exact UTC start of today in Eastern Time (handles DST automatically)
-    const etNowApprox = new Date(now.toLocaleString('en-US', { timeZone: ET }))
-    const etOffsetMs = now.getTime() - etNowApprox.getTime()
+    // etTodayStr (the ET calendar date) is still used below when bucketing events
+    // into today/tomorrow/this-week. The former etDayStartISO/et30DaysISO window
+    // bounds only fed the removed calendar_events query, so they're gone.
     const etTodayStr = now.toLocaleDateString('en-CA', { timeZone: ET })
-    const [ey, em, ed] = etTodayStr.split('-').map(Number)
-    const etDayStartISO = new Date(Date.UTC(ey, em - 1, ed, 0, 0, 0) + etOffsetMs).toISOString()
-    const et30DaysISO = new Date(Date.UTC(ey, em - 1, ed, 0, 0, 0) + etOffsetMs + 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    const [{ data: meetings }, { data: clients }, { data: calendarEvents }] = await Promise.all([
+    const [{ data: meetings }, { data: clients }] = await Promise.all([
       supabase
         .from('meetings')
         .select('title, date, summary, action_items, key_decisions, attendees, meeting_type, module')
@@ -507,14 +505,88 @@ export async function POST(req: NextRequest) {
         .from('clients')
         .select('name, happiness, project_type, project_value, start_date')
         .order('name'),
-      supabase
-        .from('calendar_events')
-        .select('title, start_time, end_time, organizer, attendees, location, meeting_link, is_all_day')
-        .gte('start_time', etDayStartISO)
-        .lte('start_time', et30DaysISO)
-        .order('start_time', { ascending: true })
-        .limit(200),
     ])
+
+    // Migrated from Supabase calendar_events (Make.com) to Microsoft Graph.
+    // Reads the logged-in user's own calendar via /api/calendar/my-events.
+    // Returns empty if user hasn't connected Outlook yet.
+    const etNow = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
+    const etDate = new Date(etNow)
+    const currentMonth = etDate.getMonth() + 1
+    const currentYear = etDate.getFullYear()
+
+    // Wrapped in try/catch so a network/URL failure degrades to an empty calendar
+    // (see the null-handling below) rather than throwing out of the whole chat
+    // request — the outer handler would otherwise turn it into a 500.
+    let graphData: {
+      todayEvents?: unknown[]
+      weekEvents?: unknown[]
+      monthEvents?: unknown[]
+      error?: string
+    } | null = null
+    try {
+      const graphRes = await fetch(
+        `${process.env.NEXT_PUBLIC_APP_URL}/api/calendar/my-events?month=${currentMonth}&year=${currentYear}`,
+        {
+          headers: {
+            cookie: req.headers.get('cookie') ?? '',
+          },
+        }
+      )
+      graphData = graphRes.ok ? await graphRes.json() : null
+    } catch (err) {
+      console.error('[chat] my-events fetch failed:', err instanceof Error ? err.message : 'unknown')
+      graphData = null
+    }
+
+    // Combine today + week + month events, dedupe by id (the windows overlap), drop
+    // cancelled meetings, and map each Graph event into the CalRow shape the calendar
+    // context builder below expects. When graphData is null or carries an error
+    // (e.g. 'not_connected'), this yields [] → CASK Intelligence shows no meetings.
+    type GraphCalEvent = {
+      id?: string
+      subject?: string
+      isCancelled?: boolean
+      isAllDay?: boolean
+      start?: { dateTime?: string }
+      end?: { dateTime?: string }
+      organizer?: { emailAddress?: { name?: string } }
+      location?: { displayName?: string }
+      onlineMeeting?: { joinUrl?: string }
+    }
+    const graphEvents: GraphCalEvent[] =
+      graphData && !graphData.error
+        ? ([
+            ...(Array.isArray(graphData.todayEvents) ? graphData.todayEvents : []),
+            ...(Array.isArray(graphData.weekEvents) ? graphData.weekEvents : []),
+            ...(Array.isArray(graphData.monthEvents) ? graphData.monthEvents : []),
+          ] as GraphCalEvent[])
+        : []
+
+    const seenGraphIds = new Set<string>()
+    const calendarEvents = graphEvents
+      .filter(ev => {
+        if (!ev?.id || seenGraphIds.has(ev.id)) return false
+        seenGraphIds.add(ev.id)
+        return true
+      })
+      .filter(ev => {
+        const cancelled =
+          ev.isCancelled === true ||
+          ev.subject?.toLowerCase().startsWith('cancelled:') ||
+          ev.subject?.toLowerCase().startsWith('canceled:')
+        return !cancelled
+      })
+      .map(ev => ({
+        title: ev.subject,
+        start_time: ev.start?.dateTime,
+        end_time: ev.end?.dateTime,
+        organizer: ev.organizer?.emailAddress?.name ?? null,
+        attendees: null,
+        location: ev.location?.displayName ?? null,
+        meeting_link: ev.onlineMeeting?.joinUrl ?? null,
+        is_all_day: ev.isAllDay ?? false,
+      }))
 
     // For restricted dashboard users: keep only meetings they attended; admins/others unchanged.
     const scopedMeetings = isRestrictedDashboard && Array.isArray(meetings)
