@@ -2822,10 +2822,14 @@ export default function CalendarPage() {
   const daysUntilSunday = etDayOfWeek === 0 ? 0 : 7 - etDayOfWeek
   const etSundayDateStr = new Date(now.getTime() + daysUntilSunday * 24 * 60 * 60 * 1000)
     .toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  // weekTotal excludes cancelled events so the stat card matches the visible,
+  // non-cancelled meetings for the rest of the week.
   const weekTotal = events.filter(e =>
-    new Date(e.start_time) >= now && toDateStr(e.start_time) <= etSundayDateStr
+    new Date(e.start_time) >= now && toDateStr(e.start_time) <= etSundayDateStr &&
+    !isCancelledEvent(e)
   ).length
-  const nextMeeting = events.find(e => new Date(e.start_time) > now)
+  // Next meeting skips cancelled events — the first future, non-cancelled event.
+  const nextMeeting = events.find(e => new Date(e.start_time) > now && !isCancelledEvent(e))
 
   function etToISO(dateStr: string, timeStr: string): string {
     const [y, mo, d] = dateStr.split('-').map(Number)
@@ -3281,9 +3285,10 @@ export default function CalendarPage() {
 
         {/* Stats row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 32 }}>
-          <StatTile value={todayEvents.length} label="Today" sublabel="meetings" accent="var(--red)" />
+          {/* Stat counts exclude cancelled events via isCancelledEvent. */}
+          <StatTile value={todayEvents.filter(e => !isCancelledEvent(e)).length} label="Today" sublabel="meetings" accent="var(--red)" />
           <StatTile value={weekTotal} label="This Week" sublabel="total" accent="#2563eb" />
-          <StatTile value={events.filter(e => new Date(e.start_time) > new Date()).length} label="Upcoming" sublabel="on calendar" accent="#059669" />
+          <StatTile value={events.filter(e => new Date(e.start_time) > new Date() && !isCancelledEvent(e)).length} label="Upcoming" sublabel="on calendar" accent="#059669" />
           <NextMeetingTile event={nextMeeting} />
         </div>
 

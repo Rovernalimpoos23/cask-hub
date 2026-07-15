@@ -1104,11 +1104,15 @@ export default function MyCalendarPage() {
           <ConnectState title="Couldn't load your calendar. Please try again." cta="Reconnect Outlook" />
         ) : (
           <>
-            {/* Stat cards */}
+            {/* Stat cards — counts exclude cancelled events via isCancelledEvent. */}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatCard label="Today" value={todayEvents.length} sublabel="meetings" />
-              <StatCard label="This Week" value={weekEvents.length} sublabel="total" />
+              <StatCard label="Today" value={todayEvents.filter(e => !isCancelledEvent(e)).length} sublabel="meetings" />
+              <StatCard label="This Week" value={weekEvents.filter(e => !isCancelledEvent(e)).length} sublabel="total" />
+              {/* NOTE: upcomingCount comes from the API and may still include
+                  cancelled events — leave as-is until the API filters them. */}
               <StatCard label="Upcoming" value={upcomingCount} sublabel="on calendar" />
+              {/* NEXT MEETING: uses the recomputed `nextMeeting` above, which already
+                  skips cancelled events (see FIX 1). */}
               <NextMeetingCard nextMeeting={nextMeeting} now={now} />
             </div>
 
