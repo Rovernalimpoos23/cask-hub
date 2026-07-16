@@ -27,6 +27,7 @@
     "react-markdown": "^10.1.0",
     "react-quill": "^2.0.0",
     "twilio": "^6.0.2",
+    "unpdf": "^1.6.2",
     "xlsx": "^0.18.5",
     "xlsx-js-style": "^1.2.0"
   },

@@ -160,21 +160,16 @@ async function ensureAccessToken(
 // the whole request.
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  // pdf-parse runs on Node's main thread (it wraps pdfjs-dist's legacy build),
-  // which is why we switched to it from pdfjs-dist directly.
-  //
-  // NOTE: the installed pdf-parse is v2, whose API is a PDFParse *class* — NOT the
-  // v1 default-export function `pdfParse.default(buffer)` shown in older docs (that
-  // is undefined on v2 and would throw). Dynamic import keeps this heavy dep off
-  // the hot path for non-PDF requests.
-  const { PDFParse } = await import('pdf-parse')
-  const parser = new PDFParse({ data: buffer })
   try {
-    const { text } = await parser.getText()
+    const { extractText } = await import('unpdf')
+    // mergePages: true → `text` is a single joined string. Without it, unpdf's
+    // default returns text as string[] (one entry per page), which would break the
+    // slice + the Promise<string> return type below.
+    const { text } = await extractText(new Uint8Array(buffer), { mergePages: true })
     return (text ?? '').slice(0, MAX_TEXT_CHARS)
-  } finally {
-    // Release the underlying pdfjs document/worker resources.
-    await parser.destroy()
+  } catch (err) {
+    console.error('[pdf] unpdf extraction error:', err)
+    return '[PDF text could not be extracted]'
   }
 }
 
