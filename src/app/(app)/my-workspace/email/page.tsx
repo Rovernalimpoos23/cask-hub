@@ -216,6 +216,13 @@ function PaperclipIcon({ size = 14, className }: IconProps) {
     </svg>
   )
 }
+function DownloadIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg {...svgBase(size, className)}>
+      <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+    </svg>
+  )
+}
 function CloseIcon({ size = 16, className }: IconProps) {
   return (
     <svg {...svgBase(size, className)}>
@@ -356,7 +363,15 @@ function messageText(m: EmailMessage): string {
 // HTML emails are designed for a white background — that's correct and expected).
 // Only images are constrained to the container width and links get an accent.
 // Scripts remain blocked by the sandbox.
-const EMAIL_BASE_STYLE = `<style>
+// Injected into the email document's <head>. The <base target="_blank"> makes
+// every link in the (sanitized) email body open in a new browser tab instead of
+// navigating inside the sandboxed iframe. This is the script-free equivalent of
+// the requested click-interceptor: the iframe sandbox intentionally omits
+// allow-scripts (so untrusted email HTML can't execute JS), which means an
+// injected <script> would never run — but <base target="_blank"> needs no script
+// and works with the iframe's existing allow-popups flag. (CSS has no `target`
+// property, so an `a { target: _blank }` rule would have no effect.)
+const EMAIL_BASE_STYLE = `<base target="_blank"><style>
   body { margin: 0; padding: 8px; }
   img { max-width: 100% !important; height: auto !important; }
   a { color: #F0565E; }
@@ -1600,14 +1615,35 @@ export default function MyEmailPage() {
                 {selected.hasAttachments && (selected.attachments?.length ?? 0) > 0 && (
                   <div className="mt-4 flex flex-wrap gap-2">
                     {selected.attachments!.map((a, i) => (
-                      <div
-                        key={a.id ?? i}
-                        className="inline-flex items-center gap-2 rounded-lg bg-[var(--surface2)] px-3 py-1.5 text-xs text-[var(--text2)]"
-                      >
-                        <PaperclipIcon className="shrink-0 text-[var(--text3)]" />
-                        <span className="max-w-[200px] truncate">{a.name || 'attachment'}</span>
-                        {a.size ? <span className="text-[var(--text3)]">{fmtSize(a.size)}</span> : null}
-                      </div>
+                      // Clickable download link — hits the download-attachment API
+                      // route, which streams the file back with Content-Disposition.
+                      // a.id can be missing on item/reference attachments; those
+                      // aren't downloadable, so render a plain (non-link) pill.
+                      a.id ? (
+                        <a
+                          key={a.id ?? i}
+                          href={`/api/email/download-attachment?messageId=${encodeURIComponent(selected.id)}&attachmentId=${encodeURIComponent(a.id)}&isPresidentInbox=false`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          download={a.name || 'attachment'}
+                          className="group inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--surface2)] px-3 py-1.5 text-xs text-[var(--text2)] transition-colors hover:bg-[var(--surface)]"
+                          title={`Download ${a.name || 'attachment'}`}
+                        >
+                          <PaperclipIcon className="shrink-0 text-[var(--text3)]" />
+                          <span className="max-w-[200px] truncate">{a.name || 'attachment'}</span>
+                          {a.size ? <span className="text-[var(--text3)]">{fmtSize(a.size)}</span> : null}
+                          <DownloadIcon className="shrink-0 text-[var(--text3)] group-hover:text-[var(--text2)]" />
+                        </a>
+                      ) : (
+                        <div
+                          key={a.id ?? i}
+                          className="inline-flex items-center gap-2 rounded-lg bg-[var(--surface2)] px-3 py-1.5 text-xs text-[var(--text2)]"
+                        >
+                          <PaperclipIcon className="shrink-0 text-[var(--text3)]" />
+                          <span className="max-w-[200px] truncate">{a.name || 'attachment'}</span>
+                          {a.size ? <span className="text-[var(--text3)]">{fmtSize(a.size)}</span> : null}
+                        </div>
+                      )
                     ))}
                   </div>
                 )}
