@@ -468,16 +468,27 @@ function FloatingClientAI({ client, journeyRows, messages, onSend, onClear, open
           width: 400, maxWidth: 'calc(100vw - 48px)',
           height: 540, maxHeight: 'calc(100vh - 48px)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          borderRadius: 16, background: 'var(--charcoal)',
+          borderRadius: 16,
+          // Always-dark drawer: the body text + bubbles below are all white /
+          // rgba-white (built for a dark surface), so the background must stay dark
+          // in BOTH themes. Hardcoded #1A1918 (matches the header) — NOT
+          // var(--charcoal) (inverts to a light colour in dark mode → the dark-mode
+          // bug) and NOT var(--surface) (which is #fff in light mode, and would make
+          // the white body text invisible in light mode).
+          background: '#1A1918',
           border: '1px solid rgba(255,255,255,0.08)',
           boxShadow: '0 24px 60px -12px rgba(0,0,0,0.5)',
           animation: 'clientAISlideUp 220ms ease',
         }}
       >
-        {/* Header */}
+        {/* Header — always dark (fixed title bar), independent of theme. The rest of
+            this drawer uses var(--charcoal) as its background; giving the header its
+            own #1A1918 keeps it dark even in dark mode (where var(--charcoal) inverts
+            to a light colour). The drawer body below is out of scope for this
+            header-only fix and still uses var(--charcoal). */}
         <div
           className="px-5 py-3.5"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}
+          style={{ background: '#1A1918', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}
         >
           <div className="flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5">

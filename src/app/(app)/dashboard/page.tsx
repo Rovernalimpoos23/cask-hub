@@ -535,14 +535,18 @@ function FloatingDashboardAI({ userRole, userName }: { userRole: string; userNam
             animation: 'dashboardSlideUp 220ms ease',
           }}
         >
-          {/* Dark header */}
+          {/* Header — intentionally ALWAYS dark (a fixed "title bar"), regardless of
+              the app theme. #1A1918 is the Hub's warm-charcoal dark surface; the
+              header text/buttons are hardcoded light-on-dark to match. NOTE: do not
+              use var(--charcoal) here — it flips to a light colour (#ECEBE8) in dark
+              mode. The drawer body + input below still follow the theme via CSS vars. */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '13px 16px',
-              background: 'var(--charcoal)',
+              background: '#1A1918',
               flexShrink: 0,
             }}
           >
@@ -562,7 +566,7 @@ function FloatingDashboardAI({ userRole, userName }: { userRole: string; userNam
                   fontWeight: 800,
                   letterSpacing: '1.6px',
                   textTransform: 'uppercase',
-                  color: '#fff',
+                  color: '#ECEBE8',
                 }}
               >
                 CASK Intelligence

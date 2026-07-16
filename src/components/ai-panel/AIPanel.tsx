@@ -539,19 +539,22 @@ export default function AIPanel() {
       {/* ── Chat area (right) ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--white)' }}>
 
-        {/* Chat header */}
+        {/* Chat header — intentionally ALWAYS dark (fixed "title bar"), regardless
+            of the app theme. #1A1918 is the Hub's warm-charcoal dark surface; the
+            header text/buttons below are hardcoded light-on-dark to match. The panel
+            body + content below this header still follow the theme. */}
         <div style={{
           padding: '10px 12px',
           borderBottom: '1px solid var(--border)',
-          background: 'linear-gradient(to bottom, var(--white), var(--bg))',
+          background: '#1A1918',
           display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
         }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', fontFamily: 'var(--font-geist), sans-serif' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#ECEBE8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', fontFamily: 'var(--font-geist), sans-serif' }}>
                 {activeChannel.name}
               </span>
-              <span style={{ fontSize: 7.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.75)', background: 'var(--charcoal)', padding: '2px 4px', borderRadius: 3, flexShrink: 0, fontFamily: 'var(--font-geist), sans-serif' }}>
+              <span style={{ fontSize: 7.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)', background: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: 3, flexShrink: 0, fontFamily: 'var(--font-geist), sans-serif' }}>
                 Active
               </span>
             </div>
@@ -569,7 +572,7 @@ export default function AIPanel() {
               <button
                 onClick={clearHistory}
                 title="Clear chat history for this channel"
-                style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 150ms ease' }}
+                style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 150ms ease' }}
               >
                 Clear
               </button>
@@ -586,7 +589,7 @@ export default function AIPanel() {
             <button
               onClick={toggleVoice}
               title={voiceEnabled ? 'Voice on — click to mute' : 'Voice off — click to enable'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px 2px 5px', borderRadius: 20, border: voiceEnabled ? '1px solid #10b981' : '1px solid var(--border)', background: voiceEnabled ? 'rgba(16,185,129,0.08)' : 'var(--surface2)', color: voiceEnabled ? '#10b981' : 'var(--text3)', fontSize: 9, fontWeight: 600, cursor: 'pointer', transition: 'all 200ms ease', boxShadow: voiceEnabled ? '0 0 0 2px rgba(16,185,129,0.15)' : 'none', fontFamily: 'inherit' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px 2px 5px', borderRadius: 20, border: voiceEnabled ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.2)', background: voiceEnabled ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.1)', color: voiceEnabled ? '#10b981' : 'rgba(255,255,255,0.85)', fontSize: 9, fontWeight: 600, cursor: 'pointer', transition: 'all 200ms ease', boxShadow: voiceEnabled ? '0 0 0 2px rgba(16,185,129,0.15)' : 'none', fontFamily: 'inherit' }}
             >
               {voiceEnabled ? (
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

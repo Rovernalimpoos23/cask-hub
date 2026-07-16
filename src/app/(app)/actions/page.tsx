@@ -232,14 +232,16 @@ function FloatingActionsAI() {
             animation: 'actionsSlideUp 220ms ease',
           }}
         >
-          {/* Dark header */}
+          {/* Header — always dark (fixed title bar), independent of theme.
+              #1A1918 stays dark in both modes; var(--charcoal) would invert to a
+              light colour in dark mode. */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '13px 16px',
-              background: 'var(--charcoal)',
+              background: '#1A1918',
               flexShrink: 0,
             }}
           >
@@ -259,7 +261,7 @@ function FloatingActionsAI() {
                   fontWeight: 800,
                   letterSpacing: '1.6px',
                   textTransform: 'uppercase',
-                  color: '#fff',
+                  color: '#ECEBE8',
                 }}
               >
                 Action Items AI
