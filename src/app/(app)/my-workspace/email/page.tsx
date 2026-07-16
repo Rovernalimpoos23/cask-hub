@@ -34,7 +34,7 @@
 // classes so the app's .dark theme overrides apply automatically. No inline
 // styles.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 
 const ET = 'America/New_York'
@@ -556,6 +556,27 @@ function RecipientInput({
   )
 }
 
+// Attachment size caps (client-side pre-checks; the compose API re-validates).
+// 3MB per file matches Microsoft Graph's inline fileAttachment limit.
+const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024 // 3MB
+const MAX_ATTACHMENTS_TOTAL_BYTES = 10 * 1024 * 1024 // 10MB
+
+// Read a File into a base64 string (no data: prefix) for the Graph fileAttachment
+// contentBytes field. FileReader.readAsDataURL yields "data:<mime>;base64,<data>";
+// we strip everything up to and including the comma.
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      const comma = result.indexOf(',')
+      resolve(comma >= 0 ? result.slice(comma + 1) : result)
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('read_failed'))
+    reader.readAsDataURL(file)
+  })
+}
+
 // Fully working compose modal. All field/UI state lives here; the modal is
 // conditionally rendered ({composeOpen && <ComposeModal/>}), so closing it
 // (onClose) unmounts the component and resets every field to its default.
@@ -584,6 +605,14 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
   const [composeRevisionLoading, setComposeRevisionLoading] = useState<string | null>(null)
   const [composeCustomRevision, setComposeCustomRevision] = useState('')
   const [composeRevisionError, setComposeRevisionError] = useState('')
+  // File attachments. Like the rest of this modal's state, these reset on close:
+  // the modal unmounts (see the note above ComposeModal), so no explicit
+  // closeCompose reset is needed for attachments / attachError.
+  const [attachments, setAttachments] = useState<
+    Array<{ name: string; contentType: string; contentBytes: string; size: number }>
+  >([])
+  const [attachError, setAttachError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const canSend =
     to.trim() !== '' && subject.trim() !== '' && body.trim() !== '' && !loading
@@ -613,6 +642,7 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
           body,
           ...(ccArray.length > 0 ? { cc: ccArray } : {}),
           ...(bccArray.length > 0 ? { bcc: bccArray } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
         }),
       })
       const json = (await res.json().catch(() => ({}))) as {
@@ -631,6 +661,47 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
       setError('Failed to send. Try again.')
       setLoading(false)
     }
+  }
+
+  // Read the picked files, enforce the per-file (3MB) and running-total (10MB)
+  // caps, and append valid ones (base64-encoded) to the attachments list. Any
+  // rejected/failed file sets attachError but never blocks the others.
+  async function handleFileAttach(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setAttachError('')
+    let runningTotal = attachments.reduce((sum, a) => sum + a.size, 0)
+    const added: Array<{ name: string; contentType: string; contentBytes: string; size: number }> = []
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setAttachError('File must be under 3MB. Please compress or split the file.')
+        continue
+      }
+      if (runningTotal + file.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
+        setAttachError('Total attachments exceed 10MB limit.')
+        continue
+      }
+      try {
+        const contentBytes = await readFileAsBase64(file)
+        added.push({
+          name: file.name,
+          contentType: file.type || 'application/octet-stream',
+          contentBytes,
+          size: file.size,
+        })
+        runningTotal += file.size
+      } catch {
+        setAttachError('Could not read file. Try again.')
+      }
+    }
+    if (added.length > 0) setAttachments(prev => [...prev, ...added])
+    // Reset the input so re-selecting the same file fires onChange again.
+    e.target.value = ''
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments(prev => prev.filter((_, i) => i !== index))
+    setAttachError('')
   }
 
   // Draft the email body from a short prompt. Reuses the existing 'draft_reply'
@@ -930,16 +1001,76 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
+      {/* Hidden file input — triggered by the paperclip button in the footer. */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        multiple
+        onChange={handleFileAttach}
+      />
+
+      {/* Attached files — listed above the footer. Rendered when there are
+          attachments OR an attach error to show, so a rejected oversized file's
+          message stays visible even when nothing was actually added. */}
+      {(attachments.length > 0 || attachError !== '') && (
+        <div className="flex-shrink-0 border-t border-[var(--border)] px-4 py-3">
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {attachments.map((a, i) => (
+                <div
+                  key={i}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--surface2)] px-3 py-1.5 text-xs text-[var(--text2)]"
+                >
+                  <PaperclipIcon className="shrink-0 text-[var(--text3)]" />
+                  <span className="max-w-[200px] truncate">{a.name}</span>
+                  <span className="text-[var(--text3)]">{fmtSize(a.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(i)}
+                    aria-label={`Remove ${a.name}`}
+                    className="text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+                  >
+                    <CloseIcon size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {attachError && (
+            <div className={`text-xs text-[var(--red)] ${attachments.length > 0 ? 'mt-2' : ''}`}>
+              {attachError}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Footer — flex-shrink-0 so Send + Discard stay pinned to the bottom and
           are always visible regardless of textarea / Draft-with-AI content. */}
       <div className="flex flex-shrink-0 items-center justify-between border-t-[0.5px] border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
-        <button
-          onClick={handleSend}
-          disabled={!canSend}
-          className="rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading ? 'Sending...' : 'Send'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSend}
+            disabled={!canSend}
+            className="rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? 'Sending...' : 'Send'}
+          </button>
+          {/* Attach file — paperclip button (reading-pane action-button style) with
+              the size hint directly below it. */}
+          <div className="flex flex-col items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach file (max 3MB each)"
+              aria-label="Attach file (max 3MB each)"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface2)] p-2 text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+            >
+              <PaperclipIcon />
+            </button>
+            <span className="text-xs text-[var(--text3)]">Max 3MB per file</span>
+          </div>
+        </div>
         <div className="flex items-center gap-3">
           {sent && <span className="text-sm text-[var(--green)]">Email sent!</span>}
           {error && <span className="text-sm text-[var(--red)]">{error}</span>}

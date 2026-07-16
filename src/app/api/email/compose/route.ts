@@ -11,11 +11,14 @@ export const dynamic = 'force-dynamic'
 // Refreshes the access token automatically when it's expired or within 5 minutes
 // of expiry. saveToSentItems: true so the message lands in the Outlook Sent folder.
 //
-// Body: { to: string[], subject: string, body: string, cc?: string[], bcc?: string[] }
+// Body: { to: string[], subject: string, body: string, cc?: string[], bcc?: string[],
+//         attachments?: Array<{ name, contentType, contentBytes(base64), size }> }
 // The plain-text body is converted to HTML (newlines → <br>) so formatting is
-// preserved on arrival. Auth + token pattern mirrors the other email routes
-// (inlined per-route). Every failure path returns JSON { error: '<reason>' } —
-// never an unhandled throw. Token/secret material is never logged.
+// preserved on arrival. Optional attachments are sent as Graph fileAttachments
+// (each ≤3MB, ≤10MB total — Graph's inline attachment limit). Auth + token pattern
+// mirrors the other email routes (inlined per-route). Every failure path returns
+// JSON { error: '<reason>' } — never an unhandled throw. Token/secret material is
+// never logged.
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
 
@@ -36,6 +39,36 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every(x => typeof x === 'string')
 }
 
+// An uploaded attachment as sent by the compose client.
+interface ComposeAttachment {
+  name: string
+  contentType: string
+  contentBytes: string // base64
+  size: number
+}
+
+// Attachments are valid when it's an array of well-formed attachment objects.
+function isAttachmentArray(v: unknown): v is ComposeAttachment[] {
+  return (
+    Array.isArray(v) &&
+    v.every(a => {
+      if (a === null || typeof a !== 'object') return false
+      const att = a as Record<string, unknown>
+      return (
+        typeof att.name === 'string' &&
+        typeof att.contentType === 'string' &&
+        typeof att.contentBytes === 'string' &&
+        typeof att.size === 'number'
+      )
+    })
+  )
+}
+
+// Per-file and total attachment size caps (bytes). 3MB per file matches Graph's
+// inline fileAttachment limit; larger files would need an upload session.
+const MAX_ATTACHMENT_BYTES = 3145728 // 3MB
+const MAX_ATTACHMENTS_TOTAL_BYTES = 10485760 // 10MB
+
 export async function POST(request: Request) {
   try {
     // ── Parse + validate the request body ────────────────────────────
@@ -45,6 +78,7 @@ export async function POST(request: Request) {
       body?: unknown
       cc?: unknown
       bcc?: unknown
+      attachments?: unknown
     }
     try {
       payload = (await request.json()) as typeof payload
@@ -71,6 +105,36 @@ export async function POST(request: Request) {
       (bcc !== undefined && !isStringArray(bcc))
     ) {
       return NextResponse.json({ error: 'missing_fields' }, { status: 400 })
+    }
+
+    // ── Validate optional attachments ────────────────────────────────
+    // When present, attachments must be a well-formed array and pass the size
+    // caps. Sizes are measured from the ACTUAL decoded contentBytes (not the
+    // client-declared `size`, which is advisory) since that's what Graph receives.
+    let attachments: ComposeAttachment[] | undefined
+    if (payload.attachments !== undefined) {
+      if (!isAttachmentArray(payload.attachments)) {
+        return NextResponse.json({ error: 'invalid_attachments' }, { status: 400 })
+      }
+      attachments = payload.attachments
+
+      let totalBytes = 0
+      for (const a of attachments) {
+        const bytes = Buffer.from(a.contentBytes, 'base64').length
+        if (bytes > MAX_ATTACHMENT_BYTES) {
+          return NextResponse.json(
+            { error: 'file_too_large', message: 'Files must be under 3MB' },
+            { status: 400 }
+          )
+        }
+        totalBytes += bytes
+      }
+      if (totalBytes > MAX_ATTACHMENTS_TOTAL_BYTES) {
+        return NextResponse.json(
+          { error: 'total_too_large', message: 'Total attachments must be under 10MB' },
+          { status: 400 }
+        )
+      }
     }
 
     // ── 1. Require a signed-in session ───────────────────────────────
@@ -192,6 +256,14 @@ export async function POST(request: Request) {
 
     // ── 4. Build the Graph sendMail payload ──────────────────────────
     const toGraphRecipient = (email: string) => ({ emailAddress: { address: email } })
+    // Map uploaded attachments to Graph fileAttachments. Only added to the message
+    // when present, so the no-attachment path stays exactly as before.
+    const graphAttachments = (attachments ?? []).map(a => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: a.name,
+      contentType: a.contentType,
+      contentBytes: a.contentBytes,
+    }))
     const graphPayload = {
       message: {
         subject,
@@ -202,6 +274,7 @@ export async function POST(request: Request) {
         toRecipients: to.map(toGraphRecipient),
         ccRecipients: cc?.map(toGraphRecipient) ?? [],
         bccRecipients: bcc?.map(toGraphRecipient) ?? [],
+        ...(graphAttachments.length > 0 ? { attachments: graphAttachments } : {}),
       },
       saveToSentItems: true,
     }
