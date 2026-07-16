@@ -573,10 +573,20 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
   const [sent, setSent] = useState(false)
   const [showCc, setShowCc] = useState(false)
   const [showBcc, setShowBcc] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  // Default to full-screen (true) so Compose opens expanded, not the centered card.
+  const [expanded, setExpanded] = useState(true)
   const [aiPrompt, setAiPrompt] = useState('')
   const [aiDraftLoading, setAiDraftLoading] = useState(false)
   const [aiDraftError, setAiDraftError] = useState('')
+  // AI revision state. composeAiDraft holds the last AI-generated body and gates
+  // the revision pills' visibility (non-empty → at least one draft exists).
+  // No explicit closeCompose reset is needed: the modal is conditionally rendered
+  // and unmounts on close (see the note above ComposeModal), which resets all of
+  // these to their defaults along with every other field.
+  const [composeAiDraft, setComposeAiDraft] = useState('')
+  const [composeRevisionLoading, setComposeRevisionLoading] = useState<string | null>(null)
+  const [composeCustomRevision, setComposeCustomRevision] = useState('')
+  const [composeRevisionError, setComposeRevisionError] = useState('')
 
   const canSend =
     to.trim() !== '' && subject.trim() !== '' && body.trim() !== '' && !loading
@@ -650,7 +660,11 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
       }
       if (data.result) {
         setBody(data.result)
-        setAiPrompt('')
+        // Record the generated draft (reveals the revision pills). aiPrompt is
+        // intentionally NOT cleared here: the revision pills + Regenerate reuse it
+        // as the `body` for /api/email/ai, so it must survive the initial draft.
+        setComposeAiDraft(data.result)
+        setComposeRevisionError('')
       } else {
         setAiDraftError('AI unavailable, try again.')
       }
@@ -658,6 +672,54 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
       setAiDraftError('AI unavailable, try again.')
     } finally {
       setAiDraftLoading(false)
+    }
+  }
+
+  // Revise (or regenerate) the AI-drafted body. Mirrors the reading-pane reply
+  // composer's runRevision: each pill sends the current draft + an instruction to
+  // /api/email/ai action 'revise'; Regenerate re-runs 'draft_reply' from the
+  // original prompt (aiPrompt). The clicked label doubles as the loading key and,
+  // for the preset pills, the revision instruction. Only reachable once
+  // composeAiDraft is set (the pills are hidden otherwise).
+  async function runComposeRevision(label: string, isCustom = false) {
+    if (composeRevisionLoading) return
+    setComposeRevisionLoading(label)
+    setComposeRevisionError('')
+    const isRegenerate = !isCustom && label === 'Regenerate ↺'
+    const payload = isRegenerate
+      ? {
+          action: 'draft_reply',
+          subject: subject || 'New email',
+          body: aiPrompt,
+          senderName: 'CASK Construction Team',
+        }
+      : {
+          action: 'revise',
+          subject: subject || 'New email',
+          body: aiPrompt,
+          senderName: 'CASK Construction Team',
+          currentDraft: body,
+          revision: label,
+        }
+    try {
+      const res = await fetch('/api/email/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = (await res.json().catch(() => ({}))) as { result?: string; error?: string }
+      const text = (json.result ?? '').trim()
+      if (!res.ok || json.error || !text) {
+        setComposeRevisionError('AI unavailable, try again')
+        return
+      }
+      setBody(text)
+      setComposeAiDraft(text)
+      if (isCustom) setComposeCustomRevision('')
+    } catch {
+      setComposeRevisionError('AI unavailable, try again')
+    } finally {
+      setComposeRevisionLoading(null)
     }
   }
 
@@ -753,16 +815,21 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
         />
       </div>
 
-      {/* Message */}
+      {/* Message — flex-1 so it grows to fill the space between the fixed
+          header/recipients above and the fixed Draft-with-AI + footer below.
+          min-h-0 lets it shrink below its content within the flex column (default
+          min-height:auto would otherwise push the footer off screen), and
+          overflow-y-auto keeps long drafts scrolling inside the textarea. */}
       <textarea
         value={body}
         onChange={e => setBody(e.target.value)}
         placeholder="Write your message..."
-        className="min-h-[200px] flex-1 resize-none bg-transparent px-4 py-3 text-sm leading-[1.7] text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
+        className="min-h-0 flex-1 resize-none overflow-y-auto bg-transparent px-4 py-3 text-sm leading-[1.7] text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
       />
 
-      {/* Draft with AI */}
-      <div className="border-t border-[var(--border)] px-4 py-3">
+      {/* Draft with AI — flex-shrink-0 so this section keeps its natural height
+          and never squeezes the footer out; the textarea above absorbs the flex. */}
+      <div className="flex-shrink-0 border-t border-[var(--border)] px-4 py-3">
         <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-[var(--text3)]">
           <SparklesIcon size={13} />
           Draft with AI
@@ -794,13 +861,81 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
         {aiDraftError && (
           <div className="mt-2 text-xs text-[var(--red)]">{aiDraftError}</div>
         )}
+
+        {/* AI revision pills — shown only once an AI draft exists (composeAiDraft
+            set). Styling + behavior mirror the reading-pane reply composer's
+            revisionTools. NOTE: in this modal the message textarea sits ABOVE this
+            Draft-with-AI block, so the "divider between pills and textarea" is the
+            leading divider below (the pills' natural neighbour here is the AI
+            input row above, and the textarea just above the section border). */}
+        {composeAiDraft !== '' && (
+          <div>
+            {/* Divider separating the revision pills from the prompt input row */}
+            <div className="my-3 h-px bg-[var(--border)]" />
+            <div className="flex flex-wrap gap-2">
+              {(['Make it shorter', 'Make it longer', 'More formal', 'More friendly', 'More direct', 'Regenerate ↺'] as const).map(label => {
+                const isLoading = composeRevisionLoading === label
+                const anyLoading = composeRevisionLoading !== null
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => runComposeRevision(label)}
+                    disabled={anyLoading}
+                    className={`cursor-pointer rounded-full border border-[var(--border)] bg-[var(--surface2)] px-3 py-1.5 text-xs text-[var(--text2)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--text)] disabled:cursor-not-allowed ${anyLoading && !isLoading ? 'opacity-50' : ''}`}
+                  >
+                    {isLoading ? '...' : label}
+                  </button>
+                )
+              })}
+            </div>
+            {composeRevisionError && (
+              <div className="mt-2 text-xs text-[var(--red)]">{composeRevisionError}</div>
+            )}
+
+            {/* Custom revision input — free-text instruction + Apply */}
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                type="text"
+                value={composeCustomRevision}
+                onChange={e => setComposeCustomRevision(e.target.value)}
+                onKeyDown={e => {
+                  if (
+                    e.key === 'Enter' &&
+                    composeCustomRevision.trim() !== '' &&
+                    composeRevisionLoading === null
+                  ) {
+                    e.preventDefault()
+                    runComposeRevision(composeCustomRevision, true)
+                  }
+                }}
+                disabled={composeRevisionLoading !== null}
+                placeholder="Tell AI what to change..."
+                className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text3)] disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={() => runComposeRevision(composeCustomRevision, true)}
+                disabled={composeCustomRevision.trim() === '' || composeRevisionLoading !== null}
+                className="rounded-lg bg-[var(--red)] px-3 py-2 text-sm text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Apply →
+              </button>
+            </div>
+
+            {/* Divider closing the revision section */}
+            <div className="my-3 h-px bg-[var(--border)]" />
+          </div>
+        )}
+
         <div className="mt-1.5 text-xs text-[var(--text3)]">
           AI will write the email body. You can edit before sending.
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t-[0.5px] border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
+      {/* Footer — flex-shrink-0 so Send + Discard stay pinned to the bottom and
+          are always visible regardless of textarea / Draft-with-AI content. */}
+      <div className="flex flex-shrink-0 items-center justify-between border-t-[0.5px] border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
         <button
           onClick={handleSend}
           disabled={!canSend}

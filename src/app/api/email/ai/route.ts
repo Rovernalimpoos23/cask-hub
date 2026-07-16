@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient as createServerSupabase } from '@/lib/supabase-server'
+import { createClient as createServiceSupabase } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -169,8 +170,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'missing_fields' }, { status: 400 })
     }
 
+    // ── 2b. Resolve the signed-in user's display name for e-mail sign-offs ──
+    // Best-effort: look up public.users by the session email using the service-role
+    // client (so the read bypasses RLS). Any miss or failure falls back to
+    // senderName, then a generic label, so the AI action still runs regardless.
+    const userEmail = user.email
+    let userName = senderName || 'CASK Team'
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (supabaseUrl && serviceKey) {
+      try {
+        const supabaseService = createServiceSupabase(supabaseUrl, serviceKey)
+        const { data: userRow } = await supabaseService
+          .from('users')
+          .select('name')
+          // Escape LIKE wildcards so an email containing % or _ matches literally.
+          .ilike('email', userEmail.replace(/[%_]/g, '\\$&'))
+          .maybeSingle()
+        userName = userRow?.name || senderName || 'CASK Team'
+      } catch (err) {
+        // Non-fatal: keep the fallback userName and proceed.
+        console.error('[email-ai] user name lookup failed:', err instanceof Error ? err.message : 'unknown')
+      }
+    }
+
     // ── 3. Select the system prompt for the action ───────────────────
-    const system = SYSTEM_PROMPTS[action]
+    // NOTE: the literal string "CASK Construction Team" does NOT appear in any of
+    // the SYSTEM_PROMPTS — those reference the company ("CASK Construction"), not a
+    // "CASK Construction Team" sign-off (that string only ever arrived via the
+    // caller's senderName). So there is nothing to find/replace in the prompts, and
+    // the company name is intentionally left untouched. Instead we weave the user's
+    // name into the sign-off for the email-producing actions only: draft_reply and
+    // revise. summarize/extract don't produce an email, so adding a sign-off there
+    // would corrupt their output — they keep their original prompt.
+    const system =
+      action === 'draft_reply' || action === 'revise'
+        ? `${SYSTEM_PROMPTS[action]} Always sign off with: Best regards, ${userName}`
+        : SYSTEM_PROMPTS[action]
 
     // ── 4. Build the base user message (plain-text body only) ────────
     const plainBody = stripHtml(body)
@@ -178,6 +214,12 @@ export async function POST(request: Request) {
       action === 'revise'
         ? `Original email:\n${plainBody}\n\nCurrent draft:\n${currentDraft}\n\nRevision instruction: ${revision}\n\nPlease revise the draft accordingly.`
         : `Subject: ${subject}\n\nFrom: ${senderName}\n\n${plainBody}`
+
+    // draft_reply (including the compose modal, which sends action 'draft_reply')
+    // should be signed as the logged-in user, so tell the model who to sign as.
+    if (action === 'draft_reply') {
+      userMessage += `\n\nSign the email as: ${userName}`
+    }
 
     // ── 4b. Fetch + fold in attachment content ───────────────────────
     // Only when the caller flags attachments AND gives us a messageId. Attachments
