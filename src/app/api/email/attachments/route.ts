@@ -333,6 +333,9 @@ export async function POST(request: Request) {
       { headers: { Authorization: `Bearer ${accessToken}` } }
     )
 
+    // DEBUG: Graph response status (safe — no token/body content).
+    console.log('[attachments] Graph status:', graphRes.status)
+
     if (graphRes.status === 401) {
       // Freshly-refreshed token still rejected — user must reconnect.
       return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
@@ -347,6 +350,21 @@ export async function POST(request: Request) {
 
     const graphJson = await graphRes.json()
     const rawAttachments: GraphAttachment[] = Array.isArray(graphJson.value) ? graphJson.value : []
+
+    // DEBUG: what Graph returned. contentBytes content is never logged — only its
+    // presence + length (the source variable here is graphJson, not `data`).
+    console.log('[attachments] count:', graphJson.value?.length)
+    if (graphJson.value?.[0]) {
+      console.log('[attachments] first attachment:',
+        JSON.stringify({
+          name: graphJson.value[0].name,
+          contentType: graphJson.value[0].contentType,
+          size: graphJson.value[0].size,
+          hasContentBytes: !!graphJson.value[0].contentBytes,
+          contentBytesLength: graphJson.value[0].contentBytes?.length ?? 0,
+        })
+      )
+    }
 
     // ── 7. Extract text/base64 per attachment (max 5, one-by-one) ────
     // Sequential so a heavy PDF parse doesn't run alongside others; each attachment

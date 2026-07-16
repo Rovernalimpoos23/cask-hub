@@ -1151,9 +1151,11 @@ export default function PresidentInboxPage() {
           body: selected.body?.content ?? selected.bodyPreview ?? '',
           senderName: senderName(selected),
           // Attachment context: let the AI route fetch + fold in this message's
-          // attachments. This reads from the president's (Calin's) mailbox.
+          // attachments. Forced true so the AI always attempts a fetch — the
+          // attachments route returns an empty array when there are none, so the
+          // only cost is one extra API call. This reads from the president's (Calin's) mailbox.
           messageId: selected.id,
-          hasAttachments: selected.hasAttachments ?? false,
+          hasAttachments: true,
           isPresidentInbox: true,
         }),
       })
