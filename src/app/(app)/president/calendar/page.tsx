@@ -847,6 +847,7 @@ interface PanelMsg {
 
 function FloatingCalendarAI() {
   const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [messages, setMessages] = useState<PanelMsg[]>([{ role: 'assistant', content: AI_GREETING }])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
@@ -980,7 +981,8 @@ function FloatingCalendarAI() {
             bottom: 24,
             right: 24,
             zIndex: 61,
-            width: 380,
+            // Half-width by default; expand toggles to near-full width.
+            width: expanded ? '85vw' : 380,
             maxWidth: 'calc(100vw - 48px)',
             height: 500,
             maxHeight: 'calc(100vh - 48px)',
@@ -1038,6 +1040,35 @@ function FloatingCalendarAI() {
               style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', padding: '5px 9px', borderRadius: 20, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontFamily: 'inherit' }}
             >
               Clear
+            </button>
+            <button
+              onClick={() => setExpanded(prev => !prev)}
+              title={expanded ? 'Shrink' : 'Expand'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 26,
+                height: 26,
+                borderRadius: 7,
+                background: 'transparent',
+                border: 'none',
+                color: 'rgba(255,255,255,0.7)',
+                cursor: 'pointer',
+                fontSize: 13,
+                lineHeight: 1,
+                transition: 'background 150ms ease, color 150ms ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                e.currentTarget.style.color = '#fff'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+              }}
+            >
+              <span aria-hidden>{expanded ? '⤡' : '⤢'}</span>
             </button>
             <button
               onClick={() => setOpen(false)}

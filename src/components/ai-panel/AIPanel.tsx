@@ -463,6 +463,14 @@ export default function AIPanel() {
 
   // ── Render ────────────────────────────────────────────────────────
 
+  // NOTE: the "half-width by default + expand-to-full-width" toggle requested for
+  // the floating AI panels is intentionally NOT applied here. AIPanel is a DOCKED
+  // side panel (an <aside> whose width is controlled by the parent page layout),
+  // not a floating drawer — it has no fixed width to halve and no close/X button to
+  // sit an expand button beside. Forcing a fixed 480px/85vw width or a full-screen
+  // overlay would override the parent layout and break the pages that embed it, so
+  // this component is left unchanged. See the floating Floating*AI drawers for the
+  // expand behaviour.
   return (
     <aside style={{ display: 'flex', flexDirection: 'row', overflow: 'hidden', borderLeft: '1px solid var(--border)' }}>
 

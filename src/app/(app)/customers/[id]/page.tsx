@@ -407,6 +407,7 @@ function FloatingClientAI({ client, journeyRows, messages, onSend, onClear, open
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [btnHover, setBtnHover] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const messagesRef = useRef<HTMLDivElement>(null)
   const greeting = buildGreeting(client, journeyRows)
   const firstName = client.name.split(' ')[0]
@@ -465,7 +466,8 @@ function FloatingClientAI({ client, journeyRows, messages, onSend, onClear, open
       <div
         style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 61,
-          width: 400, maxWidth: 'calc(100vw - 48px)',
+          // Half-width by default; expand toggles to near-full width.
+          width: expanded ? '85vw' : 400, maxWidth: 'calc(100vw - 48px)',
           height: 540, maxHeight: 'calc(100vh - 48px)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
           borderRadius: 16,
@@ -519,6 +521,21 @@ function FloatingClientAI({ client, journeyRows, messages, onSend, onClear, open
                 onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
               >
                 Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpanded(prev => !prev)}
+                title={expanded ? 'Shrink' : 'Expand'}
+                className="flex items-center justify-center rounded-[6px]"
+                style={{
+                  width: 26, height: 26, background: 'transparent', border: 'none',
+                  color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: 13, lineHeight: 1,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <span aria-hidden>{expanded ? '⤡' : '⤢'}</span>
               </button>
               <button
                 type="button"
