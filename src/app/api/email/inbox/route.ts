@@ -201,9 +201,16 @@ export async function GET(request: Request) {
 
     let url: string
     if (folder === 'flagged') {
+      // Flagged is an advanced $filter over /me/messages. Graph rejects combining
+      // this filter with $orderby / $skip on a different property (receivedDateTime)
+      // — "restriction or sort order is too complex" → 400 → graph_error/502. So the
+      // flagged branch builds its params WITHOUT $orderby and $skip (unlike the
+      // shared baseParams), keeping just $filter + $select + $top + $count.
       url = graphUrl('/me/messages', {
         $filter: "flag/flagStatus eq 'flagged'",
-        ...baseParams,
+        $select: MESSAGE_SELECT,
+        $top: String(top),
+        $count: 'true',
       })
     } else {
       url = graphUrl(FOLDER_PATH[folder], baseParams)

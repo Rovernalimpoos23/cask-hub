@@ -1173,6 +1173,7 @@ export default function PresidentInboxPage() {
   // Reading pane.
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selected, setSelected] = useState<EmailMessage | null>(null)
+  const [flagging, setFlagging] = useState(false)
   const [readingLoading, setReadingLoading] = useState(false)
 
   // Reply.
@@ -1404,9 +1405,43 @@ export default function PresidentInboxPage() {
     }
   }
 
-  // Flag/Forward/Archive aren't wired to a backend yet (see file header).
+  // Forward/Archive aren't wired to a backend yet (see file header).
   function handleComingSoon() {
     showToast('Coming soon')
+  }
+
+  // ── Flag / unflag (wired to /api/email/[id]/flag) ──────────────────
+  // Toggles the selected message's Graph flagStatus, then mirrors the new status
+  // into both the reading-pane `selected` and the list `messages` so the UI
+  // reflects it without a refetch. isPresidentInbox is true here (Calin's mailbox).
+  async function handleFlag() {
+    if (!selected || flagging) return
+    setFlagging(true)
+    const currentlyFlagged = selected.flag?.flagStatus === 'flagged'
+    try {
+      const res = await fetch(`/api/email/${selected.id}/flag`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flagged: !currentlyFlagged,
+          isPresidentInbox: true,
+        }),
+      })
+      if (res.ok) {
+        const nextStatus = currentlyFlagged ? 'notFlagged' : 'flagged'
+        setSelected(prev => (prev ? { ...prev, flag: { flagStatus: nextStatus } } : prev))
+        setMessages(prev =>
+          prev.map(e => (e.id === selected.id ? { ...e, flag: { flagStatus: nextStatus } } : e))
+        )
+      } else {
+        showToast('Could not update flag')
+      }
+    } catch {
+      showToast('Could not update flag')
+    } finally {
+      // Reset loading state whether the request succeeded or failed.
+      setFlagging(false)
+    }
   }
 
   // ── AI actions (routed through the dedicated /api/email/ai route) ──
@@ -1822,9 +1857,27 @@ export default function PresidentInboxPage() {
                 <ActionBtn label="Forward" onClick={handleComingSoon}>
                   <ForwardIcon />
                 </ActionBtn>
-                <ActionBtn label="Flag" onClick={handleComingSoon}>
-                  <FlagIcon size={16} />
-                </ActionBtn>
+                {/* Flag — wired to /api/email/[id]/flag. Rendered as a standalone
+                    button (not ActionBtn) so it can show flagged / loading states:
+                    red fill + red tint when flagged, dimmed while the PATCH is in
+                    flight. Base classes match ActionBtn for visual consistency. */}
+                <button
+                  type="button"
+                  onClick={handleFlag}
+                  disabled={flagging}
+                  aria-pressed={selected.flag?.flagStatus === 'flagged'}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    selected.flag?.flagStatus === 'flagged'
+                      ? 'border-[var(--red)] bg-[var(--red)]/10 text-[var(--red)]'
+                      : 'border-[var(--border)] bg-[var(--surface2)] text-[var(--text2)] hover:text-[var(--text)]'
+                  } ${flagging ? 'cursor-not-allowed opacity-50' : ''}`}
+                >
+                  <FlagIcon
+                    size={16}
+                    className={selected.flag?.flagStatus === 'flagged' ? 'fill-[var(--red)]' : undefined}
+                  />
+                  Flag
+                </button>
                 <ActionBtn label="Archive" onClick={handleComingSoon}>
                   <ArchiveIcon size={16} />
                 </ActionBtn>
