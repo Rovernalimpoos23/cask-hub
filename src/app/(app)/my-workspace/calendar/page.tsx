@@ -989,7 +989,10 @@ export default function MyCalendarPage() {
     }
     let cancelled = false
     setWeekLoading(true)
-    // TODO: API route needs weekOffset query param support for weekOffset > 0 — currently returns this week only
+    // The API supports ?weekOffset=N (Mon–Sun window N weeks ahead) and returns it
+    // as weekEvents; todayEvents/upcomingCount/nextMeeting stay current-week, which
+    // is why offset weeks fetch here into weekData rather than through `load` above
+    // (keeps the stat cards stable — no refetch/flicker when navigating weeks).
     fetch(`/api/calendar/my-events?weekOffset=${weekOffset}`)
       .then(r => r.json())
       .then((json: MyEventsResponse) => {
