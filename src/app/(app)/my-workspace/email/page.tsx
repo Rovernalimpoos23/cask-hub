@@ -1345,6 +1345,7 @@ export default function MyEmailPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selected, setSelected] = useState<EmailMessage | null>(null)
   const [flagging, setFlagging] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const [readingLoading, setReadingLoading] = useState(false)
 
   // Reply.
@@ -1577,9 +1578,35 @@ export default function MyEmailPage() {
     }
   }
 
-  // Archive isn't wired to a backend yet (see file header).
+  // Kept for any reading-pane actions not yet wired to a backend (see file
+  // header). Currently unused — Flag, Forward and Archive are all wired.
   function handleComingSoon() {
     showToast('Coming soon')
+  }
+
+  // Archive the open email via /api/email/[id]/archive, then drop it from the
+  // list and clear the reading pane. isPresidentInbox is false here (own mailbox).
+  async function handleArchive() {
+    if (!selected || archiving) return
+    setArchiving(true)
+    try {
+      const res = await fetch(`/api/email/${selected.id}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPresidentInbox: false }),
+      })
+      if (res.ok) {
+        setMessages(prev => prev.filter(m => m.id !== selected.id))
+        setSelected(null)
+        showToast('Email archived successfully')
+      } else {
+        showToast('Failed to archive email')
+      }
+    } catch {
+      showToast('Failed to archive email')
+    } finally {
+      setArchiving(false)
+    }
   }
 
   // Reset all forward state and close the modal (item 5).
@@ -2108,9 +2135,20 @@ export default function MyEmailPage() {
                   />
                   Flag
                 </button>
-                <ActionBtn label="Archive" onClick={handleComingSoon}>
+                {/* Archive — wired to /api/email/[id]/archive. Standalone button
+                    (not ActionBtn) so it can show a disabled/loading state; base
+                    classes match ActionBtn. */}
+                <button
+                  type="button"
+                  onClick={handleArchive}
+                  disabled={archiving}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-1.5 text-xs font-medium text-[var(--text2)] transition-colors hover:text-[var(--text)] ${
+                    archiving ? 'cursor-not-allowed opacity-50' : ''
+                  }`}
+                >
                   <ArchiveIcon size={16} />
-                </ActionBtn>
+                  Archive
+                </button>
                 <ActionBtn label="Mark unread" onClick={handleMarkUnread}>
                   <MailIcon size={16} />
                 </ActionBtn>
