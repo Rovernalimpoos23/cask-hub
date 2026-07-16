@@ -1106,6 +1106,191 @@ function ComposeModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+// Forward modal — forwards `message` to new recipients with an optional comment.
+// Presentational: the field state + submit handler live in the parent page so a
+// page-level "Email forwarded!" toast can react to success and one closeForward()
+// can reset everything (see the parent's forward* state / item 5).
+function ForwardModal({
+  message,
+  to,
+  onToChange,
+  cc,
+  onCcChange,
+  bcc,
+  onBccChange,
+  showCc,
+  showBcc,
+  onShowCc,
+  onShowBcc,
+  comment,
+  onCommentChange,
+  loading,
+  error,
+  sent,
+  onForward,
+  onClose,
+}: {
+  message: EmailMessage
+  to: string
+  onToChange: (v: string) => void
+  cc: string
+  onCcChange: (v: string) => void
+  bcc: string
+  onBccChange: (v: string) => void
+  showCc: boolean
+  showBcc: boolean
+  onShowCc: () => void
+  onShowBcc: () => void
+  comment: string
+  onCommentChange: (v: string) => void
+  loading: boolean
+  error: string
+  sent: boolean
+  onForward: () => void
+  onClose: () => void
+}) {
+  const fullPreview = message.bodyPreview || ''
+  const preview = fullPreview.slice(0, 200)
+  return (
+    // Backdrop — click to close.
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+    >
+      {/* Inner card */}
+      <div
+        onClick={e => e.stopPropagation()}
+        className="flex max-h-[80vh] w-[600px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b-[0.5px] border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
+          <span className="font-medium text-[var(--text)]">Forward Email</span>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-md p-1 text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
+        {/* To — reuses the CASK-team autocomplete input (own border-b). Cc/Bcc
+            toggle buttons sit on the right, same pattern as the Compose modal. */}
+        <RecipientInput
+          label="To"
+          value={to}
+          onChange={onToChange}
+          placeholder="name@company.com"
+          right={
+            <div className="flex flex-shrink-0 items-center gap-2">
+              {!showCc && (
+                <button
+                  type="button"
+                  onClick={onShowCc}
+                  className="text-xs text-[var(--text3)] transition-colors hover:text-[var(--text2)]"
+                >
+                  Cc
+                </button>
+              )}
+              {!showBcc && (
+                <button
+                  type="button"
+                  onClick={onShowBcc}
+                  className="text-xs text-[var(--text3)] transition-colors hover:text-[var(--text2)]"
+                >
+                  Bcc
+                </button>
+              )}
+            </div>
+          }
+        />
+
+        {/* Cc */}
+        {showCc && (
+          <RecipientInput
+            label="Cc"
+            value={cc}
+            onChange={onCcChange}
+            placeholder="name@company.com"
+          />
+        )}
+
+        {/* Bcc */}
+        {showBcc && (
+          <RecipientInput
+            label="Bcc"
+            value={bcc}
+            onChange={onBccChange}
+            placeholder="name@company.com"
+          />
+        )}
+
+        {/* Original message preview */}
+        <div className="border-b-[0.5px] border-[var(--border)] px-4 pb-3 pt-3">
+          <div className="text-xs uppercase tracking-wide text-[var(--text3)]">
+            Original message
+          </div>
+          <div className="mt-2 space-y-0.5 text-xs text-[var(--text3)]">
+            <div>
+              <span className="text-[var(--text2)]">From:</span> {senderName(message)}
+            </div>
+            <div>
+              <span className="text-[var(--text2)]">Date:</span>{' '}
+              {formatFullTime(message.receivedDateTime)}
+            </div>
+            <div>
+              <span className="text-[var(--text2)]">Subject:</span>{' '}
+              {message.subject || '(No subject)'}
+            </div>
+          </div>
+          {preview && (
+            <div className="mt-2 text-xs italic text-[var(--text3)]">
+              {preview}
+              {fullPreview.length > 200 ? '…' : ''}
+            </div>
+          )}
+        </div>
+
+        {/* Comment (optional) — fills remaining height. */}
+        <div className="flex flex-1 flex-col overflow-hidden px-4 py-3">
+          <label className="text-xs uppercase tracking-wide text-[var(--text3)]">
+            Add a message (optional)
+          </label>
+          <textarea
+            value={comment}
+            onChange={e => onCommentChange(e.target.value)}
+            rows={4}
+            placeholder="Add a note before forwarding..."
+            className="mt-2 flex-1 resize-none bg-transparent text-sm leading-[1.6] text-[var(--text)] outline-none placeholder:text-[var(--text3)]"
+          />
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t-[0.5px] border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
+          <button
+            onClick={onClose}
+            className="bg-transparent text-sm text-[var(--text2)] transition-colors hover:text-[var(--text)]"
+          >
+            Cancel
+          </button>
+          <div className="flex items-center gap-3">
+            {error && <span className="text-sm text-[var(--red)]">{error}</span>}
+            <button
+              onClick={onForward}
+              // Disabled when there's no recipient; also guarded during the request
+              // and the post-success close window to prevent a double-forward.
+              disabled={to.trim() === '' || loading || sent}
+              className="rounded-lg bg-[var(--red)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? 'Forwarding...' : 'Forward'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── List loading skeleton ────────────────────────────────────────────
 function ListSkeleton() {
   return (
@@ -1199,6 +1384,19 @@ export default function PresidentInboxPage() {
   // Compose + toast.
   const [composeOpen, setComposeOpen] = useState(false)
   const [toast, setToast] = useState('')
+
+  // Forward modal state (lives here so the success toast + closeForward reset
+  // are page-level). closeForward() resets all of these together.
+  const [forwardOpen, setForwardOpen] = useState(false)
+  const [forwardTo, setForwardTo] = useState('')
+  const [forwardComment, setForwardComment] = useState('')
+  const [forwardCc, setForwardCc] = useState('')
+  const [forwardBcc, setForwardBcc] = useState('')
+  const [showForwardCc, setShowForwardCc] = useState(false)
+  const [showForwardBcc, setShowForwardBcc] = useState(false)
+  const [forwardLoading, setForwardLoading] = useState(false)
+  const [forwardError, setForwardError] = useState('')
+  const [forwardSent, setForwardSent] = useState(false)
 
   // Signed-in user's email (established Supabase auth session pattern).
   const [userEmail, setUserEmail] = useState('')
@@ -1405,9 +1603,67 @@ export default function PresidentInboxPage() {
     }
   }
 
-  // Forward/Archive aren't wired to a backend yet (see file header).
+  // Archive isn't wired to a backend yet (see file header).
   function handleComingSoon() {
     showToast('Coming soon')
+  }
+
+  // Reset all forward state and close the modal (item 5).
+  function closeForward() {
+    setForwardOpen(false)
+    setForwardTo('')
+    setForwardComment('')
+    setForwardCc('')
+    setForwardBcc('')
+    setShowForwardCc(false)
+    setShowForwardBcc(false)
+    setForwardLoading(false)
+    setForwardError('')
+    setForwardSent(false)
+  }
+
+  // Forward the open email to new recipients via /api/email/[id]/forward.
+  // isPresidentInbox is true here (Calin's mailbox).
+  async function handleForward() {
+    if (!selected || forwardLoading) return
+    const toArray = forwardTo
+      .split(/[,;]/)
+      .map(s => s.trim())
+      .filter(Boolean)
+    if (toArray.length === 0) return
+    setForwardLoading(true)
+    setForwardError('')
+    try {
+      const res = await fetch(`/api/email/${selected.id}/forward`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: toArray,
+          comment: forwardComment,
+          cc:
+            showForwardCc && forwardCc.trim()
+              ? forwardCc.split(/[,;]/).map(e => e.trim()).filter(Boolean)
+              : undefined,
+          bcc:
+            showForwardBcc && forwardBcc.trim()
+              ? forwardBcc.split(/[,;]/).map(e => e.trim()).filter(Boolean)
+              : undefined,
+          isPresidentInbox: true,
+        }),
+      })
+      const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string }
+      if (res.ok && json.success) {
+        setForwardSent(true)
+        // Green toast shows during this window, then the modal closes + resets.
+        setTimeout(() => closeForward(), 1500)
+      } else {
+        setForwardError('Failed to forward. Try again.')
+      }
+    } catch {
+      setForwardError('Failed to forward. Try again.')
+    } finally {
+      setForwardLoading(false)
+    }
   }
 
   // ── Flag / unflag (wired to /api/email/[id]/flag) ──────────────────
@@ -1854,7 +2110,7 @@ export default function PresidentInboxPage() {
                 <ActionBtn label="Reply" onClick={openReply}>
                   <ReplyIcon />
                 </ActionBtn>
-                <ActionBtn label="Forward" onClick={handleComingSoon}>
+                <ActionBtn label="Forward" onClick={() => setForwardOpen(true)}>
                   <ForwardIcon />
                 </ActionBtn>
                 {/* Flag — wired to /api/email/[id]/flag. Rendered as a standalone
@@ -2112,6 +2368,37 @@ export default function PresidentInboxPage() {
       {/* Compose modal */}
       {composeOpen && (
         <ComposeModal onClose={() => setComposeOpen(false)} />
+      )}
+
+      {/* Forward modal */}
+      {forwardOpen && selected && (
+        <ForwardModal
+          message={selected}
+          to={forwardTo}
+          onToChange={setForwardTo}
+          cc={forwardCc}
+          onCcChange={setForwardCc}
+          bcc={forwardBcc}
+          onBccChange={setForwardBcc}
+          showCc={showForwardCc}
+          showBcc={showForwardBcc}
+          onShowCc={() => setShowForwardCc(true)}
+          onShowBcc={() => setShowForwardBcc(true)}
+          comment={forwardComment}
+          onCommentChange={setForwardComment}
+          loading={forwardLoading}
+          error={forwardError}
+          sent={forwardSent}
+          onForward={handleForward}
+          onClose={closeForward}
+        />
+      )}
+
+      {/* "Email forwarded!" green toast — mirrors the reply-sent toast. */}
+      {forwardSent && (
+        <div className="fixed left-1/2 top-5 z-[60] -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-semibold text-[var(--green)] shadow-lg">
+          Email forwarded!
+        </div>
       )}
 
       {/* "Reply sent!" green toast — auto-dismisses after 3s (replySent effect). */}
