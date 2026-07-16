@@ -29,18 +29,50 @@ interface AiRequestBody {
   senderName?: string
   currentDraft?: string // the existing draft (required for 'revise')
   revision?: string // the revision instruction (required for 'revise')
+  messageId?: string // Graph message id — used to fetch attachment content
+  isPresidentInbox?: boolean // true → read attachments from Calin's mailbox
+  hasAttachments?: boolean // hint that the message carries attachments to include
 }
 
-// System prompts per action (verbatim from the spec).
+// Shape returned by /api/email/attachments for each attachment.
+interface ProcessedAttachment {
+  name?: string
+  contentType?: string
+  type?: 'text' | 'image' | 'unsupported'
+  content?: string | null
+  size?: number
+}
+
+// Anthropic message content blocks — a plain string, or (with images) an array of
+// a leading text block followed by base64 image blocks (multimodal request).
+type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+
+// Appended to every system prompt so the model knows attachment content (text
+// extracts and/or images) may be part of the message it's reasoning over.
+const ATTACHMENT_NOTE =
+  ' If attachments are provided, read them carefully and include their content in your response.'
+
+// System prompts per action (verbatim from the spec, plus the attachment note).
 const SYSTEM_PROMPTS: Record<Action, string> = {
   summarize:
-    'You are a senior executive communications assistant for CASK Construction. Summarize this email in 3-4 sentences. Be concise and focus on what matters most for a busy executive.',
+    'You are a senior executive communications assistant for CASK Construction. Summarize this email in 3-4 sentences. Be concise and focus on what matters most for a busy executive.' + ATTACHMENT_NOTE,
   draft_reply:
-    'You are a senior executive communications assistant for CASK Construction. Draft a professional reply to this email. Be concise, match the tone of the original, do not make up facts. Do not include a subject line.',
+    'You are a senior executive communications assistant for CASK Construction. Draft a professional reply to this email. Be concise, match the tone of the original, do not make up facts. Do not include a subject line.' + ATTACHMENT_NOTE,
   extract:
-    'You are a senior executive communications assistant for CASK Construction. Read this email and extract all action items, deadlines, and follow-ups. Format as a clean bullet list. Be specific and include names and dates where mentioned.',
+    'You are a senior executive communications assistant for CASK Construction. Read this email and extract all action items, deadlines, and follow-ups. Format as a clean bullet list. Be specific and include names and dates where mentioned.' + ATTACHMENT_NOTE,
   revise:
-    'You are a senior executive communications assistant for CASK Construction. Revise the following email draft based on the instruction given. Keep the same general meaning but apply the requested change. Return only the revised email text, no explanation.',
+    'You are a senior executive communications assistant for CASK Construction. Revise the following email draft based on the instruction given. Keep the same general meaning but apply the requested change. Return only the revised email text, no explanation.' + ATTACHMENT_NOTE,
+}
+
+// Claude accepts only these image media types; normalize "image/jpg" → the
+// canonical "image/jpeg" and drop any "; charset=…" suffix.
+const CLAUDE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+function normalizeMediaType(ct: string): string | null {
+  const base = ct.split(';')[0].trim().toLowerCase()
+  const normalized = base === 'image/jpg' ? 'image/jpeg' : base
+  return CLAUDE_IMAGE_TYPES.has(normalized) ? normalized : null
 }
 
 function isAction(v: string): v is Action {
@@ -109,6 +141,9 @@ export async function POST(request: Request) {
     const senderName = payload.senderName
     const currentDraft = payload.currentDraft
     const revision = payload.revision
+    const messageId = payload.messageId
+    const isPresidentInbox = payload.isPresidentInbox
+    const hasAttachments = payload.hasAttachments
 
     // All fields are required. Strings must be present; body/subject/senderName
     // must be strings (empty body is not useful, so require non-empty content).
@@ -137,12 +172,77 @@ export async function POST(request: Request) {
     // ── 3. Select the system prompt for the action ───────────────────
     const system = SYSTEM_PROMPTS[action]
 
-    // ── 4. Build the user message (plain-text body only) ─────────────
+    // ── 4. Build the base user message (plain-text body only) ────────
     const plainBody = stripHtml(body)
-    const userMessage =
+    let userMessage =
       action === 'revise'
         ? `Original email:\n${plainBody}\n\nCurrent draft:\n${currentDraft}\n\nRevision instruction: ${revision}\n\nPlease revise the draft accordingly.`
         : `Subject: ${subject}\n\nFrom: ${senderName}\n\n${plainBody}`
+
+    // ── 4b. Fetch + fold in attachment content ───────────────────────
+    // Only when the caller flags attachments AND gives us a messageId. Attachments
+    // are an enhancement: any failure here is swallowed so the core AI action still
+    // runs on the email body alone.
+    const imageBlocks: ContentBlock[] = []
+    if (hasAttachments === true && typeof messageId === 'string' && messageId.trim() !== '') {
+      try {
+        const attRes = await fetch(
+          `${process.env.NEXT_PUBLIC_APP_URL}/api/email/attachments`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              // Forward the caller's session cookie so the attachments route
+              // authenticates as the same user.
+              cookie: request.headers.get('cookie') ?? '',
+            },
+            body: JSON.stringify({
+              messageId,
+              isPresidentInbox: isPresidentInbox ?? false,
+            }),
+          }
+        )
+        const attData: { attachments?: ProcessedAttachment[] } | null = attRes.ok
+          ? await attRes.json()
+          : null
+        const attachments = Array.isArray(attData?.attachments) ? attData!.attachments : []
+
+        // Text attachments → appended context block.
+        const attachmentContext = attachments
+          .filter(a => a.type === 'text' && a.content)
+          .map(a => `--- Attachment: ${a.name ?? 'attachment'} ---\n${a.content}`)
+          .join('\n\n')
+
+        if (attachmentContext) {
+          userMessage += `\n\nATTACHMENTS:\n${attachmentContext}`
+        }
+
+        // Image attachments → base64 blocks for Claude's multimodal API. Skip any
+        // whose media type Claude can't accept.
+        for (const a of attachments) {
+          if (a.type !== 'image' || !a.content || !a.contentType) continue
+          const mediaType = normalizeMediaType(a.contentType)
+          if (!mediaType) continue
+          imageBlocks.push({
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType, data: a.content },
+          })
+        }
+      } catch (err) {
+        // Non-fatal: proceed without attachment content.
+        console.error('[email-ai] attachment fetch failed:', err instanceof Error ? err.message : 'unknown')
+      }
+    }
+
+    // Final message content: a plain string, or (when images are present) a text
+    // block followed by the image blocks.
+    const messageContent: string | ContentBlock[] =
+      imageBlocks.length > 0
+        ? [
+            { type: 'text', text: `${userMessage}\n\nSome attachments are images, included below. Analyze the attached images too.` },
+            ...imageBlocks,
+          ]
+        : userMessage
 
     // ── 5. Call the Anthropic Messages API directly (no SDK) ─────────
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -165,7 +265,7 @@ export async function POST(request: Request) {
           model: MODEL,
           max_tokens: MAX_TOKENS,
           system,
-          messages: [{ role: 'user', content: userMessage }],
+          messages: [{ role: 'user', content: messageContent }],
         }),
       })
     } catch {

@@ -1124,6 +1124,11 @@ export default function MyEmailPage() {
           // (falling back to the preview if the full body is missing).
           body: selected.body?.content ?? selected.bodyPreview ?? '',
           senderName: senderName(selected),
+          // Attachment context: let the AI route fetch + fold in this message's
+          // attachments. This is the signed-in user's own mailbox.
+          messageId: selected.id,
+          hasAttachments: selected.hasAttachments ?? false,
+          isPresidentInbox: false,
         }),
       })
       const json = (await res.json().catch(() => ({}))) as { result?: string; error?: string }
@@ -1525,7 +1530,7 @@ export default function MyEmailPage() {
                   AI
                 </span>
                 <AiPill
-                  label={aiLoading === 'summarize' ? 'Summarizing…' : 'Summarize'}
+                  label={aiLoading === 'summarize' ? (selected.hasAttachments ? 'Reading email and attachments…' : 'Summarizing…') : 'Summarize'}
                   loading={aiLoading === 'summarize'}
                   disabled={aiLoading !== null}
                   onClick={() => runAi('summarize')}
@@ -1533,7 +1538,7 @@ export default function MyEmailPage() {
                   <SparklesIcon />
                 </AiPill>
                 <AiPill
-                  label={aiLoading === 'draft' ? 'Drafting…' : 'Draft reply'}
+                  label={aiLoading === 'draft' ? (selected.hasAttachments ? 'Reading email and attachments…' : 'Drafting…') : 'Draft reply'}
                   loading={aiLoading === 'draft'}
                   disabled={aiLoading !== null}
                   onClick={() => runAi('draft')}
@@ -1541,7 +1546,7 @@ export default function MyEmailPage() {
                   <PencilIcon />
                 </AiPill>
                 <AiPill
-                  label={aiLoading === 'extract' ? 'Extracting…' : 'Extract action items'}
+                  label={aiLoading === 'extract' ? (selected.hasAttachments ? 'Reading email and attachments…' : 'Extracting…') : 'Extract action items'}
                   loading={aiLoading === 'extract'}
                   disabled={aiLoading !== null}
                   onClick={() => runAi('extract')}
