@@ -160,19 +160,22 @@ async function ensureAccessToken(
 // the whole request.
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  // The default 'pdfjs-dist' entry auto-detects Node and runs on the main thread
-  // (no browser worker file needed). Dynamic import keeps this heavy dep off the
-  // hot path for non-PDF requests.
-  const pdfjs = await import('pdfjs-dist')
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise
-  let text = ''
-  for (let page = 1; page <= pdf.numPages; page++) {
-    const content = await (await pdf.getPage(page)).getTextContent()
-    text += content.items.map(item => ('str' in item ? item.str : '')).join(' ') + '\n'
-    // Stop early once we have enough — no need to parse the rest of a long PDF.
-    if (text.length >= MAX_TEXT_CHARS) break
+  // pdf-parse runs on Node's main thread (it wraps pdfjs-dist's legacy build),
+  // which is why we switched to it from pdfjs-dist directly.
+  //
+  // NOTE: the installed pdf-parse is v2, whose API is a PDFParse *class* — NOT the
+  // v1 default-export function `pdfParse.default(buffer)` shown in older docs (that
+  // is undefined on v2 and would throw). Dynamic import keeps this heavy dep off
+  // the hot path for non-PDF requests.
+  const { PDFParse } = await import('pdf-parse')
+  const parser = new PDFParse({ data: buffer })
+  try {
+    const { text } = await parser.getText()
+    return (text ?? '').slice(0, MAX_TEXT_CHARS)
+  } finally {
+    // Release the underlying pdfjs document/worker resources.
+    await parser.destroy()
   }
-  return text
 }
 
 async function extractDocxText(buffer: Buffer): Promise<string> {
@@ -333,9 +336,6 @@ export async function POST(request: Request) {
       { headers: { Authorization: `Bearer ${accessToken}` } }
     )
 
-    // DEBUG: Graph response status (safe — no token/body content).
-    console.log('[attachments] Graph status:', graphRes.status)
-
     if (graphRes.status === 401) {
       // Freshly-refreshed token still rejected — user must reconnect.
       return NextResponse.json({ error: 'token_invalid' }, { status: 401 })
@@ -350,21 +350,6 @@ export async function POST(request: Request) {
 
     const graphJson = await graphRes.json()
     const rawAttachments: GraphAttachment[] = Array.isArray(graphJson.value) ? graphJson.value : []
-
-    // DEBUG: what Graph returned. contentBytes content is never logged — only its
-    // presence + length (the source variable here is graphJson, not `data`).
-    console.log('[attachments] count:', graphJson.value?.length)
-    if (graphJson.value?.[0]) {
-      console.log('[attachments] first attachment:',
-        JSON.stringify({
-          name: graphJson.value[0].name,
-          contentType: graphJson.value[0].contentType,
-          size: graphJson.value[0].size,
-          hasContentBytes: !!graphJson.value[0].contentBytes,
-          contentBytesLength: graphJson.value[0].contentBytes?.length ?? 0,
-        })
-      )
-    }
 
     // ── 7. Extract text/base64 per attachment (max 5, one-by-one) ────
     // Sequential so a heavy PDF parse doesn't run alongside others; each attachment
