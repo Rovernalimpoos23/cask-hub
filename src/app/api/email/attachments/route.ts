@@ -36,7 +36,7 @@ const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 
 // Processing limits (keep AI token usage bounded).
 const MAX_ATTACHMENTS = 5
-const MAX_TEXT_CHARS = 5000
+const MAX_TEXT_CHARS = 20000
 
 // contentType → handling. Excel has two spellings (modern .xlsx + legacy .xls).
 const PDF_TYPE = 'application/pdf'
