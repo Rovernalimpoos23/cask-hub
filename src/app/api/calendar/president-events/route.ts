@@ -245,6 +245,24 @@ export async function GET(request: Request) {
     const yearParam = searchParams.get('year')
     const wantMonth = monthParam !== null || yearParam !== null
 
+    // ── Optional weekOffset window (list view: browse future weeks) ────
+    // ?weekOffset=1 → weekEvents covers the Mon–Sun window that many weeks ahead
+    // of the current one (0 = current week = existing behavior). Only positive
+    // integers shift the window; anything else falls back to 0. todayEvents,
+    // upcomingCount and nextMeeting are unaffected.
+    const weekOffsetParam = searchParams.get('weekOffset')
+    const parsedWeekOffset = Number(weekOffsetParam)
+    const weekOffset =
+      weekOffsetParam !== null && Number.isInteger(parsedWeekOffset) && parsedWeekOffset > 0
+        ? parsedWeekOffset
+        : 0
+    // Shift the Mon–Sun bounds forward by weekOffset weeks. When weekOffset is 0
+    // these reduce to the current-week weekStart/weekEnd computed above.
+    const offsetWeekStartStr = addDays(weekStartStr, weekOffset * 7)
+    const offsetWeekEndStr = addDays(offsetWeekStartStr, 6)
+    const effWeekStart = weekOffset > 0 ? etDateTimeISO(offsetWeekStartStr, '00:00:00') : weekStart
+    const effWeekEnd = weekOffset > 0 ? etDateTimeISO(offsetWeekEndStr, '23:59:59') : weekEnd
+
     const [curYear, curMonth] = todayStr.split('-').map(Number) // curMonth is 1-indexed
     const parsedMonth = Number(monthParam)
     const parsedYear = Number(yearParam)
@@ -278,10 +296,12 @@ export async function GET(request: Request) {
       $top: '50',
     })
     const weekUrl = graphUrl('/me/calendarView', {
-      startDateTime: weekStart,
-      endDateTime: weekEnd,
+      startDateTime: effWeekStart,
+      endDateTime: effWeekEnd,
       $orderby: 'start/dateTime',
-      $select: EVENT_SELECT,
+      // For an offset week, request isCancelled too so the list view can flag
+      // cancelled meetings; the current week keeps its existing field set.
+      $select: weekOffset > 0 ? `${EVENT_SELECT},isCancelled` : EVENT_SELECT,
       $top: '100',
     })
     const upcomingUrl = graphUrl('/me/calendarView', {

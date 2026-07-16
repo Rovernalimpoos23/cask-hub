@@ -110,6 +110,28 @@ function nextDay(dateStr: string): string {
   return dt.toISOString().split('T')[0]
 }
 
+// Step a YYYY-MM-DD date string by n days, anchored at UTC noon to dodge DST.
+function addDaysStr(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
+  dt.setUTCDate(dt.getUTCDate() + n)
+  return dt.toISOString().split('T')[0]
+}
+
+// Mon–Sun ET week range label ("Jul 13 – Jul 19") for a given offset from the
+// current week — matches the Mon–Sun window the president-events API uses for
+// weekEvents (?weekOffset=N).
+function weekRangeLabel(now: Date, weekOffset: number): string {
+  const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const etWeekday = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay() // 0=Sun … 6=Sat
+  const daysFromMonday = (etWeekday + 6) % 7
+  const monday = addDaysStr(todayStr, -daysFromMonday + weekOffset * 7)
+  const sunday = addDaysStr(monday, 6)
+  const fmt = (ds: string) =>
+    new Date(ds + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return `${fmt(monday)} – ${fmt(sunday)}`
+}
+
 // Extract HH:MM (24h, Eastern Time) from an ISO timestamp — for pre-filling <input type="time">.
 function isoToETTime(iso: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -739,6 +761,58 @@ function Shimmer({ h, radius = 8 }: { h: number; radius?: number }) {
       backgroundSize: '200% 100%',
       animation: 'shimmer 1.4s infinite',
     }} />
+  )
+}
+
+// ── Week navigation bar (list view only) ─────────────────────────────
+// Left arrow disabled at the current week (weekOffset 0 — can't go earlier);
+// right arrow disabled 8 weeks out. Center shows the Mon–Sun ET range label.
+function WeekNav({ weekOffset, rangeLabel, onPrev, onNext }: {
+  weekOffset: number
+  rangeLabel: string
+  onPrev: () => void
+  onNext: () => void
+}) {
+  const atStart = weekOffset === 0
+  const atEnd = weekOffset >= 8
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '8px 16px', background: 'var(--surface2)', borderRadius: 8,
+      border: '0.5px solid var(--border)', marginBottom: 16,
+    }}>
+      <button
+        onClick={onPrev}
+        disabled={atStart}
+        aria-label="Previous week"
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 28, height: 28, borderRadius: 6,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          color: 'var(--text2)', fontSize: 15, lineHeight: 1, fontFamily: 'inherit',
+          cursor: atStart ? 'not-allowed' : 'pointer',
+          opacity: atStart ? 0.3 : 1,
+        }}
+      >
+        ←
+      </button>
+      <span style={{ fontWeight: 500, fontSize: 14, color: 'var(--text)' }}>{rangeLabel}</span>
+      <button
+        onClick={onNext}
+        disabled={atEnd}
+        aria-label="Next week"
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 28, height: 28, borderRadius: 6,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          color: 'var(--text2)', fontSize: 15, lineHeight: 1, fontFamily: 'inherit',
+          cursor: atEnd ? 'not-allowed' : 'pointer',
+          opacity: atEnd ? 0.3 : 1,
+        }}
+      >
+        →
+      </button>
+    </div>
   )
 }
 
@@ -2671,6 +2745,11 @@ export default function CalendarPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [addInitialDate, setAddInitialDate] = useState('')
   const [view, setView] = useState<'list' | 'calendar'>('list')
+  // Week navigation (list view). 0 = current week (already loaded by the primary
+  // fetch below); >0 fetches that many Mon–Sun weeks ahead and merges the result
+  // into `events`. weekLoading gates the skeleton shown while that fetch is in flight.
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [weekLoading, setWeekLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveToast, setSaveToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [agenda, setAgenda] = useState<{ title: string; content: string; loading: boolean } | null>(null)
@@ -2770,6 +2849,39 @@ export default function CalendarPage() {
     return () => clearInterval(id)
   }, [])
 
+  // Week navigation fetch. weekOffset 0 is the current week (already served by the
+  // primary effect above), so we only fetch when navigating forward. The API
+  // returns the offset Mon–Sun window as weekEvents; we map Graph → CalendarEvent
+  // and merge (dedupe by id) into `events` so the offset week's cards render with
+  // the same styling/stat logic. Uses the cancelled-flag cleanup pattern so a stale
+  // response from a previous offset can't overwrite a newer one.
+  useEffect(() => {
+    if (weekOffset === 0) return
+    let cancelled = false
+    setWeekLoading(true)
+
+    fetch(`/api/calendar/president-events?weekOffset=${weekOffset}`)
+      .then(r => r.json())
+      .then((json: MyEventsResponse) => {
+        if (cancelled) return
+        if (json.error) {
+          setWeekLoading(false)
+          return
+        }
+        const weekEvents = (json.weekEvents ?? []).map(mapGraphEvent)
+        // Merge the offset week's events into existing data, dedupe by id, keep sorted.
+        setEvents(prev => {
+          const merged = new Map(prev.map(e => [e.id, e]))
+          for (const e of weekEvents) merged.set(e.id, e)
+          return Array.from(merged.values()).sort((a, b) => a.start_time.localeCompare(b.start_time))
+        })
+        setWeekLoading(false)
+      })
+      .catch(() => { if (!cancelled) setWeekLoading(false) })
+
+    return () => { cancelled = true }
+  }, [weekOffset])
+
   // Date anchors — all in Eastern Time
   const now = new Date()
   const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
@@ -2814,6 +2926,25 @@ export default function CalendarPage() {
     const d = toDateStr(ev.start_time)
     if (!thisWeekByDay[d]) thisWeekByDay[d] = []
     thisWeekByDay[d].push(ev)
+  }
+
+  // ── Offset-week bucket (list view week navigation) ───────────────────
+  // When weekOffset > 0 the list view drops the TODAY/TOMORROW/THIS WEEK framing
+  // and shows this specific Mon–Sun window, grouped by ET day. Bounds match the
+  // API's Mon–Sun window (and the weekRangeLabel above).
+  const etWeekdayNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay()
+  const curMondayStr = addDaysStr(todayStr, -((etWeekdayNow + 6) % 7))
+  const offsetMondayStr = addDaysStr(curMondayStr, weekOffset * 7)
+  const offsetSundayStr = addDaysStr(offsetMondayStr, 6)
+  const offsetWeekEvents = events.filter(e => {
+    const d = toDateStr(e.start_time)
+    return d >= offsetMondayStr && d <= offsetSundayStr
+  })
+  const offsetWeekByDay: Record<string, CalendarEvent[]> = {}
+  for (const ev of offsetWeekEvents) {
+    const d = toDateStr(ev.start_time)
+    if (!offsetWeekByDay[d]) offsetWeekByDay[d] = []
+    offsetWeekByDay[d].push(ev)
   }
 
   // Stats — count events from now through end of this week's Sunday (ET)
@@ -3345,6 +3476,51 @@ export default function CalendarPage() {
           </>
         ) : (
           <>
+            {/* Week navigation (list view only) — above the TODAY/date sections */}
+            <WeekNav
+              weekOffset={weekOffset}
+              rangeLabel={weekRangeLabel(now, weekOffset)}
+              onPrev={() => setWeekOffset(prev => prev - 1)}
+              onNext={() => setWeekOffset(prev => prev + 1)}
+            />
+
+            {weekLoading ? (
+              /* Offset week fetching — same skeleton style as the initial load state. */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <Shimmer h={20} radius={4} />
+                <Shimmer h={76} />
+                <Shimmer h={76} />
+              </div>
+            ) : weekOffset > 0 ? (
+              /* Offset week: date-grouped events for the selected Mon–Sun window.
+                 TODAY/TOMORROW framing is hidden; cancelled styling still applies
+                 (handled inside EventCard). */
+              Object.keys(offsetWeekByDay).length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {Object.entries(offsetWeekByDay).map(([dateStr, dayEvents]) => (
+                    <div key={dateStr}>
+                      <div style={{
+                        fontSize: 12, fontWeight: 600, color: 'var(--text3)',
+                        marginBottom: 8, paddingLeft: 1,
+                        textTransform: 'uppercase', letterSpacing: '0.4px',
+                      }}>
+                        {new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
+                          timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric',
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {dayEvents.map(e => <EventCard key={e.id} event={e} onGenerateAgenda={handleGenerateAgenda} onEdit={openEdit} onDelete={ev => setDeleteEvent(ev)} />)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ padding: '28px 0', textAlign: 'center', fontSize: 13, color: 'var(--text3)' }}>
+                  No meetings this week
+                </div>
+              )
+            ) : (
+            <>
             {/* TODAY */}
             <div style={{ marginBottom: 28 }}>
               <SectionHeader title="TODAY" subtitle={todayLabel} />
@@ -3434,6 +3610,8 @@ export default function CalendarPage() {
                 <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text2)' }}>No calendar events</div>
                 <div style={{ fontSize: 13, color: 'var(--text3)' }}>Events synced from Microsoft 365 will appear here</div>
               </div>
+            )}
+            </>
             )}
           </>
         )}
