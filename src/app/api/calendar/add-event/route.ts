@@ -35,6 +35,9 @@ interface AddEventBody {
   isAllDay?: boolean
   isTeamsMeeting?: boolean
   attendees?: string[]
+  isRecurring?: boolean
+  recurringFrequency?: 'daily' | 'weekly' | 'monthly'
+  recurringEndDate?: string // client sends YYYY-MM-DD (date input) or mm/dd/yyyy
 }
 
 // Combine a YYYY-MM-DD date and HH:MM time into the naive local datetime string
@@ -42,6 +45,24 @@ interface AddEventBody {
 // carried by GRAPH_TZ). e.g. ('2026-07-11', '09:00') → '2026-07-11T09:00:00'.
 function toGraphDateTime(date: string, time: string): string {
   return `${date}T${time}:00`
+}
+
+// Graph's weekly recurrence pattern names the day of week in lowercase. Map a
+// YYYY-MM-DD date to that name. Note: getDay() reads local time, but for a bare
+// YYYY-MM-DD string the JS Date is parsed as UTC midnight, so this can be off by
+// one day in zones behind UTC — kept as specified for parity with the client.
+const DAYS_OF_WEEK = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+] as const
+
+function getDayOfWeek(date: string): string {
+  return DAYS_OF_WEEK[new Date(date).getDay()]
 }
 
 export async function POST(request: Request) {
@@ -177,14 +198,56 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
     }
 
-    const { title, date, startTime, endTime, location, body, isAllDay, isTeamsMeeting, attendees } =
-      payload
+    const {
+      title,
+      date,
+      startTime,
+      endTime,
+      location,
+      body,
+      isAllDay,
+      isTeamsMeeting,
+      attendees,
+      isRecurring,
+      recurringFrequency,
+      recurringEndDate,
+    } = payload
 
     if (!title || !date || !startTime || !endTime) {
       return NextResponse.json({ error: 'missing_fields' }, { status: 400 })
     }
 
     // ── 5. Build the Graph event object ──────────────────────────────
+    // Recurrence is only attached when the caller opted in AND gave a frequency;
+    // otherwise `recurrence` stays undefined and JSON.stringify drops it, leaving
+    // the existing non-recurring behavior untouched.
+    // NOTE: for a 'monthly' event Graph's absoluteMonthly pattern normally also
+    // wants `dayOfMonth`. It is intentionally omitted here to match the agreed
+    // payload shape; if Graph rejects monthly recurrences, add dayOfMonth here.
+    const recurrence =
+      isRecurring && recurringFrequency
+        ? {
+            pattern: {
+              type:
+                recurringFrequency === 'daily'
+                  ? 'daily'
+                  : recurringFrequency === 'weekly'
+                  ? 'weekly'
+                  : 'absoluteMonthly',
+              interval: 1,
+              daysOfWeek: recurringFrequency === 'weekly' ? [getDayOfWeek(date)] : undefined,
+            },
+            range: {
+              type: recurringEndDate ? 'endDate' : 'noEnd',
+              startDate: date,
+              // Client may send mm/dd/yyyy; Graph needs YYYY-MM-DD.
+              endDate: recurringEndDate
+                ? new Date(recurringEndDate).toISOString().split('T')[0]
+                : undefined,
+            },
+          }
+        : undefined
+
     const graphEvent = {
       subject: title,
       body: {
@@ -208,6 +271,7 @@ export async function POST(request: Request) {
           emailAddress: { address: email },
           type: 'required',
         })) || [],
+      recurrence,
     }
 
     // ── 6. Create the event via Graph ────────────────────────────────

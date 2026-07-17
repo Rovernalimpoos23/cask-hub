@@ -719,13 +719,41 @@ function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
   const [endTime, setEndTime] = useState('09:30')
   const [location, setLocation] = useState('')
   const [isTeamsMeeting, setIsTeamsMeeting] = useState(false)
+  // Recurrence — mirrors the President's Calendar Add Event modal. Like every
+  // other field here, these reset on close: the modal is conditionally mounted,
+  // so closing unmounts it and clears all local state.
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [recurringFrequency, setRecurringFrequency] = useState<'daily' | 'weekly' | 'monthly'>('weekly')
+  const [recurringEndDate, setRecurringEndDate] = useState('')
   const [attendees, setAttendees] = useState<string[]>([])
+  // Free-text attendee emails, separate from the CASK team chips above. Like all
+  // other fields here, these reset on close: the modal is conditionally mounted,
+  // so closing unmounts it and clears customAttendees / attendeeInput / the error.
+  const [customAttendees, setCustomAttendees] = useState<string[]>([])
+  const [attendeeInput, setAttendeeInput] = useState('')
+  const [attendeeInputError, setAttendeeInputError] = useState('')
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
 
   function toggleAttendee(email: string) {
     setAttendees(prev => (prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]))
+  }
+
+  function addCustomAttendee() {
+    const email = attendeeInput.trim()
+    // Lightweight check: must contain an "@" and a "." (per spec).
+    if (!email.includes('@') || !email.includes('.')) {
+      setAttendeeInputError('Please enter a valid email address')
+      return
+    }
+    setCustomAttendees(prev => (prev.includes(email) ? prev : [...prev, email]))
+    setAttendeeInput('')
+    setAttendeeInputError('')
+  }
+
+  function removeCustomAttendee(email: string) {
+    setCustomAttendees(prev => prev.filter(e => e !== email))
   }
 
   async function handleSubmit() {
@@ -749,7 +777,14 @@ function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
           body: notes.trim() || undefined,
           isAllDay,
           isTeamsMeeting,
-          attendees,
+          attendees: [...attendees, ...customAttendees],
+          ...(isRecurring
+            ? {
+                isRecurring: true,
+                recurringFrequency,
+                recurringEndDate,
+              }
+            : {}),
         }),
       })
       const json = await res.json().catch(() => ({}))
@@ -852,6 +887,50 @@ function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
             )}
           </div>
 
+          {/* Recurring Event */}
+          <div>
+            <Toggle checked={isRecurring} onChange={setIsRecurring} label="Recurring Event" />
+            {isRecurring && (
+              <div className="mt-3 flex flex-col gap-4">
+                {/* Frequency */}
+                <div>
+                  <label className={LABEL_CLS}>Frequency</label>
+                  <div className="flex flex-wrap gap-2">
+                    {(['daily', 'weekly', 'monthly'] as const).map(freq => {
+                      const active = recurringFrequency === freq
+                      return (
+                        <button
+                          key={freq}
+                          type="button"
+                          onClick={() => setRecurringFrequency(freq)}
+                          className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                            active
+                              ? 'bg-[var(--red)] text-white'
+                              : 'border border-[var(--border)] bg-[var(--surface2)] text-[var(--text2)] hover:text-[var(--text)]'
+                          }`}
+                        >
+                          {freq}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* End Date */}
+                <div>
+                  <label className={LABEL_CLS}>End Date</label>
+                  <input
+                    type="date"
+                    value={recurringEndDate}
+                    onChange={e => setRecurringEndDate(e.target.value)}
+                    placeholder="mm/dd/yyyy"
+                    className={INPUT_CLS}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Attendees */}
           <div>
             <label className={LABEL_CLS}>Attendees</label>
@@ -874,6 +953,47 @@ function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                 )
               })}
             </div>
+
+            {/* Free-text email input — any address, added on Enter. Separate from
+                the CASK team chips above (which toggle the `attendees` array). */}
+            <input
+              type="text"
+              value={attendeeInput}
+              onChange={e => setAttendeeInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addCustomAttendee()
+                }
+              }}
+              placeholder="Type any email and press Enter..."
+              className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm text-[var(--text)]"
+            />
+            {attendeeInputError !== '' && (
+              <div className="mt-1 text-xs text-[var(--red)]">{attendeeInputError}</div>
+            )}
+
+            {/* Custom email chips — styled distinctly from the CASK team chips. */}
+            {customAttendees.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {customAttendees.map(email => (
+                  <span
+                    key={email}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--text)]"
+                  >
+                    {email}
+                    <button
+                      type="button"
+                      onClick={() => removeCustomAttendee(email)}
+                      aria-label={`Remove ${email}`}
+                      className="text-[var(--text3)] transition-colors hover:text-[var(--text)]"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Body / Notes */}
