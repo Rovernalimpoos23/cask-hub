@@ -14,6 +14,11 @@ const NAV_SECTIONS = [
     label: 'CASK Operating System',
     items: [
       { href: '/command-center', icon: '🏛', label: 'Command Center', locked: false },
+      // Big Vision — admin-only by virtue of living in the CASK Operating System
+      // section, which is NOT in RESTRICTED_VISIBLE_SECTIONS (so only the admin
+      // roles president/ea/ai_specialist see it). Same emoji-glyph icon style as
+      // Command Center above.
+      { href: '/big-vision', icon: '🌐', label: 'Big Vision', locked: false },
     ],
   },
   {
