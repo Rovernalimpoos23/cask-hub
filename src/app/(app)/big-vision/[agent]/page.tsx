@@ -405,6 +405,10 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   const [uploadSuccess, setUploadSuccess] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // ── Per-file delete state ──────────────────────────────────────────
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
   // ── Agent chat state ───────────────────────────────────────────────
   const [messages, setMessages] = useState<
     Array<{ role: 'user' | 'assistant'; content: string; filesUsed?: number }>
@@ -525,6 +529,30 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     }
   }
 
+  // Soft-delete a file, then drop it from local state on success.
+  async function handleDelete(id: string, _fileTitle: string) {
+    setDeletingId(id)
+    setConfirmDeleteId(null)
+
+    try {
+      const res = await fetch('/api/big-vision/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+
+      if (res.ok) {
+        setFiles((prev) => prev.filter((f) => f.id !== id))
+      } else {
+        console.error('Delete failed')
+      }
+    } catch {
+      console.error('Delete error')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   // Hooks above run unconditionally; bail out for unknown agents afterwards.
   if (!agent) notFound()
 
@@ -543,6 +571,8 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
         .bv-edit:hover { color: var(--text); }
         .bv-pill { transition: background 130ms ease, color 130ms ease; }
         .bv-pill:not(:disabled):hover { background: var(--surface); color: var(--text); }
+        .bv-trash { transition: opacity 130ms ease, color 130ms ease; }
+        .bv-trash:hover { color: var(--red); }
       `}</style>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
@@ -703,35 +733,89 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                       {files.slice(0, 4).map((f, i, shown) => (
                         <div
                           key={f.id}
-                          className="bv-file rounded-lg px-2 py-2.5"
+                          className="group bv-file rounded-lg px-2 py-2.5"
                           style={{ borderBottom: i < shown.length - 1 ? '1px solid var(--border)' : 'none' }}
                         >
-                          <div className="flex items-start gap-2.5">
-                            <span className="shrink-0" style={{ fontSize: 14, marginTop: 1 }}>
-                              {sourceIcon(f.source_type)}
-                            </span>
-                            <div className="min-w-0 flex-1">
+                          {confirmDeleteId === f.id ? (
+                            // Confirmation UI (replaces the row while confirming)
+                            <div
+                              className="rounded-lg p-3"
+                              style={{
+                                background: 'var(--surface2)',
+                                border: '1px solid color-mix(in srgb, var(--red) 50%, transparent)',
+                              }}
+                            >
                               <div className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>
-                                {f.title}
+                                🗑 Delete &ldquo;{f.title.length > 30 ? `${f.title.slice(0, 30)}…` : f.title}&rdquo;?
                               </div>
-                              <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 mt-1">
-                                <span className="text-[11px]" style={{ color: 'var(--text3)' }}>
-                                  {f.source_type} · layer {f.layer}
-                                </span>
-                                {(f.categories ?? []).map((t: string) => (
-                                  <TagPill key={t} tag={t} />
-                                ))}
-                                {f.leader && (
-                                  <span
-                                    className="rounded-full text-xs px-2 py-0.5 font-medium"
-                                    style={{ background: 'var(--surface2)', color: 'var(--text2)', fontSize: 10.5, lineHeight: 1.4 }}
-                                  >
-                                    {f.leader}
-                                  </span>
-                                )}
+                              <div className="text-xs mt-0.5" style={{ color: 'var(--text3)' }}>
+                                This cannot be undone.
+                              </div>
+                              <div className="flex items-center justify-end gap-3 mt-3">
+                                <button
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="text-xs bg-transparent border-0 p-0"
+                                  style={{ color: 'var(--text2)', cursor: 'pointer', fontFamily: 'inherit' }}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(f.id, f.title)}
+                                  disabled={deletingId === f.id}
+                                  className="text-xs rounded px-2 py-1"
+                                  style={{
+                                    background: 'var(--red)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    fontFamily: 'inherit',
+                                    cursor: deletingId === f.id ? 'default' : 'pointer',
+                                    opacity: deletingId === f.id ? 0.5 : 1,
+                                  }}
+                                >
+                                  {deletingId === f.id ? 'Deleting…' : 'Yes, delete'}
+                                </button>
                               </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="flex items-start gap-2.5">
+                              <span className="shrink-0" style={{ fontSize: 14, marginTop: 1 }}>
+                                {sourceIcon(f.source_type)}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>
+                                  {f.title}
+                                </div>
+                                <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 mt-1">
+                                  <span className="text-[11px]" style={{ color: 'var(--text3)' }}>
+                                    {f.source_type} · layer {f.layer}
+                                  </span>
+                                  {(f.categories ?? []).map((t: string) => (
+                                    <TagPill key={t} tag={t} />
+                                  ))}
+                                  {f.leader && (
+                                    <span
+                                      className="rounded-full text-xs px-2 py-0.5 font-medium"
+                                      style={{ background: 'var(--surface2)', color: 'var(--text2)', fontSize: 10.5, lineHeight: 1.4 }}
+                                    >
+                                      {f.leader}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Delete — visible on row hover */}
+                              <button
+                                onClick={() => setConfirmDeleteId(f.id)}
+                                aria-label="Delete file"
+                                className="bv-trash shrink-0 opacity-0 group-hover:opacity-100 bg-transparent border-0 p-0"
+                                style={{ color: 'var(--text3)', cursor: 'pointer', marginTop: 1 }}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
