@@ -23,6 +23,9 @@ const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 // The four strategic (non-leader) agents; "live" = has at least one active file.
 const STRATEGIC_CATEGORIES = ['ai_hub', 'pit', 'design_center', 'alignment']
 
+// The five leader agents; "live" = has at least one active file.
+const LEADER_CATEGORIES = ['jeff', 'lamont', 'chad', 'matteo', 'kaitlyn']
+
 export async function GET() {
   try {
     // ── 1. Require a signed-in session ───────────────────────────────
@@ -86,6 +89,22 @@ export async function GET() {
       if (count && count > 0) agentsLive++
     }
 
+    // ── 5b. Leader agents that are "live" (≥1 active file) ──────────
+    let leadersLive = 0
+    for (const slug of LEADER_CATEGORIES) {
+      const { count, error: leaderErr } = await supabaseService
+        .from('hub_memory')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true)
+        .overlaps('categories', [slug])
+
+      if (leaderErr) {
+        console.error('[big-vision-stats] leader count failed:', leaderErr.message, leaderErr.code)
+        return NextResponse.json({ error: 'query_failed' }, { status: 500 })
+      }
+      if (count && count > 0) leadersLive++
+    }
+
     // ── 6. Auto-routed this week (fireflies source, last 7 days) ─────
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     const { count: autoRouted, error: routedErr } = await supabaseService
@@ -106,6 +125,8 @@ export async function GET() {
         filesInMemory: totalFiles ?? 0,
         agentsLive,
         totalAgents: STRATEGIC_CATEGORIES.length,
+        leadersLive,
+        totalLeaders: LEADER_CATEGORIES.length,
         autoRoutedThisWeek: autoRouted ?? 0,
         rollupReady: agentsLive === STRATEGIC_CATEGORIES.length,
       },

@@ -86,6 +86,8 @@ export default function BigVisionPage() {
   const [stats, setStats] = useState({
     filesInMemory: 0,
     agentsLive: 0,
+    leadersLive: 0,
+    totalLeaders: 5,
     autoRoutedThisWeek: 0,
     rollupReady: false,
   })
@@ -105,6 +107,8 @@ export default function BigVisionPage() {
           setStats({
             filesInMemory: data.filesInMemory,
             agentsLive: data.agentsLive,
+            leadersLive: data.leadersLive ?? 0,
+            totalLeaders: data.totalLeaders ?? 5,
             autoRoutedThisWeek: data.autoRoutedThisWeek,
             rollupReady: data.rollupReady,
           })
@@ -173,6 +177,14 @@ export default function BigVisionPage() {
       value: statsLoading ? '—' : String(stats.agentsLive),
       suffix: statsLoading ? undefined : '/ 4',
       tone: 'green',
+    },
+    {
+      label: 'Leaders live',
+      value: statsLoading ? '—' : String(stats.leadersLive),
+      suffix: statsLoading ? undefined : '/ 5',
+      // Green only when all five leaders have files; normal color otherwise.
+      color:
+        !statsLoading && stats.leadersLive === stats.totalLeaders ? 'var(--green)' : 'var(--text)',
     },
     {
       label: 'Auto-routed this week',
@@ -247,7 +259,7 @@ export default function BigVisionPage() {
           </div>
 
           {/* ── Stat cards ──────────────────────────────────────── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
             {statCards.map((s) => (
               <div
                 key={s.label}
