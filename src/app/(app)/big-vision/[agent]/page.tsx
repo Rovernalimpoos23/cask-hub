@@ -335,6 +335,28 @@ const AGENT_META: Record<string, { category: string; leader?: string }> = {
   kaitlyn: { category: 'kaitlyn', leader: 'Kaitlyn' },
 }
 
+// ── Quick-action chat pills ──────────────────────────────────────────
+// Shown above the input only before the first message. Universal prompts apply to
+// every agent; the agent-specific set is appended per slug.
+const UNIVERSAL_PILLS = [
+  "Prepare me for today's meeting",
+  "What's the latest status?",
+  'What are the open action items?',
+  'How should Calin approach this?',
+]
+
+const AGENT_PILLS: Record<string, string[]> = {
+  pit: ["What's our PIT focus this quarter?", "Who hasn't reviewed PIT yet?"],
+  'ai-hub': ['Where are we on the rollout?', "What's blocking construction phase?"],
+  'design-center': ['Is the 2027 launch on track?', 'Any timeline risks?'],
+  'dept-alignment': ["Who's on a Dev Plan?", 'Who needs follow-up?'],
+  jeff: ["What's the sales pipeline status?", 'Are we on track for Q3 target?'],
+  lamont: ["What's the cash position?", 'Any budget concerns?'],
+  chad: ["What's the WIP status?", 'Any operational blockers?'],
+  matteo: ['How are active clients tracking?', 'Any at-risk clients?'],
+  kaitlyn: ['Any HR concerns this week?', "What's the hiring pipeline?"],
+}
+
 export default function AgentPage({ params }: { params: { agent: string } }) {
   const agentSlug = params.agent
   const agent = ALL_AGENTS[agentSlug]
@@ -343,6 +365,9 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   const agentCategory = AGENT_META[agentSlug]?.category ?? agentSlug
   const agentLeader = AGENT_META[agentSlug]?.leader
 
+  // Quick-action pills: universal set + this agent's specific prompts.
+  const quickPills = [...UNIVERSAL_PILLS, ...(AGENT_PILLS[agentSlug] ?? [])]
+
   // ── Live hub_memory file list + upload state ───────────────────────
   const [files, setFiles] = useState<any[]>([]) // eslint-disable-line @typescript-eslint/no-explicit-any
   const [filesLoading, setFilesLoading] = useState(true)
@@ -350,6 +375,15 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   const [uploadError, setUploadError] = useState('')
   const [uploadSuccess, setUploadSuccess] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Agent chat state ───────────────────────────────────────────────
+  const [messages, setMessages] = useState<
+    Array<{ role: 'user' | 'assistant'; content: string; filesUsed?: number }>
+  >([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatError, setChatError] = useState('')
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Fetch this agent's files on mount / when the slug changes.
   useEffect(() => {
@@ -371,6 +405,11 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
       cancelled = true
     }
   }, [agentSlug])
+
+  // Keep the chat scrolled to the newest message / typing indicator.
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, chatLoading])
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -417,6 +456,46 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     }
   }
 
+  // Send a chat message to the agent. `overrideText` lets the quick-action pills
+  // send their prompt directly — setChatInput is async, so relying on chatInput
+  // right after setting it would send a stale (empty) value.
+  async function sendMessage(overrideText?: string) {
+    const userMessage = (overrideText ?? chatInput).trim()
+    if (!userMessage || chatLoading) return
+
+    setChatInput('')
+    setChatError('')
+    setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
+    setChatLoading(true)
+
+    try {
+      const res = await fetch('/api/big-vision/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent: agentSlug,
+          question: userMessage,
+          conversationHistory: messages.map((m) => ({ role: m.role, content: m.content })),
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.answer) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: data.answer, filesUsed: data.filesUsed },
+        ])
+      } else {
+        setChatError('Failed to get response. Try again.')
+      }
+    } catch {
+      setChatError('Connection error. Try again.')
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
   // Hooks above run unconditionally; bail out for unknown agents afterwards.
   if (!agent) notFound()
 
@@ -433,6 +512,8 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
         .bv-send:hover { opacity: 0.9; }
         .bv-icon-btn:hover { background: var(--surface2); color: var(--text2); }
         .bv-edit:hover { color: var(--text); }
+        .bv-pill { transition: background 130ms ease, color 130ms ease; }
+        .bv-pill:not(:disabled):hover { background: var(--surface); color: var(--text); }
       `}</style>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
@@ -669,61 +750,169 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                 <span>💬</span> Ask the {agent.shortName} agent
               </div>
 
-              {/* Sample question (user bubble, right-aligned) */}
-              <div className="flex justify-end mb-3">
-                <div
-                  className="rounded-xl rounded-tr-sm px-3.5 py-2.5 text-[13px]"
-                  style={{ background: 'var(--surface2)', color: 'var(--text)', maxWidth: '85%' }}
-                >
-                  {agent.sampleQuestion}
-                </div>
+              {/* ── Chat messages area (fills space, scrolls) ────── */}
+              <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+                {messages.length === 0 ? (
+                  // Placeholder: the static sample stays visible until the first real message.
+                  <>
+                    <div className="flex justify-end mb-3">
+                      <div
+                        className="rounded-xl rounded-tr-sm px-3.5 py-2.5 text-[13px]"
+                        style={{ background: 'var(--surface2)', color: 'var(--text)', maxWidth: '85%' }}
+                      >
+                        {agent.sampleQuestion}
+                      </div>
+                    </div>
+
+                    <div
+                      className="rounded-xl p-4"
+                      style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
+                    >
+                      <p className="text-[13.5px] leading-relaxed" style={{ color: 'var(--text)' }}>
+                        {agent.answer.map((seg, i) =>
+                          seg.link ? (
+                            <span key={i} style={{ color: 'var(--purple)', fontWeight: 500 }}>
+                              {seg.text}
+                            </span>
+                          ) : (
+                            <span key={i}>{seg.text}</span>
+                          ),
+                        )}
+                      </p>
+                      <div
+                        className="flex items-center gap-1.5 text-[11px] mt-3 pt-3"
+                        style={{ color: 'var(--text3)', borderTop: '1px solid var(--border)' }}
+                      >
+                        <span>🗂</span> Drawn from {agent.drawnFrom} files in memory
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  // Real conversation.
+                  <div className="flex flex-col gap-3">
+                    {messages.map((m, i) =>
+                      m.role === 'user' ? (
+                        <div
+                          key={i}
+                          className="rounded-xl px-4 py-3 text-sm max-w-[85%] ml-auto"
+                          style={{ background: 'var(--surface2)', color: 'var(--text)' }}
+                        >
+                          {m.content}
+                        </div>
+                      ) : (
+                        <div key={i} className="max-w-[95%]">
+                          <div
+                            className="rounded-xl px-4 py-3 text-sm whitespace-pre-wrap"
+                            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                          >
+                            {m.content}
+                          </div>
+                          {typeof m.filesUsed === 'number' && m.filesUsed > 0 && (
+                            <div className="text-xs mt-2" style={{ color: 'var(--text3)' }}>
+                              🗂 Drawn from {m.filesUsed} files in memory
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    )}
+
+                    {/* Typing indicator */}
+                    {chatLoading && (
+                      <div className="max-w-[95%]">
+                        <div
+                          className="rounded-xl px-4 py-3 text-sm inline-flex items-center gap-2"
+                          style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text3)' }}
+                        >
+                          <span className="inline-flex gap-1">
+                            <span className="rounded-full animate-pulse" style={{ width: 6, height: 6, background: 'var(--text3)' }} />
+                            <span className="rounded-full animate-pulse" style={{ width: 6, height: 6, background: 'var(--text3)', animationDelay: '150ms' }} />
+                            <span className="rounded-full animate-pulse" style={{ width: 6, height: 6, background: 'var(--text3)', animationDelay: '300ms' }} />
+                          </span>
+                          Thinking…
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Auto-scroll anchor */}
+                <div ref={messagesEndRef} />
               </div>
 
-              {/* AI response card */}
-              <div
-                className="rounded-xl p-4"
-                style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
-              >
-                <p className="text-[13.5px] leading-relaxed" style={{ color: 'var(--text)' }}>
-                  {agent.answer.map((seg, i) =>
-                    seg.link ? (
-                      <span key={i} style={{ color: 'var(--purple)', fontWeight: 500 }}>
-                        {seg.text}
-                      </span>
-                    ) : (
-                      <span key={i}>{seg.text}</span>
-                    ),
-                  )}
-                </p>
-                <div
-                  className="flex items-center gap-1.5 text-[11px] mt-3 pt-3"
-                  style={{ color: 'var(--text3)', borderTop: '1px solid var(--border)' }}
-                >
-                  <span>🗂</span> Drawn from {agent.drawnFrom} files in memory
+              {/* Error */}
+              {chatError && (
+                <div className="text-xs mt-2" style={{ color: 'var(--red)' }}>
+                  {chatError}
                 </div>
-              </div>
+              )}
 
-              {/* Input at bottom (visual only) */}
+              {/* ── Input area (bottom) ──────────────────────────── */}
               <div className="mt-auto pt-4">
+                {/* Quick-action pills — only before the first message */}
+                {messages.length === 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {quickPills.map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => sendMessage(p)}
+                        disabled={chatLoading}
+                        className="bv-pill rounded-full px-3 py-1.5 text-xs"
+                        style={{
+                          background: 'var(--surface2)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text2)',
+                          cursor: chatLoading ? 'default' : 'pointer',
+                        }}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <div
                   className="flex items-center gap-2 rounded-xl p-2"
                   style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
                 >
                   <input
                     type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        sendMessage()
+                      }
+                    }}
                     placeholder={`Ask anything about ${agent.shortName}…`}
                     className="flex-1 bg-transparent border-0 outline-none text-[13px] px-2"
                     style={{ color: 'var(--text)', fontFamily: 'inherit' }}
                   />
                   <button
                     aria-label="Send"
+                    onClick={() => sendMessage()}
+                    disabled={chatLoading || chatInput.trim() === ''}
                     className="bv-send shrink-0 rounded-lg flex items-center justify-center"
-                    style={{ width: 32, height: 32, background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer' }}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      background: 'var(--red)',
+                      color: '#fff',
+                      border: 'none',
+                      cursor: chatLoading || chatInput.trim() === '' ? 'default' : 'pointer',
+                      opacity: chatLoading || chatInput.trim() === '' ? 0.6 : 1,
+                    }}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="12" y1="19" x2="12" y2="5" />
-                      <polyline points="5 12 12 5 19 12" />
-                    </svg>
+                    {chatLoading ? (
+                      <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="12" y1="19" x2="12" y2="5" />
+                        <polyline points="5 12 12 5 19 12" />
+                      </svg>
+                    )}
                   </button>
                 </div>
               </div>
