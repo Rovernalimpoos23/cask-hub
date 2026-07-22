@@ -17,6 +17,7 @@ import { createClient as createServiceSupabase } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 // Roles permitted to read hub memory — same admin set the upload route enforces.
 const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
@@ -39,6 +40,7 @@ const MAX_LIMIT = 500
 
 export async function GET(req: Request) {
   try {
+    console.log('[files] step: starting')
     // ── 1. Require a signed-in session ───────────────────────────────
     const authClient = createServerSupabase()
     const {
@@ -49,14 +51,28 @@ export async function GET(req: Request) {
     if (!sessionEmail) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
+    console.log('[files] step: auth passed')
 
     // ── 2. Service-role client for ALL Supabase ops ──────────────────
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     if (!supabaseUrl || !serviceKey) {
+      // Missing env vars are the most common Vercel misconfiguration — name which.
+      console.error('[files] service client config missing:', {
+        hasUrl: !!supabaseUrl,
+        hasServiceKey: !!serviceKey,
+      })
       return NextResponse.json({ error: 'server_config' }, { status: 500 })
     }
-    const supabaseService = createServiceSupabase(supabaseUrl, serviceKey)
+
+    let supabaseService
+    try {
+      supabaseService = createServiceSupabase(supabaseUrl, serviceKey)
+      console.log('[files] service client created')
+    } catch (err) {
+      console.error('[files] service client error:', err)
+      return NextResponse.json({ error: 'server_config' }, { status: 500 })
+    }
 
     // ── 3. Admin role check (by session email) ───────────────────────
     const { data: userRow, error: userErr } = await supabaseService
@@ -72,6 +88,7 @@ export async function GET(req: Request) {
     if (!userRow || !ADMIN_ROLES.includes(userRow.role)) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
+    console.log('[files] step: admin passed')
 
     // ── 4. Parse + validate query params ─────────────────────────────
     const { searchParams } = new URL(req.url)
@@ -98,6 +115,8 @@ export async function GET(req: Request) {
     // ── 5. Query hub_memory (list view — no `content` column) ────────
     // categories is text[]; `.overlaps` maps to the && array-overlap operator so a
     // row matches when it carries this agent's category among any of its categories.
+    console.log('[files] step: querying hub_memory')
+    console.log('[files] querying for category:', category)
     const { data: rows, error: queryErr } = await supabaseService
       .from('hub_memory')
       .select('id, title, source_type, layer, categories, leader, file_name, file_path, created_at, is_active')
@@ -108,9 +127,10 @@ export async function GET(req: Request) {
       .limit(limit)
 
     if (queryErr) {
-      console.error('[big-vision-files] hub_memory query failed')
+      console.error('[files] query error:', queryErr.message, queryErr.code)
       return NextResponse.json({ error: 'query_failed' }, { status: 500 })
     }
+    console.log('[files] step: query done')
 
     const files = (rows ?? []).map((r) => ({
       id: r.id,
