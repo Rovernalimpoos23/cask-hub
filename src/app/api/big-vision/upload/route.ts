@@ -21,6 +21,9 @@ import * as XLSX from 'xlsx'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+// Text extraction (unpdf / mammoth / xlsx) can be slow on large files; give the
+// serverless function headroom beyond the platform's short default.
+export const maxDuration = 60
 
 // Roles permitted to write hub memory — same admin set the president-scoped routes use.
 const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
@@ -122,6 +125,7 @@ export async function POST(req: Request) {
     if (!sessionEmail) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
+    console.log('[upload] step: auth passed')
 
     // ── 2. Service-role client for ALL Supabase ops ──────────────────
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -145,11 +149,18 @@ export async function POST(req: Request) {
     if (!userRow || !ADMIN_ROLES.includes(userRow.role)) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
+    console.log('[upload] step: admin check passed')
 
     // ── 4. Parse multipart form data ─────────────────────────────────
-    const formData = await req.formData().catch(() => null)
-    if (!formData) {
-      return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
+    // Isolated in its own try/catch: multipart parsing is where the request was
+    // crashing in the Vercel serverless runtime ("no outgoing requests"), and the
+    // outer catch alone masked the real cause. Log the underlying error here.
+    let formData: FormData
+    try {
+      formData = await req.formData()
+    } catch (err) {
+      console.error('[upload] form parse error:', err)
+      return NextResponse.json({ error: 'form_parse_error' }, { status: 400 })
     }
 
     const file = formData.get('file') as File | null
@@ -158,6 +169,7 @@ export async function POST(req: Request) {
     const layerRaw = formData.get('layer') as string | null
     const source_type = formData.get('source_type') as string | null
     const leaderRaw = formData.get('leader') as string | null
+    console.log('[upload] step: form parsed')
 
     // ── 5. Validate ──────────────────────────────────────────────────
     // Required fields present?
@@ -196,9 +208,11 @@ export async function POST(req: Request) {
     }
 
     const leader = leaderRaw && leaderRaw.trim() ? leaderRaw.trim() : null
+    console.log('[upload] step: validation passed')
 
     // ── 6. Extract text content from the file (best-effort) ──────────
     const extractedText = await extractContent(file)
+    console.log('[upload] step: text extracted')
 
     // ── 7. Upload the file to the 'hub-memory' bucket ────────────────
     // Path is namespaced by the first category. Timestamp keeps names unique so
@@ -216,6 +230,7 @@ export async function POST(req: Request) {
       console.error('[big-vision-upload] storage upload failed')
       return NextResponse.json({ error: 'upload_failed' }, { status: 502 })
     }
+    console.log('[upload] step: file uploaded to storage')
 
     // ── 8. Insert the hub_memory row ─────────────────────────────────
     const { data: insertedRow, error: insertError } = await supabaseService
@@ -239,6 +254,7 @@ export async function POST(req: Request) {
       console.error('[big-vision-upload] hub_memory insert failed')
       return NextResponse.json({ error: 'upload_failed' }, { status: 502 })
     }
+    console.log('[upload] step: db insert done')
 
     return NextResponse.json({ success: true, id: insertedRow.id }, { status: 200 })
   } catch (err) {
