@@ -91,6 +91,10 @@ export default function BigVisionPage() {
   })
   const [statsLoading, setStatsLoading] = useState(true)
 
+  // Per-agent file counts, keyed by slug. Populated after stats load.
+  const [agentFileCounts, setAgentFileCounts] = useState<Record<string, number>>({})
+  const [countsLoading, setCountsLoading] = useState(true)
+
   useEffect(() => {
     let cancelled = false
     async function loadStats() {
@@ -111,7 +115,48 @@ export default function BigVisionPage() {
         if (!cancelled) setStatsLoading(false)
       }
     }
-    loadStats()
+
+    // Fetch each agent's file count in parallel. limit=50 matches the list route's
+    // cap, so the count reflects up to 50 files per agent.
+    async function loadAgentCounts() {
+      const slugs = [
+        'pit',
+        'ai-hub',
+        'design-center',
+        'dept-alignment',
+        'jeff',
+        'lamont',
+        'chad',
+        'matteo',
+        'kaitlyn',
+      ]
+      try {
+        const counts = await Promise.all(
+          slugs.map(async (slug) => {
+            const res = await fetch(`/api/big-vision/files?agent=${slug}&limit=50`)
+            const data = await res.json()
+            return { slug, count: data.files?.length ?? 0 }
+          }),
+        )
+        if (!cancelled) {
+          const countsMap: Record<string, number> = {}
+          counts.forEach(({ slug, count }) => {
+            countsMap[slug] = count
+          })
+          setAgentFileCounts(countsMap)
+        }
+      } catch (e) {
+        console.error('agent counts error', e)
+      } finally {
+        if (!cancelled) setCountsLoading(false)
+      }
+    }
+
+    async function run() {
+      await loadStats()
+      if (!cancelled) await loadAgentCounts()
+    }
+    run()
     return () => {
       cancelled = true
     }
@@ -300,7 +345,7 @@ export default function BigVisionPage() {
                   {/* Bottom row — file count + Ask */}
                   <div className="flex items-center justify-between mt-5 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
                     <span className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: 'var(--text3)', ...NUM }}>
-                      <span>▢</span> {a.files} files
+                      <span>▢</span> {countsLoading ? '—' : agentFileCounts[a.slug] ?? 0} files
                     </span>
                     <Link
                       href={`/big-vision/${a.slug}`}
@@ -362,7 +407,7 @@ export default function BigVisionPage() {
                   {/* Bottom row — file count + Ask */}
                   <div className="flex items-center justify-between mt-5 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
                     <span className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: 'var(--text3)', ...NUM }}>
-                      <span>▢</span> {l.files} files
+                      <span>▢</span> {countsLoading ? '—' : agentFileCounts[l.slug] ?? 0} files
                     </span>
                     <Link
                       href={`/big-vision/${l.slug}`}
