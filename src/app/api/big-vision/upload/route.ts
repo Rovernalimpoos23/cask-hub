@@ -243,7 +243,6 @@ export async function POST(req: Request) {
         source_type,
         leader,
         file_path: storageData.path,
-        file_name: file.name,
         created_by: sessionEmail,
         is_active: true,
       })
@@ -251,7 +250,16 @@ export async function POST(req: Request) {
       .single()
 
     if (insertError || !insertedRow) {
-      console.error('[big-vision-upload] hub_memory insert failed')
+      console.error('[big-vision-upload] hub_memory insert failed:',
+        insertError?.message,
+        insertError?.code,
+        insertError?.details,
+        insertError?.hint,
+        JSON.stringify({
+          categories,
+          layer,
+          source_type,
+        }))
       return NextResponse.json({ error: 'upload_failed' }, { status: 502 })
     }
     console.log('[upload] step: db insert done')
