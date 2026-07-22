@@ -119,7 +119,7 @@ export async function GET(req: Request) {
     console.log('[files] querying for category:', category)
     const { data: rows, error: queryErr } = await supabaseService
       .from('hub_memory')
-      .select('id, title, source_type, layer, categories, leader, file_name, file_path, created_at, is_active')
+      .select('id, title, source_type, layer, categories, leader, file_path, created_at, is_active')
       .eq('is_active', true)
       .overlaps('categories', [category])
       .order('layer', { ascending: true })
@@ -139,7 +139,6 @@ export async function GET(req: Request) {
       layer: r.layer,
       categories: r.categories,
       leader: r.leader ?? null,
-      file_name: r.file_name ?? null,
       file_path: r.file_path ?? null,
       created_at: r.created_at,
     }))
