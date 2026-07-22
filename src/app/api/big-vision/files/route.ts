@@ -119,7 +119,7 @@ export async function GET(req: Request) {
     console.log('[files] querying for category:', category)
     const { data: rows, error: queryErr } = await supabaseService
       .from('hub_memory')
-      .select('id, title, source_type, layer, categories, leader, file_path, created_at, is_active')
+      .select('id, title, source_type, layer, categories, leader, file_path, source_ref, created_at, is_active')
       .eq('is_active', true)
       .overlaps('categories', [category])
       .order('layer', { ascending: true })
@@ -140,10 +140,49 @@ export async function GET(req: Request) {
       categories: r.categories,
       leader: r.leader ?? null,
       file_path: r.file_path ?? null,
+      source_ref: r.source_ref ?? null,
       created_at: r.created_at,
     }))
 
-    return NextResponse.json({ files, total: files.length }, { status: 200 })
+    // Enrich fireflies-sourced files with the actual meeting date. hub_memory's
+    // created_at is when the row was inserted (e.g. migration time), not when the
+    // meeting happened — the real date lives on the linked meetings row.
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const meetingIds = files
+      .filter((f) => f.source_type === 'fireflies' && f.source_ref && uuidRegex.test(f.source_ref))
+      .map((f) => f.source_ref as string)
+
+    const meetingDateMap: Record<string, string> = {}
+    if (meetingIds.length > 0) {
+      const { data: meetings, error: meetingsErr } = await supabaseService
+        .from('meetings')
+        .select('id, date')
+        .in('id', meetingIds)
+
+      if (meetingsErr) {
+        // Non-fatal — fall back to created_at (the client uses meeting_date || created_at).
+        console.error('[files] meeting date lookup failed:', meetingsErr.message, meetingsErr.code)
+      } else {
+        for (const m of meetings ?? []) {
+          if (m.date) meetingDateMap[m.id] = m.date
+        }
+      }
+    }
+
+    const filesWithDate = files.map((f) => ({
+      ...f,
+      meeting_date: f.source_ref && meetingDateMap[f.source_ref] ? meetingDateMap[f.source_ref] : null,
+    }))
+
+    // Sort newest-first by effective date (real meeting date, else upload date).
+    // The DB ORDER BY above is now just a stable fallback for equal dates.
+    filesWithDate.sort((a, b) => {
+      const dateA = a.meeting_date || a.created_at
+      const dateB = b.meeting_date || b.created_at
+      return new Date(dateB).getTime() - new Date(dateA).getTime()
+    })
+
+    return NextResponse.json({ files: filesWithDate, total: filesWithDate.length }, { status: 200 })
   } catch (err) {
     // Never throw unhandled — surface a generic error.
     console.error('[big-vision-files] error:', err instanceof Error ? err.message : 'unknown')

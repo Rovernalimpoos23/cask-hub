@@ -320,6 +320,16 @@ function sourceIcon(sourceType: string): string {
   return sourceType === 'fireflies' ? '🎤' : '📄'
 }
 
+// Format an ISO timestamp as "Jul 21, 2026".
+function fmtDate(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// A fireflies file links to its source session only when source_ref is a valid UUID.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 // ── Agent slug → hub_category (+ optional leader) ─────────────────────
 // Mirrors the mapping the /api/big-vision/files + /api/big-vision/upload routes
 // expect. Unknown slugs fall back to the slug itself as the category.
@@ -408,6 +418,12 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   // ── Per-file delete state ──────────────────────────────────────────
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  // ── File list expand/collapse ──────────────────────────────────────
+  const [filesExpanded, setFilesExpanded] = useState(false)
+  const VISIBLE_FILES = 4
+  const visibleFiles = filesExpanded ? files : files.slice(0, VISIBLE_FILES)
+  const hiddenCount = files.length - VISIBLE_FILES
 
   // ── Agent chat state ───────────────────────────────────────────────
   const [messages, setMessages] = useState<
@@ -730,11 +746,14 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                   // Real files (first 4)
                   <>
                     <div className="-mx-2">
-                      {files.slice(0, 4).map((f, i, shown) => (
+                      {visibleFiles.map((f, i) => {
+                        const linkable =
+                          f.source_type === 'fireflies' && !!f.source_ref && UUID_RE.test(f.source_ref)
+                        return (
                         <div
                           key={f.id}
                           className="group bv-file rounded-lg px-2 py-2.5"
-                          style={{ borderBottom: i < shown.length - 1 ? '1px solid var(--border)' : 'none' }}
+                          style={{ borderBottom: i < visibleFiles.length - 1 ? '1px solid var(--border)' : 'none' }}
                         >
                           {confirmDeleteId === f.id ? (
                             // Confirmation UI (replaces the row while confirming)
@@ -783,7 +802,17 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                               </span>
                               <div className="min-w-0 flex-1">
                                 <div className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>
-                                  {f.title}
+                                  {linkable ? (
+                                    <Link
+                                      href={`/sessions/${f.source_ref}`}
+                                      className="underline decoration-dotted"
+                                      style={{ color: 'var(--text)' }}
+                                    >
+                                      {f.title}
+                                    </Link>
+                                  ) : (
+                                    f.title
+                                  )}
                                 </div>
                                 <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 mt-1">
                                   <span className="text-[11px]" style={{ color: 'var(--text3)' }}>
@@ -801,6 +830,11 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                                     </span>
                                   )}
                                 </div>
+                                {(f.meeting_date || f.created_at) && (
+                                  <div className="text-xs mt-1" style={{ color: 'var(--text3)' }}>
+                                    {fmtDate(f.meeting_date || f.created_at)}
+                                  </div>
+                                )}
                               </div>
                               {/* Delete — visible on row hover */}
                               <button
@@ -817,15 +851,26 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                             </div>
                           )}
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
 
-                    {files.length > 4 && (
+                    {hiddenCount > 0 && !filesExpanded && (
                       <button
-                        className="bv-edit text-[12px] font-medium mt-3 bg-transparent border-0 p-0"
-                        style={{ color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit' }}
+                        onClick={() => setFilesExpanded(true)}
+                        className="bv-edit text-xs mt-2 block text-center w-full bg-transparent border-0 p-0"
+                        style={{ color: 'var(--text2)', cursor: 'pointer', fontFamily: 'inherit' }}
                       >
-                        + {files.length - 4} more
+                        + {hiddenCount} more ↓
+                      </button>
+                    )}
+                    {filesExpanded && (
+                      <button
+                        onClick={() => setFilesExpanded(false)}
+                        className="bv-edit text-xs mt-2 block text-center w-full bg-transparent border-0 p-0"
+                        style={{ color: 'var(--text2)', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        Show less ↑
                       </button>
                     )}
                   </>
@@ -866,40 +911,48 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
               {/* ── Chat messages area (fills space, scrolls) ────── */}
               <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
                 {messages.length === 0 ? (
-                  // Placeholder: the static sample stays visible until the first real message.
-                  <>
-                    <div className="flex justify-end mb-3">
-                      <div
-                        className="rounded-xl rounded-tr-sm px-3.5 py-2.5 text-[13px]"
-                        style={{ background: 'var(--surface2)', color: 'var(--text)', maxWidth: '85%' }}
+                  // Clean empty state — no fake sample Q&A. Centered agent identity,
+                  // a subtitle, and the quick-action pills.
+                  <div className="h-full flex flex-col items-center justify-center text-center px-4 py-8">
+                    {agent.isLeader ? (
+                      <span
+                        className="inline-flex items-center justify-center rounded-full text-white font-bold mb-3"
+                        style={{ width: 44, height: 44, background: agent.initialsBg, fontSize: 16 }}
                       >
-                        {agent.sampleQuestion}
-                      </div>
+                        {agent.initials}
+                      </span>
+                    ) : (
+                      <span className="mb-3" style={{ fontSize: 32, lineHeight: 1 }}>
+                        {agent.icon}
+                      </span>
+                    )}
+                    <div className="text-sm" style={{ color: 'var(--text2)' }}>
+                      Ask {agent.shortName} agent anything
+                    </div>
+                    <div className="text-xs mt-1" style={{ color: 'var(--text3)' }}>
+                      Powered by Claude Opus 4.8 · {files.length} files in memory
                     </div>
 
-                    <div
-                      className="rounded-xl p-4"
-                      style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
-                    >
-                      <p className="text-[13.5px] leading-relaxed" style={{ color: 'var(--text)' }}>
-                        {agent.answer.map((seg, i) =>
-                          seg.link ? (
-                            <span key={i} style={{ color: 'var(--purple)', fontWeight: 500 }}>
-                              {seg.text}
-                            </span>
-                          ) : (
-                            <span key={i}>{seg.text}</span>
-                          ),
-                        )}
-                      </p>
-                      <div
-                        className="flex items-center gap-1.5 text-[11px] mt-3 pt-3"
-                        style={{ color: 'var(--text3)', borderTop: '1px solid var(--border)' }}
-                      >
-                        <span>🗂</span> Drawn from {agent.drawnFrom} files in memory
-                      </div>
+                    {/* Quick-action pills */}
+                    <div className="flex flex-wrap justify-center gap-2 mt-5">
+                      {quickPills.map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => sendMessage(p)}
+                          disabled={chatLoading}
+                          className="bv-pill rounded-full px-3 py-1.5 text-xs"
+                          style={{
+                            background: 'var(--surface2)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text2)',
+                            cursor: chatLoading ? 'default' : 'pointer',
+                          }}
+                        >
+                          {p}
+                        </button>
+                      ))}
                     </div>
-                  </>
+                  </div>
                 ) : (
                   // Real conversation.
                   <div className="flex flex-col gap-3">
@@ -960,28 +1013,6 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
 
               {/* ── Input area (bottom) ──────────────────────────── */}
               <div className="mt-auto pt-4">
-                {/* Quick-action pills — only before the first message */}
-                {messages.length === 0 && (
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {quickPills.map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => sendMessage(p)}
-                        disabled={chatLoading}
-                        className="bv-pill rounded-full px-3 py-1.5 text-xs"
-                        style={{
-                          background: 'var(--surface2)',
-                          border: '1px solid var(--border)',
-                          color: 'var(--text2)',
-                          cursor: chatLoading ? 'default' : 'pointer',
-                        }}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
                 <div
                   className="flex items-center gap-2 rounded-xl p-2"
                   style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
