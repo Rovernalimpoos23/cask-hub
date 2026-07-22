@@ -113,9 +113,18 @@ export async function POST() {
         if (attendeeList.some((a: string) => a.toLowerCase().includes('chad'))) attendeeTags.push('chad')
         if (attendeeList.some((a: string) => a.toLowerCase().includes('matteo'))) attendeeTags.push('matteo')
         if (
-          attendeeList.some(
-            (a: string) => a.toLowerCase().includes('kaitlyn') || a.toLowerCase().includes('kate'),
-          )
+          attendeeList.some((a: string) => {
+            const name = a.toLowerCase()
+            // Kaitlyn is stored as "Kait" in the meetings table — match that plus her
+            // other name forms. startsWith('kait') catches "Kait"/"Kaitlyn"/"Kaitlyn G".
+            return (
+              name === 'kait' ||
+              name === 'kaitlyn' ||
+              name === 'kate' ||
+              name === 'kaitlyn grunenberg' ||
+              name.startsWith('kait')
+            )
+          })
         )
           attendeeTags.push('kaitlyn')
 
@@ -126,7 +135,24 @@ export async function POST() {
         const keywordTags: string[] = []
         if (/\bpit\b/i.test(fullText)) keywordTags.push('pit')
         if (fullText.includes('ai hub') || fullText.includes('ai-hub')) keywordTags.push('ai_hub')
-        if (fullText.includes('design center')) keywordTags.push('design_center')
+        // design_center: require specific context so incidental "design center"
+        // mentions (common in sales/marketing calls) don't over-tag — the migration
+        // dry-run showed a bare substring match hitting 12/20 meetings. Exceptions:
+        // a "Design Center:" title prefix always qualifies, and 'website' is a qualifier.
+        if (
+          (meeting.title ?? '').toLowerCase().startsWith('design center') ||
+          (/\bdesign center\b/i.test(fullText) &&
+            (fullText.includes('design center launch') ||
+              fullText.includes('design center rollout') ||
+              fullText.includes('design center timeline') ||
+              fullText.includes('design center meeting') ||
+              fullText.includes('design center update') ||
+              fullText.includes('design center brand') ||
+              fullText.includes('design center concept') ||
+              fullText.includes('design center website') ||
+              /\bdesign center\b.{0,50}\b(launch|rollout|timeline|brand|concept|2027|website)\b/i.test(fullText)))
+        )
+          keywordTags.push('design_center')
         if (
           fullText.includes('department alignment') ||
           fullText.includes('dept alignment') ||

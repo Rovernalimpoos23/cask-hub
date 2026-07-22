@@ -731,6 +731,10 @@ Return ONLY the email body HTML. No subject line in the body.`
         'm.carpani@caskconstruction.com': 'matteo',
         'k.grunenberg@caskconstruction.com': 'kaitlyn',
       }
+      // NOTE: Unlike the migrate route (which matches meetings.attendees first-name
+      // strings, where Kaitlyn appears as "Kait"), this webhook matches attendees by
+      // EMAIL. Kaitlyn is already reliably tagged via her k.grunenberg@ address
+      // regardless of display name, so no "Kait" first-name fix is needed here.
 
       // These attend everything — presence shouldn't tag the meeting.
       const SKIP_ATTENDEES = [
@@ -753,10 +757,11 @@ Return ONLY the email body HTML. No subject line in the body.`
       const transcriptText = (fullTranscript ?? '').toLowerCase()
       const fullText = `${titleText} ${transcriptText}`
 
+      // NOTE: design_center is handled separately below (needs specific context),
+      // so it's intentionally not in this generic substring-matched map.
       const KEYWORD_TAG_MAP: Array<{ keywords: string[]; tag: string }> = [
         { keywords: ['ai hub', 'ai-hub', 'aihub', 'hub rollout'], tag: 'ai_hub' },
         { keywords: ['pit', 'process improvement', 'process improvement team'], tag: 'pit' },
-        { keywords: ['design center', 'design-center'], tag: 'design_center' },
         {
           keywords: ['department alignment', 'dept alignment', 'dev plan', 'development plan', 'personal plan'],
           tag: 'alignment',
@@ -777,6 +782,25 @@ Return ONLY the email body HTML. No subject line in the body.`
       const keywordTags = KEYWORD_TAG_MAP
         .filter(({ keywords }) => keywords.some(matchesKeyword))
         .map(({ tag }) => tag)
+
+      // design_center: require specific context so incidental "design center"
+      // mentions don't over-tag (matches the migrate route's tightened rule). A
+      // "Design Center:" title prefix always qualifies, and 'website' is a qualifier.
+      if (
+        titleText.startsWith('design center') ||
+        (/\bdesign center\b/i.test(fullText) &&
+          (fullText.includes('design center launch') ||
+            fullText.includes('design center rollout') ||
+            fullText.includes('design center timeline') ||
+            fullText.includes('design center meeting') ||
+            fullText.includes('design center update') ||
+            fullText.includes('design center brand') ||
+            fullText.includes('design center concept') ||
+            fullText.includes('design center website') ||
+            /\bdesign center\b.{0,50}\b(launch|rollout|timeline|brand|concept|2027|website)\b/i.test(fullText)))
+      ) {
+        keywordTags.push('design_center')
+      }
 
       // De-duplicate the combined tag set. (Array.from — not [...set] — so it
       // compiles regardless of the project's TS target/downlevelIteration setting.)
