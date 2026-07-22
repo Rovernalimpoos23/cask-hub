@@ -357,6 +357,35 @@ const AGENT_PILLS: Record<string, string[]> = {
   kaitlyn: ['Any HR concerns this week?', "What's the hiring pipeline?"],
 }
 
+// ── Lightweight markdown → HTML for assistant messages ───────────────
+// react-markdown is not a project dependency and packages can't be added here, so
+// this handles the small subset Claude emits (bold, italic, ## / ### headers,
+// bullet lists, paragraph breaks). Content is HTML-ESCAPED first — the result goes
+// through dangerouslySetInnerHTML, so raw `<`/`>`/`&` must never reach the DOM as
+// markup (prevents injection from anything the model echoes back).
+function renderMarkdown(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  const html = escaped
+    // H2 → h3 (block heading)
+    .replace(/^## (.*)$/gm, '<h3 class="font-semibold text-sm mt-3 mb-1" style="color:var(--text)">$1</h3>')
+    // H3 → styled paragraph label
+    .replace(/^### (.*)$/gm, '<p class="font-medium text-sm mt-2 mb-1" style="color:var(--text2)">$1</p>')
+    // Bullet points
+    .replace(/^- (.*)$/gm, '<li class="ml-4 text-sm" style="color:var(--text)">• $1</li>')
+    // Bold, then italic (bold consumes ** first so lone * become italic)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Paragraph breaks, then single line breaks
+    .replace(/\n\n/g, '</p><p class="mt-2">')
+    .replace(/\n/g, '<br/>')
+
+  return `<p>${html}</p>`
+}
+
 export default function AgentPage({ params }: { params: { agent: string } }) {
   const agentSlug = params.agent
   const agent = ALL_AGENTS[agentSlug]
@@ -802,11 +831,10 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                       ) : (
                         <div key={i} className="max-w-[95%]">
                           <div
-                            className="rounded-xl px-4 py-3 text-sm whitespace-pre-wrap"
+                            className="rounded-xl px-4 py-3 text-sm leading-relaxed"
                             style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}
-                          >
-                            {m.content}
-                          </div>
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                          />
                           {typeof m.filesUsed === 'number' && m.filesUsed > 0 && (
                             <div className="text-xs mt-2" style={{ color: 'var(--text3)' }}>
                               🗂 Drawn from {m.filesUsed} files in memory

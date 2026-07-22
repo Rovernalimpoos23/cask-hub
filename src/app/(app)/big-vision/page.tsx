@@ -1,21 +1,27 @@
+'use client'
+
 // src/app/(app)/big-vision/page.tsx
 // Big Vision — one shared memory that feeds every agent.
-// VISUAL ONLY. All data hardcoded — no Supabase, no API calls.
+// The four stat cards + the header meta line are wired to live Supabase data via
+// /api/big-vision/stats. The Foundation / agent / leader cards below remain static.
 // Matches the Hub dark theme via CSS variables from globals.css.
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 
 // ── Typography ───────────────────────────────────────────────────────
 const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
 const NUM: React.CSSProperties = { fontVariantNumeric: 'tabular-nums lining-nums' }
 
-// ── Data (hardcoded) ─────────────────────────────────────────────────
-const STATS = [
-  { label: 'Files in memory', value: '42' },
-  { label: 'Agents live', value: '4', suffix: '/ 4', tone: 'green' as const },
-  { label: 'Auto-routed this week', value: '7' },
-  { label: 'Roll-up report', value: 'Ready to draft', tone: 'green' as const, small: true },
-]
+// ── Stat card shape ──────────────────────────────────────────────────
+interface StatCard {
+  label: string
+  value: string
+  suffix?: string
+  tone?: 'green'
+  small?: boolean
+  color?: string // explicit color override (wins over `tone`)
+}
 
 const FOUNDATION = [
   {
@@ -76,6 +82,65 @@ const LEADERS = [
 ]
 
 export default function BigVisionPage() {
+  // ── Live stats ─────────────────────────────────────────────────────
+  const [stats, setStats] = useState({
+    filesInMemory: 0,
+    agentsLive: 0,
+    autoRoutedThisWeek: 0,
+    rollupReady: false,
+  })
+  const [statsLoading, setStatsLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadStats() {
+      try {
+        const filesRes = await fetch('/api/big-vision/stats')
+        const data = await filesRes.json()
+        if (!cancelled && data && typeof data.filesInMemory === 'number') {
+          setStats({
+            filesInMemory: data.filesInMemory,
+            agentsLive: data.agentsLive,
+            autoRoutedThisWeek: data.autoRoutedThisWeek,
+            rollupReady: data.rollupReady,
+          })
+        }
+      } catch (e) {
+        console.error('stats error', e)
+      } finally {
+        if (!cancelled) setStatsLoading(false)
+      }
+    }
+    loadStats()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Stat cards derived from live data. Placeholders shown while loading.
+  const statCards: StatCard[] = [
+    {
+      label: 'Files in memory',
+      value: statsLoading ? '—' : String(stats.filesInMemory),
+    },
+    {
+      label: 'Agents live',
+      value: statsLoading ? '—' : String(stats.agentsLive),
+      suffix: statsLoading ? undefined : '/ 4',
+      tone: 'green',
+    },
+    {
+      label: 'Auto-routed this week',
+      value: statsLoading ? '—' : String(stats.autoRoutedThisWeek),
+    },
+    {
+      label: 'Roll-up report',
+      value: statsLoading ? 'Loading...' : stats.rollupReady ? 'Ready to draft' : 'Not ready',
+      small: true,
+      color: !statsLoading && stats.rollupReady ? 'var(--green)' : 'var(--text3)',
+    },
+  ]
+
   return (
     <>
       <style>{`
@@ -113,7 +178,9 @@ export default function BigVisionPage() {
                 One shared memory — feed it once, every agent follows
               </p>
               <p className="text-sm mt-1" style={{ color: 'var(--text3)', ...NUM }}>
-                6 seed documents loaded · 4 agents live · shared memory active
+                {statsLoading
+                  ? '...'
+                  : `${stats.filesInMemory} files loaded · ${stats.agentsLive} agents live · shared memory active`}
               </p>
             </div>
             <button
@@ -136,7 +203,7 @@ export default function BigVisionPage() {
 
           {/* ── Stat cards ──────────────────────────────────────── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {STATS.map((s) => (
+            {statCards.map((s) => (
               <div
                 key={s.label}
                 className="bv-stat rounded-xl p-5"
@@ -155,7 +222,7 @@ export default function BigVisionPage() {
                     fontWeight: 650,
                     letterSpacing: '-0.5px',
                     lineHeight: 1,
-                    color: s.tone === 'green' ? 'var(--green)' : 'var(--text)',
+                    color: s.color ?? (s.tone === 'green' ? 'var(--green)' : 'var(--text)'),
                     ...NUM,
                   }}
                 >
