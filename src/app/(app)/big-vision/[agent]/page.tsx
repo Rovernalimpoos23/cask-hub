@@ -1,10 +1,15 @@
+'use client'
+
 // src/app/(app)/big-vision/[agent]/page.tsx
 // Individual Big Vision agent page.
-// VISUAL ONLY. All data hardcoded — no Supabase, no API calls.
-// Input box and Upload button are visual only (no submit action).
+// The left "Files in memory" panel and the Upload button are wired to the live
+// hub_memory API (/api/big-vision/files + /api/big-vision/upload).
+// The right-hand AI chat panel is still VISUAL ONLY (hardcoded) — it gets wired
+// in Phase C, so its static data below is intentionally left in place.
 
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
 
 // ── Typography ───────────────────────────────────────────────────────
 const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
@@ -309,14 +314,110 @@ const LEADER_AGENTS: Record<string, AgentData> = Object.fromEntries(
 const ALL_AGENTS: Record<string, AgentData> = { ...AGENTS, ...LEADER_AGENTS }
 
 // ── Icons ────────────────────────────────────────────────────────────
-const SOURCE_ICON: Record<Source, string> = {
-  'seed doc': '📄',
-  manual: '📄',
-  fireflies: '🎤',
+// Icon for a real hub_memory source_type ('fireflies' | 'seed_doc' | 'manual' |
+// 'meeting_note'). Fireflies transcripts get a mic; everything else a document.
+function sourceIcon(sourceType: string): string {
+  return sourceType === 'fireflies' ? '🎤' : '📄'
+}
+
+// ── Agent slug → hub_category (+ optional leader) ─────────────────────
+// Mirrors the mapping the /api/big-vision/files + /api/big-vision/upload routes
+// expect. Unknown slugs fall back to the slug itself as the category.
+const AGENT_META: Record<string, { category: string; leader?: string }> = {
+  pit: { category: 'pit' },
+  'ai-hub': { category: 'ai_hub' },
+  'design-center': { category: 'design_center' },
+  'dept-alignment': { category: 'alignment' },
+  jeff: { category: 'jeff', leader: 'Jeff' },
+  lamont: { category: 'lamont', leader: 'Lamont' },
+  chad: { category: 'chad', leader: 'Chad' },
+  matteo: { category: 'matteo', leader: 'Matteo' },
+  kaitlyn: { category: 'kaitlyn', leader: 'Kaitlyn' },
 }
 
 export default function AgentPage({ params }: { params: { agent: string } }) {
-  const agent = ALL_AGENTS[params.agent]
+  const agentSlug = params.agent
+  const agent = ALL_AGENTS[agentSlug]
+
+  // Slug → category (+ optional leader) used for uploads. Falls back to the slug.
+  const agentCategory = AGENT_META[agentSlug]?.category ?? agentSlug
+  const agentLeader = AGENT_META[agentSlug]?.leader
+
+  // ── Live hub_memory file list + upload state ───────────────────────
+  const [files, setFiles] = useState<any[]>([]) // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [filesLoading, setFilesLoading] = useState(true)
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const [uploadSuccess, setUploadSuccess] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch this agent's files on mount / when the slug changes.
+  useEffect(() => {
+    let cancelled = false
+    async function loadFiles() {
+      setFilesLoading(true)
+      try {
+        const res = await fetch(`/api/big-vision/files?agent=${agentSlug}`)
+        const data = await res.json()
+        if (!cancelled && data.files) setFiles(data.files)
+      } catch {
+        // Network/parse failure — leave files empty; the empty state renders.
+      } finally {
+        if (!cancelled) setFilesLoading(false)
+      }
+    }
+    loadFiles()
+    return () => {
+      cancelled = true
+    }
+  }, [agentSlug])
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadingFile(true)
+    setUploadError('')
+    setUploadSuccess('')
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('title', file.name.replace(/\.[^.]+$/, ''))
+      formData.append('categories', agentCategory)
+      formData.append('layer', '4')
+      formData.append('source_type', 'manual')
+      if (agentLeader) {
+        formData.append('leader', agentLeader)
+      }
+
+      const res = await fetch('/api/big-vision/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (res.ok) {
+        setUploadSuccess('File uploaded!')
+        // Refresh the file list from the server.
+        const filesRes = await fetch(`/api/big-vision/files?agent=${agentSlug}`)
+        const data = await filesRes.json()
+        if (data.files) setFiles(data.files)
+        setTimeout(() => setUploadSuccess(''), 3000)
+      } else {
+        setUploadError('Upload failed. Try again.')
+      }
+    } catch {
+      setUploadError('Upload failed. Try again.')
+    } finally {
+      setUploadingFile(false)
+      // Reset the input so re-selecting the same file re-triggers onChange.
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  // Hooks above run unconditionally; bail out for unknown agents afterwards.
   if (!agent) notFound()
 
   return (
@@ -423,50 +524,117 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                     <span>🗂</span> Files in memory
                   </div>
                   <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingFile}
                     className="bv-upload inline-flex items-center gap-1.5 rounded-lg text-[12px] font-semibold"
-                    style={{ padding: '6px 12px', background: 'var(--red)', color: '#fff', border: 'none', cursor: 'pointer' }}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'var(--red)',
+                      color: '#fff',
+                      border: 'none',
+                      cursor: uploadingFile ? 'default' : 'pointer',
+                      opacity: uploadingFile ? 0.7 : 1,
+                    }}
                   >
-                    <span>↑</span> Upload
+                    <span>↑</span> {uploadingFile ? 'Uploading…' : 'Upload'}
                   </button>
                 </div>
 
-                {/* File list */}
-                <div className="-mx-2">
-                  {agent.files.map((f, i) => (
-                    <div
-                      key={f.name}
-                      className="bv-file rounded-lg px-2 py-2.5"
-                      style={{ borderBottom: i < agent.files.length - 1 ? '1px solid var(--border)' : 'none' }}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <span className="shrink-0" style={{ fontSize: 14, marginTop: 1 }}>
-                          {SOURCE_ICON[f.source]}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>
-                            {f.name}
-                          </div>
-                          <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 mt-1">
-                            <span className="text-[11px]" style={{ color: 'var(--text3)' }}>
-                              {f.source} · layer {f.layer}
-                            </span>
-                            {f.tags.map((t) => (
-                              <TagPill key={t} tag={t} />
-                            ))}
+                {/* Hidden file input — opened by the Upload button */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept=".pdf,.docx,.xlsx,.txt"
+                  onChange={handleFileUpload}
+                />
+
+                {/* Upload status */}
+                {uploadError && (
+                  <div className="text-xs mb-2" style={{ color: 'var(--red)' }}>
+                    {uploadError}
+                  </div>
+                )}
+                {uploadSuccess && (
+                  <div className="text-xs mb-2" style={{ color: '#059669' }}>
+                    {uploadSuccess}
+                  </div>
+                )}
+
+                {/* File list — live hub_memory rows */}
+                {filesLoading ? (
+                  // Loading: 3 skeleton rows
+                  <div className="-mx-2">
+                    {[0, 1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className="animate-pulse px-2 py-2.5"
+                        style={{ borderBottom: i < 2 ? '1px solid var(--border)' : 'none' }}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div className="shrink-0 rounded" style={{ width: 14, height: 14, marginTop: 1, background: 'var(--surface2)' }} />
+                          <div className="min-w-0 flex-1">
+                            <div className="rounded" style={{ height: 12, width: '60%', background: 'var(--surface2)' }} />
+                            <div className="rounded mt-2" style={{ height: 10, width: '35%', background: 'var(--surface2)' }} />
                           </div>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                ) : files.length === 0 ? (
+                  // Empty state
+                  <div className="text-sm italic px-2 py-4" style={{ color: 'var(--text3)' }}>
+                    No files yet. Upload the first file to get started.
+                  </div>
+                ) : (
+                  // Real files (first 4)
+                  <>
+                    <div className="-mx-2">
+                      {files.slice(0, 4).map((f, i, shown) => (
+                        <div
+                          key={f.id}
+                          className="bv-file rounded-lg px-2 py-2.5"
+                          style={{ borderBottom: i < shown.length - 1 ? '1px solid var(--border)' : 'none' }}
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <span className="shrink-0" style={{ fontSize: 14, marginTop: 1 }}>
+                              {sourceIcon(f.source_type)}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>
+                                {f.title}
+                              </div>
+                              <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 mt-1">
+                                <span className="text-[11px]" style={{ color: 'var(--text3)' }}>
+                                  {f.source_type} · layer {f.layer}
+                                </span>
+                                {(f.categories ?? []).map((t: string) => (
+                                  <TagPill key={t} tag={t} />
+                                ))}
+                                {f.leader && (
+                                  <span
+                                    className="rounded-full text-xs px-2 py-0.5 font-medium"
+                                    style={{ background: 'var(--surface2)', color: 'var(--text2)', fontSize: 10.5, lineHeight: 1.4 }}
+                                  >
+                                    {f.leader}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                {agent.moreCount > 0 && (
-                  <button
-                    className="bv-edit text-[12px] font-medium mt-3 bg-transparent border-0 p-0"
-                    style={{ color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit' }}
-                  >
-                    + {agent.moreCount} more
-                  </button>
+                    {files.length > 4 && (
+                      <button
+                        className="bv-edit text-[12px] font-medium mt-3 bg-transparent border-0 p-0"
+                        style={{ color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        + {files.length - 4} more
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
 
