@@ -716,6 +716,99 @@ Return ONLY the email body HTML. No subject line in the body.`
     } else {
       console.log('[fireflies] meeting saved successfully:', record.title, '| date:', record.date)
     }
+
+    // ── 7. Mirror the meeting into hub_memory for Big Vision agents ──────
+    // Tags come from (a) leader attendees and (b) strategic-topic keywords in the
+    // title/transcript. Reuses the SAME `supabase` service-role client above. Fully
+    // isolated in its own try/catch so any failure here can't affect the meetings
+    // save above or the webhook response. Variables reused from the existing code:
+    //   fullTranscript (plain text), transcript.meeting_attendees, sessionTitle, meeting_id.
+    try {
+      const ATTENDEE_TAG_MAP: Record<string, string> = {
+        'j.azcona@caskconstruction.com': 'jeff',
+        'l.gilyot@caskconstruction.com': 'lamont',
+        'c.holman@caskconstruction.com': 'chad',
+        'm.carpani@caskconstruction.com': 'matteo',
+        'k.grunenberg@caskconstruction.com': 'kaitlyn',
+      }
+
+      // These attend everything — presence shouldn't tag the meeting.
+      const SKIP_ATTENDEES = [
+        'c.noonan@caskconstruction.com',
+        'k.mapoy@caskconstruction.com',
+        'r.alimpoos@caskconstruction.com',
+      ]
+
+      // Fireflies sends attendees as { displayName, email } on transcript.meeting_attendees.
+      const attendeeTags: string[] = (transcript.meeting_attendees ?? [])
+        .map((a: { email?: string }) => a.email?.toLowerCase().trim())
+        .filter(
+          (email: string | undefined): email is string =>
+            !!email && !SKIP_ATTENDEES.includes(email) && !!ATTENDEE_TAG_MAP[email],
+        )
+        .map((email: string) => ATTENDEE_TAG_MAP[email])
+
+      // Keyword tags from title + transcript text.
+      const titleText = (sessionTitle ?? '').toLowerCase()
+      const transcriptText = (fullTranscript ?? '').toLowerCase()
+      const fullText = `${titleText} ${transcriptText}`
+
+      const KEYWORD_TAG_MAP: Array<{ keywords: string[]; tag: string }> = [
+        { keywords: ['ai hub', 'ai-hub', 'aihub', 'hub rollout'], tag: 'ai_hub' },
+        { keywords: ['pit', 'process improvement', 'process improvement team'], tag: 'pit' },
+        { keywords: ['design center', 'design-center'], tag: 'design_center' },
+        {
+          keywords: ['department alignment', 'dept alignment', 'dev plan', 'development plan', 'personal plan'],
+          tag: 'alignment',
+        },
+      ]
+
+      // Short single-word keywords (≤4 chars, e.g. 'pit') use word-boundary
+      // matching so they don't match inside longer words ("hospital", "capital").
+      // Longer / multi-word keywords are distinctive enough for a substring check.
+      const matchesKeyword = (kw: string): boolean => {
+        if (kw.length <= 4) {
+          const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          return new RegExp(`\\b${escaped}\\b`, 'i').test(fullText)
+        }
+        return fullText.includes(kw)
+      }
+
+      const keywordTags = KEYWORD_TAG_MAP
+        .filter(({ keywords }) => keywords.some(matchesKeyword))
+        .map(({ tag }) => tag)
+
+      // De-duplicate the combined tag set. (Array.from — not [...set] — so it
+      // compiles regardless of the project's TS target/downlevelIteration setting.)
+      const allTags = Array.from(new Set([...attendeeTags, ...keywordTags]))
+
+      if (allTags.length > 0) {
+        const truncatedTranscript = (fullTranscript ?? '').slice(0, 20000)
+
+        const { error: hubErr } = await supabase.from('hub_memory').insert({
+          title: sessionTitle || 'Untitled Meeting',
+          content: truncatedTranscript,
+          categories: allTags,
+          layer: 4,
+          source_type: 'fireflies',
+          source_ref: meeting_id || null,
+          leader: attendeeTags.length === 1 ? attendeeTags[0] : null,
+          created_by: 'fireflies-webhook',
+          is_active: true,
+        })
+
+        if (hubErr) {
+          console.error('[fireflies] hub_memory insert error:', hubErr.message)
+        } else {
+          console.log('[fireflies] hub_memory insert:', sessionTitle, 'tags:', allTags)
+        }
+      } else {
+        console.log('[fireflies] no tags matched, skipping hub_memory insert:', sessionTitle)
+      }
+    } catch (hubErr) {
+      const msg = hubErr instanceof Error ? hubErr.message : String(hubErr)
+      console.error('[fireflies] hub_memory insert failed (non-fatal):', msg)
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[fireflies] unhandled webhook error:', msg, err)
