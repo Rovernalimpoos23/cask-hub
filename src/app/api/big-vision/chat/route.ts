@@ -176,17 +176,19 @@ export async function POST(req: Request) {
 
     let memoryContext = ''
     let totalChars = 0
+    let actualFilesUsed = 0
     for (const f of filesWithContent) {
       const entry = `--- ${f.title} (${f.source_type}, layer ${f.layer}) ---\n${f.content}\n\n`
       if (totalChars + entry.length > MAX_CONTEXT_CHARS) break
       memoryContext += entry
       totalChars += entry.length
+      actualFilesUsed++
     }
 
     // ── 6. Assemble the system prompt ────────────────────────────────
     const systemPrompt = `${agentInstruction}
 
-FILES IN MEMORY (${fileCount} files):
+FILES IN MEMORY (${actualFilesUsed} of ${fileCount} total files loaded — some files were too large to include in this context):
 
 ${
   memoryContext ||
@@ -232,7 +234,10 @@ ${
     }
 
     // ── 8. Return the answer ─────────────────────────────────────────
-    return NextResponse.json({ answer, filesUsed: fileCount, agent }, { status: 200 })
+    return NextResponse.json(
+      { answer, filesUsed: actualFilesUsed, totalFilesAvailable: fileCount, agent },
+      { status: 200 },
+    )
   } catch (err) {
     // Never throw unhandled — surface a generic error.
     console.error('[big-vision-chat] error:', err instanceof Error ? err.message : 'unknown')
