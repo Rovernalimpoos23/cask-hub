@@ -113,6 +113,31 @@ async function extractContent(file: File): Promise<string | null> {
   }
 }
 
+// Generate a Voyage AI embedding for the extracted content. Best-effort: any
+// failure (network, non-2xx, malformed body) is swallowed and returns null so the
+// upload is never blocked. Input is truncated to Voyage's per-request char budget.
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  try {
+    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        input: [text.slice(0, 32000)],
+        model: 'voyage-3',
+        input_type: 'document',
+      }),
+    })
+    const data = await res.json()
+    return data.data?.[0]?.embedding ?? null
+  } catch (err) {
+    console.error('[upload] embedding error:', err)
+    return null
+  }
+}
+
 export async function POST(req: Request) {
   try {
     // ── 1. Require a signed-in session ───────────────────────────────
@@ -214,6 +239,18 @@ export async function POST(req: Request) {
     const extractedText = await extractContent(file)
     console.log('[upload] step: text extracted')
 
+    // ── 6b. Generate a Voyage AI embedding (best-effort enhancement) ──
+    // Never blocks the upload: a missing key or a failed request just leaves
+    // embedding = null so the row is still written without a vector.
+    let embedding: number[] | null = null
+    if (!process.env.VOYAGE_API_KEY) {
+      console.warn('[upload] VOYAGE_API_KEY not set — skipping embedding')
+      embedding = null
+    } else if (extractedText) {
+      embedding = await generateEmbedding(extractedText)
+    }
+    console.log('[upload] step: embedding generated')
+
     // ── 7. Upload the file to the 'hub-memory' bucket ────────────────
     // Path is namespaced by the first category. Timestamp keeps names unique so
     // ups:false uploads never collide.
@@ -245,6 +282,7 @@ export async function POST(req: Request) {
         file_path: storageData.path,
         created_by: sessionEmail,
         is_active: true,
+        embedding: embedding,
       })
       .select('id')
       .single()

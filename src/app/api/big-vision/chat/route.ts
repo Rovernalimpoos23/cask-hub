@@ -11,6 +11,54 @@
 // The agent answers strictly from the files in its hub_memory category, injected as
 // a system-prompt context block. Every failure path returns JSON { error: '<reason>' }
 // — never an unhandled throw. The Anthropic API key is never logged.
+//
+// ── RAG (Voyage AI similarity search) ────────────────────────────────────────
+// File retrieval uses pgvector similarity search via the match_hub_memory RPC. The
+// question is embedded (input_type: 'query') and the RPC returns the top matches by
+// cosine similarity. If embedding is unavailable (no VOYAGE_API_KEY / request fails)
+// we fall back to the previous layer/recency ordering.
+//
+// The RPC must exist in the database. Run this in the Supabase SQL editor:
+//
+// -- Run this in Supabase SQL editor:
+// -- CREATE OR REPLACE FUNCTION
+// --   match_hub_memory(
+// --     query_embedding vector(1024),
+// --     match_category text,
+// --     match_count int DEFAULT 15
+// --   )
+// -- RETURNS TABLE (
+// --   id uuid,
+// --   title text,
+// --   content text,
+// --   summary text,
+// --   source_type text,
+// --   layer smallint,
+// --   categories hub_category[],
+// --   leader text,
+// --   similarity float
+// -- )
+// -- LANGUAGE plpgsql
+// -- AS $$
+// -- BEGIN
+// --   RETURN QUERY
+// --   SELECT
+// --     h.id, h.title, h.content,
+// --     h.summary, h.source_type,
+// --     h.layer, h.categories,
+// --     h.leader,
+// --     1 - (h.embedding <=>
+// --       query_embedding) AS similarity
+// --   FROM hub_memory h
+// --   WHERE h.is_active = true
+// --   AND h.categories &&
+// --     ARRAY[match_category::hub_category]
+// --   AND h.embedding IS NOT NULL
+// --   ORDER BY h.embedding <=>
+// --     query_embedding
+// --   LIMIT match_count;
+// -- END;
+// -- $$;
 import { NextResponse } from 'next/server'
 import { createClient as createServerSupabase } from '@/lib/supabase-server'
 import { createClient as createServiceSupabase } from '@supabase/supabase-js'
@@ -65,12 +113,57 @@ const AGENT_INSTRUCTIONS: Record<string, string> = {
 // Cap the injected memory context so a large file set can't blow past the model's
 // context window (or run up cost).
 const MAX_CONTEXT_CHARS = 100000
-const FILE_LIMIT = 50
+// (FILE_LIMIT removed — retrieval now caps at match_count: 15 in both the RAG RPC
+// and the layer/recency fallback, so the old 50-row limit is no longer used.)
 
 // A single conversation turn coming from the client.
 interface HistoryMessage {
   role: 'user' | 'assistant'
   content: string
+}
+
+// A hub_memory row as used for context building. Shared by both retrieval paths:
+// the match_hub_memory RPC (RAG) and the layer/recency fallback query. The RPC also
+// returns `similarity`, which we don't need for context assembly.
+interface MemoryFile {
+  id: string
+  title: string | null
+  content: string | null
+  summary: string | null
+  source_type: string | null
+  layer: number | null
+  categories: string[] | null
+  leader: string | null
+  similarity?: number
+}
+
+// Generate a Voyage AI embedding for a QUESTION. Note input_type: 'query' (documents
+// are embedded with input_type: 'document' on upload) — using the matching input_type
+// is important for Voyage AI retrieval accuracy. Best-effort: a missing VOYAGE_API_KEY
+// or any failure returns null so the caller can fall back to layer/recency ordering.
+async function generateQueryEmbedding(text: string): Promise<number[] | null> {
+  try {
+    if (!process.env.VOYAGE_API_KEY) {
+      return null
+    }
+    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        input: [text.slice(0, 32000)],
+        model: 'voyage-3',
+        input_type: 'query',
+      }),
+    })
+    const data = await res.json()
+    return data.data?.[0]?.embedding ?? null
+  } catch (err) {
+    console.error('[chat] embedding error:', err)
+    return null
+  }
 }
 
 export async function POST(req: Request) {
@@ -147,27 +240,51 @@ export async function POST(req: Request) {
       : []
 
     // ── 5. Fetch this agent's files from hub_memory ──────────────────
-    // TODO Phase E: Replace step 4-5 with pgvector similarity search:
-    // 1. Generate embedding for the question
-    // 2. Find top 10 most similar files using cosine similarity
-    // 3. Send only those to Claude
-    // This will make answers faster and more accurate as file count grows.
-    // Requires: pgvector Supabase extension + embedding generation on upload
-    const { data: rows, error: queryErr } = await supabaseService
-      .from('hub_memory')
-      .select('id, title, content, summary, source_type, layer, categories, leader')
-      .eq('is_active', true)
-      .overlaps('categories', [category])
-      .order('layer', { ascending: true })
-      .order('created_at', { ascending: false })
-      .limit(FILE_LIMIT)
+    // RAG: embed the question and pull the top matches by vector similarity via the
+    // match_hub_memory RPC. Fall back to layer/recency ordering whenever RAG yields
+    // nothing — embedding unavailable (no VOYAGE_API_KEY / failure), the RPC not yet
+    // created, embeddings not generated yet, or a genuine no-match — so the agent
+    // always has something to work with.
+    let files: MemoryFile[] = []
 
-    if (queryErr) {
-      console.error('[big-vision-chat] hub_memory query failed:', queryErr.message, queryErr.code)
-      return NextResponse.json({ error: 'query_failed' }, { status: 500 })
+    const queryEmbedding = await generateQueryEmbedding(question)
+
+    if (queryEmbedding !== null) {
+      // ── Step A: vector similarity search via Supabase RPC ──
+      const { data: similarFiles, error: rpcErr } = await supabaseService.rpc(
+        'match_hub_memory',
+        {
+          query_embedding: queryEmbedding,
+          match_category: category,
+          match_count: 15,
+        },
+      )
+
+      if (rpcErr) {
+        console.error('[big-vision-chat] match_hub_memory RPC failed:', rpcErr.message, rpcErr.code)
+      }
+      files = (similarFiles as MemoryFile[] | null) ?? []
     }
 
-    const files = rows ?? []
+    // ── Fallback: layer/recency ordering when RAG found nothing ──
+    // Runs when embedding was unavailable (RAG skipped), the RPC errored, embeddings
+    // haven't been generated yet, or there was a genuine no-match.
+    if (files.length === 0) {
+      const { data: fallbackFiles, error: queryErr } = await supabaseService
+        .from('hub_memory')
+        .select('id, title, content, summary, source_type, layer, categories, leader')
+        .eq('is_active', true)
+        .overlaps('categories', [category])
+        .order('layer', { ascending: true })
+        .order('created_at', { ascending: false })
+        .limit(15)
+
+      if (queryErr) {
+        console.error('[big-vision-chat] hub_memory query failed:', queryErr.message, queryErr.code)
+        return NextResponse.json({ error: 'query_failed' }, { status: 500 })
+      }
+      files = (fallbackFiles as MemoryFile[] | null) ?? []
+    }
 
     // ── 5b. Build the memory context string ──────────────────────────
     // Lower-layer files (more strategic) come first since we ORDER BY layer ASC.

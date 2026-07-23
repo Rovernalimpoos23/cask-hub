@@ -8,6 +8,34 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+// Generate a Voyage AI embedding for the given text. Best-effort: a missing
+// VOYAGE_API_KEY, a non-2xx response, or any thrown error all resolve to null so
+// the caller can still insert its row with embedding: null.
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  try {
+    if (!process.env.VOYAGE_API_KEY) {
+      return null
+    }
+    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        input: [text.slice(0, 32000)],
+        model: 'voyage-3',
+        input_type: 'document',
+      }),
+    })
+    const data = await res.json()
+    return data.data?.[0]?.embedding ?? null
+  } catch (err) {
+    console.error('[embedding] error:', err)
+    return null
+  }
+}
+
 const TRANSCRIPT_QUERY = `
   query GetTranscript($id: String!) {
     transcript(id: $id) {
@@ -809,6 +837,11 @@ Return ONLY the email body HTML. No subject line in the body.`
       if (allTags.length > 0) {
         const truncatedTranscript = (fullTranscript ?? '').slice(0, 20000)
 
+        // Best-effort embedding — null on failure/missing key never blocks the insert.
+        const embedding = truncatedTranscript
+          ? await generateEmbedding(truncatedTranscript)
+          : null
+
         const { error: hubErr } = await supabase.from('hub_memory').insert({
           title: sessionTitle || 'Untitled Meeting',
           content: truncatedTranscript,
@@ -819,6 +852,7 @@ Return ONLY the email body HTML. No subject line in the body.`
           leader: attendeeTags.length === 1 ? attendeeTags[0] : null,
           created_by: 'fireflies-webhook',
           is_active: true,
+          embedding: embedding,
         })
 
         if (hubErr) {

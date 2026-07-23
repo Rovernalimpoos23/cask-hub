@@ -25,6 +25,34 @@ export const maxDuration = 300
 // Roles permitted to run the migration — same admin set the other routes enforce.
 const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 
+// Generate a Voyage AI embedding for the given text. Best-effort: a missing
+// VOYAGE_API_KEY, a non-2xx response, or any thrown error all resolve to null so
+// the caller can still insert its row with embedding: null.
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  try {
+    if (!process.env.VOYAGE_API_KEY) {
+      return null
+    }
+    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        input: [text.slice(0, 32000)],
+        model: 'voyage-3',
+        input_type: 'document',
+      }),
+    })
+    const data = await res.json()
+    return data.data?.[0]?.embedding ?? null
+  } catch (err) {
+    console.error('[embedding] error:', err)
+    return null
+  }
+}
+
 // A meeting row as read for migration (subset of the meetings table).
 interface MeetingRow {
   id: string
@@ -185,6 +213,11 @@ export async function POST() {
         // ── Insert ───────────────────────────────────────────────────
         const truncatedTranscript = (meeting.full_transcript ?? '').slice(0, 20000)
 
+        // Best-effort embedding — null on failure/missing key never blocks the insert.
+        const embedding = truncatedTranscript
+          ? await generateEmbedding(truncatedTranscript)
+          : null
+
         const { error: insertErr } = await supabaseService.from('hub_memory').insert({
           title: meeting.title || 'Untitled Meeting',
           content: truncatedTranscript,
@@ -195,6 +228,7 @@ export async function POST() {
           leader: attendeeTags.length === 1 ? attendeeTags[0] : null,
           created_by: 'migration',
           is_active: true,
+          embedding: embedding,
         })
 
         if (insertErr) {
