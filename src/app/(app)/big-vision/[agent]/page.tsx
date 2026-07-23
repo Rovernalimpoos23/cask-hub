@@ -591,8 +591,8 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
         .bv-trash:hover { color: var(--red); }
       `}</style>
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
-        <div className="px-6 py-8" style={{ maxWidth: 1080, margin: '0 auto' }}>
+      <div className="flex-1 min-h-0 overflow-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
+        <div className="px-6 py-8 h-full flex flex-col min-h-0" style={{ maxWidth: 1080, margin: '0 auto' }}>
           {/* ── Back ───────────────────────────────────────────── */}
           <Link
             href="/big-vision"
@@ -670,9 +670,16 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
           </div>
 
           {/* ── Two columns: ~40% left / 60% right ─────────────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-4">
+          {/* flex-1 + min-h-0 makes the grid fill the fixed page height; the 1fr row
+              gives both column cells a definite full height so each can scroll internally. */}
+          <div
+            className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-4 flex-1 min-h-0"
+            style={{ gridTemplateRows: 'minmax(0, 1fr)' }}
+          >
             {/* ── LEFT PANEL ─────────────────────────────────── */}
-            <div className="flex flex-col gap-4">
+            {/* min-h-0 + overflow-y-auto → the Files-in-memory panel scrolls inside
+                the fixed column height instead of growing the page. */}
+            <div className="flex flex-col gap-4 min-h-0 overflow-y-auto">
               {/* Files in memory */}
               <div className="rounded-xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
                 <div className="flex items-center justify-between mb-3">
@@ -877,34 +884,16 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                 )}
               </div>
 
-              {/* Agent instructions */}
-              <div className="rounded-xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 text-[14px] font-semibold" style={{ color: 'var(--text)' }}>
-                    <span>⚙️</span> Agent instructions
-                  </div>
-                  <button
-                    className="bv-edit inline-flex items-center gap-1.5 text-[12px] font-medium bg-transparent border-0 p-0"
-                    style={{ color: 'var(--text3)', cursor: 'pointer', fontFamily: 'inherit' }}
-                  >
-                    <span>✎</span> Edit
-                  </button>
-                </div>
-                <div
-                  className="rounded-lg p-3.5 text-[13px] leading-relaxed"
-                  style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text2)' }}
-                >
-                  {agent.instructions}
-                </div>
-              </div>
             </div>
 
             {/* ── RIGHT PANEL ────────────────────────────────── */}
+            {/* min-h-0 lets the inner flex-1 messages area shrink and scroll; the panel
+                fills the fixed cell height (no minHeight, so it never forces page scroll). */}
             <div
-              className="rounded-xl p-5 flex flex-col"
-              style={{ background: 'var(--surface)', border: '1px solid var(--border)', minHeight: 520 }}
+              className="rounded-xl p-5 flex flex-col min-h-0"
+              style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
             >
-              <div className="flex items-center gap-2 text-[14px] font-semibold mb-4" style={{ color: 'var(--text)' }}>
+              <div className="flex items-center gap-2 text-[14px] font-semibold mb-4 shrink-0" style={{ color: 'var(--text)' }}>
                 <span>💬</span> Ask the {agent.shortName} agent
               </div>
 
@@ -930,7 +919,7 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                       Ask {agent.shortName} agent anything
                     </div>
                     <div className="text-xs mt-1" style={{ color: 'var(--text3)' }}>
-                      Powered by Claude Opus 4.8 · {files.length} files in memory
+                      CASK Intelligence · Claude · {files.length} files in memory
                     </div>
 
                     {/* Quick-action pills */}
@@ -1012,7 +1001,7 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
               )}
 
               {/* ── Input area (bottom) ──────────────────────────── */}
-              <div className="mt-auto pt-4">
+              <div className="mt-auto pt-4 shrink-0">
                 <div
                   className="flex items-center gap-2 rounded-xl p-2"
                   style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
