@@ -211,6 +211,7 @@ export async function POST(req: Request) {
     const agent = (body as { agent?: unknown }).agent
     const question = (body as { question?: unknown }).question
     const rawHistory = (body as { conversationHistory?: unknown }).conversationHistory
+    const rawMentionedFileIds = (body as { mentionedFileIds?: unknown }).mentionedFileIds
 
     if (typeof agent !== 'string' || !agent) {
       return NextResponse.json({ error: 'invalid_agent' }, { status: 400 })
@@ -237,6 +238,12 @@ export async function POST(req: Request) {
               typeof m.content === 'string',
           )
           .map((m) => ({ role: m.role, content: m.content }))
+      : []
+
+    // UI-selected @mention file IDs — the client sends these when the user picks
+    // files from the mention dropdown. Sanitized to a string[] (non-strings dropped).
+    const mentionedFileIds: string[] = Array.isArray(rawMentionedFileIds)
+      ? rawMentionedFileIds.filter((x): x is string => typeof x === 'string')
       : []
 
     // ── 5. Fetch this agent's files from hub_memory ──────────────────
@@ -305,6 +312,30 @@ export async function POST(req: Request) {
     }
 
     const foundation = (foundationFiles as MemoryFile[] | null) ?? []
+
+    // ── 5a-i. Exact @mention by file ID (UI-selected files) ──────────
+    // When the client sends mentionedFileIds (files picked from the mention
+    // dropdown), fetch those exact rows by ID and force them ahead of the retrieved
+    // set. This is precise — no title matching — so it handles duplicate titles and
+    // cross-category files the title-based path below can't. The title-based block
+    // still runs afterwards as a fallback for @mentions typed directly into the text.
+    if (mentionedFileIds.length > 0) {
+      const { data: mentionedById } = await supabaseService
+        .from('hub_memory')
+        .select('id, title, content, summary, source_type, layer, categories, leader')
+        .eq('is_active', true)
+        .in('id', mentionedFileIds)
+        .not('content', 'is', null)
+
+      const mentionedFiles = (mentionedById as MemoryFile[] | null) ?? []
+      if (mentionedFiles.length > 0) {
+        // Force mentioned files first, then the regular files (de-duped by id).
+        files = [
+          ...mentionedFiles,
+          ...files.filter((f) => !mentionedFiles.find((mf) => mf.id === f.id)),
+        ]
+      }
+    }
 
     // ── 5a-bis. @mention detection ───────────────────────────────────
     // When the user references a file with @ (e.g. "@Q3 sales plan"), force the
