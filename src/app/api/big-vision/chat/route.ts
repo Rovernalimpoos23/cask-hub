@@ -273,10 +273,12 @@ export async function POST(req: Request) {
       files = (similarFiles as MemoryFile[] | null) ?? []
     }
 
-    // ── Fallback: layer/recency ordering when RAG found nothing ──
-    // Runs when embedding was unavailable (RAG skipped), the RPC errored, embeddings
-    // haven't been generated yet, or there was a genuine no-match.
-    if (files.length === 0) {
+    // ── Fallback: layer/recency ordering to top up sparse RAG results ──
+    // Runs when RAG returned fewer than 10 results — embedding unavailable (RAG
+    // skipped), the RPC errored, embeddings not generated yet for most files, or a
+    // sparse match. The fallback rows are merged AFTER the RAG results (deduped) so
+    // vector matches keep priority and the fallback only tops up.
+    if (files.length < 10) {
       const { data: fallbackFiles, error: queryErr } = await supabaseService
         .from('hub_memory')
         .select('id, title, content, summary, source_type, layer, categories, leader')
@@ -288,10 +290,13 @@ export async function POST(req: Request) {
         .limit(25)
 
       if (queryErr) {
+        // Non-fatal: the fallback now only tops up RAG results, so keep whatever RAG
+        // already returned rather than failing the whole request.
         console.error('[big-vision-chat] hub_memory query failed:', queryErr.message, queryErr.code)
-        return NextResponse.json({ error: 'query_failed' }, { status: 500 })
       }
-      files = (fallbackFiles as MemoryFile[] | null) ?? []
+      // Merge — RAG results first, then fallback (deduped by id).
+      const fallback = (fallbackFiles as MemoryFile[] | null) ?? []
+      files = [...files, ...fallback.filter((f) => !files.find((rf) => rf.id === f.id))]
     }
 
     // ── 5a. Always include Foundation files (Layer 0 + 1) ────────────

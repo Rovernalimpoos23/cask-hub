@@ -1146,21 +1146,45 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                 <span className="flex items-center gap-2">
                   <span>💬</span> Ask the {agent.shortName} agent
                 </span>
-                <button
-                  onClick={() => setRightExpanded(!rightExpanded)}
-                  title={rightExpanded ? 'Collapse chat' : 'Expand chat'}
-                  aria-label={rightExpanded ? 'Collapse chat' : 'Expand chat'}
-                  className="text-sm cursor-pointer bg-transparent border-0 p-0"
-                  style={{ color: 'var(--text3)', transition: 'color 0.15s' }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = 'var(--text)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = 'var(--text3)'
-                  }}
-                >
-                  {rightExpanded ? '⤡' : '⤢'}
-                </button>
+                <span className="flex items-center gap-3">
+                  {/* Clear the chat UI state only — history stays in the DB and
+                      reloads on refresh. */}
+                  <button
+                    onClick={() => {
+                      setMessages([])
+                      setSelectedMentions([])
+                      setChatInput('')
+                      setChatError('')
+                    }}
+                    title="Clear chat"
+                    aria-label="Clear chat"
+                    className="text-xs cursor-pointer bg-transparent border-0 p-0"
+                    style={{ color: 'var(--text3)', transition: 'color 0.15s' }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = 'var(--red)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = 'var(--text3)'
+                    }}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={() => setRightExpanded(!rightExpanded)}
+                    title={rightExpanded ? 'Collapse chat' : 'Expand chat'}
+                    aria-label={rightExpanded ? 'Collapse chat' : 'Expand chat'}
+                    className="text-sm cursor-pointer bg-transparent border-0 p-0"
+                    style={{ color: 'var(--text3)', transition: 'color 0.15s' }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = 'var(--text)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = 'var(--text3)'
+                    }}
+                  >
+                    {rightExpanded ? '⤡' : '⤢'}
+                  </button>
+                </span>
               </div>
 
               {/* ── Chat messages area (fills space, scrolls) ────── */}
