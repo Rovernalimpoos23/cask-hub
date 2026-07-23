@@ -305,6 +305,57 @@ export async function POST(req: Request) {
     }
 
     const foundation = (foundationFiles as MemoryFile[] | null) ?? []
+
+    // ── 5a-bis. @mention detection ───────────────────────────────────
+    // When the user references a file with @ (e.g. "@Q3 sales plan"), force the
+    // matching file(s) into context ahead of the retrieved set — even if RAG /
+    // fallback didn't surface them — so the agent always sees what was named.
+    // Runs after retrieval + foundation but BEFORE allFiles is assembled, so the
+    // reordered `files` flows into the context builder below.
+    const mentionRegex = /@([^@\n]+)/g
+    const rawMentions = Array.from(question.matchAll(mentionRegex)).map((m) =>
+      m[1].trim().toLowerCase(),
+    )
+
+    if (rawMentions.length > 0) {
+      // Pull ALL of this agent's files (not just the top 15) so a mentioned file
+      // outside the retrieved set can still be found.
+      const { data: allAgentFiles } = await supabaseService
+        .from('hub_memory')
+        .select('id, title, content, summary, source_type, layer, categories, leader')
+        .eq('is_active', true)
+        .overlaps('categories', [category])
+        .not('content', 'is', null)
+        .order('layer', { ascending: true })
+        .limit(200)
+
+      // Find files whose title contains any @mention. Guard against null titles
+      // (MemoryFile.title is `string | null`) so this can't throw.
+      const mentionedFiles = ((allAgentFiles as MemoryFile[] | null) ?? []).filter((f) =>
+        rawMentions.some((mention) => (f.title ?? '').toLowerCase().includes(mention)),
+      )
+
+      if (mentionedFiles.length > 0) {
+        // Force mentioned files first, then the regular files (de-duped by id).
+        files = [
+          ...mentionedFiles,
+          ...files.filter((f) => !mentionedFiles.find((mf) => mf.id === f.id)),
+        ]
+      }
+    }
+
+    // Titles of the @mentioned files that made it into context — returned to the
+    // frontend so it can indicate which files were pulled in by @mention.
+    const mentionedFileTitles: string[] =
+      rawMentions.length > 0
+        ? files
+            .filter((f) =>
+              rawMentions.some((m) => (f.title ?? '').toLowerCase().includes(m)),
+            )
+            .map((f) => f.title ?? '')
+            .filter((t) => t.length > 0)
+        : []
+
     const allFiles: MemoryFile[] = [
       ...foundation,
       ...files.filter((f) => !foundation.find((ff) => ff.id === f.id)),
@@ -327,6 +378,12 @@ export async function POST(req: Request) {
     }
 
     // ── 6. Assemble the system prompt ────────────────────────────────
+    // When the user @mentioned files, tell the model to prioritize them by name.
+    const mentionNote =
+      mentionedFileTitles.length > 0
+        ? `\n\nThe user specifically mentioned these files with @: ${mentionedFileTitles.join(', ')}. Prioritize answering from those files first. Mention them by name in your response.`
+        : ''
+
     const systemPrompt = `${agentInstruction}
 
 FILES IN MEMORY (${actualFilesUsed} of ${fileCount} total files loaded — some files were too large to include in this context):
@@ -334,7 +391,7 @@ FILES IN MEMORY (${actualFilesUsed} of ${fileCount} total files loaded — some 
 ${
   memoryContext ||
   'No files have been uploaded to this agent yet. Let the user know they need to upload files first using the Upload button on the left panel.'
-}`
+}${mentionNote}`
 
     // ── 7. Call the Anthropic API (Claude Opus 4.8) ──────────────────
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -376,7 +433,13 @@ ${
 
     // ── 8. Return the answer ─────────────────────────────────────────
     return NextResponse.json(
-      { answer, filesUsed: actualFilesUsed, totalFilesAvailable: fileCount, agent },
+      {
+        answer,
+        filesUsed: actualFilesUsed,
+        totalFilesAvailable: fileCount,
+        agent,
+        mentionedFiles: mentionedFileTitles,
+      },
       { status: 200 },
     )
   } catch (err) {

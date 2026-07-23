@@ -434,6 +434,40 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   const [chatError, setChatError] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // ── @mention file dropdown ─────────────────────────────────────────
+  // mentionQuery is null when no @mention is in progress; '' right after the user
+  // types "@"; and the partial text as they keep typing. Spec called for an
+  // HTMLTextAreaElement ref, but the input below is an <input> — ref typed to match
+  // (only .focus() is used, so behavior is identical).
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Files the user has selected as @mentions. Tracked separately from the input
+  // text: selecting a file removes the "@query" from the input and adds it here, so
+  // mentions render as pills instead of living as literal text in the input.
+  const [selectedMentions, setSelectedMentions] = useState<
+    Array<{
+      id: string
+      title: string
+      meeting_date: string | null
+      created_at: string
+    }>
+  >([])
+
+  // Files whose title matches the in-progress @mention (max 50). Empty when no
+  // mention is being typed.
+  const mentionResults =
+    mentionQuery !== null
+      ? files
+          .filter((f) => f.title?.toLowerCase().includes(mentionQuery.toLowerCase()))
+          .slice(0, 50)
+      : []
+
+  // Files currently @mentioned — now driven by the selectedMentions state (pills)
+  // rather than by parsing the input text.
+  const activeMentions = selectedMentions
+
   // ── Resizable divider between the two panels ───────────────────────
   const [leftWidth, setLeftWidth] = useState(38) // percentage of the container width
   const [isDragging, setIsDragging] = useState(false)
@@ -532,7 +566,17 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     const userMessage = (overrideText ?? chatInput).trim()
     if (!userMessage || chatLoading) return
 
+    // Prepend the selected @mentions to the question so the API forces those files
+    // into context (the chat route detects "@<title>" in the question).
+    const questionWithMentions =
+      selectedMentions.length > 0
+        ? selectedMentions.map((m) => `@${m.title}`).join(' ') + ' ' + userMessage
+        : userMessage
+    const mentionedFileIds = selectedMentions.map((m) => m.id)
+
     setChatInput('')
+    setMentionQuery(null) // close the @mention dropdown if it was open
+    setSelectedMentions([]) // clear the mention pills after sending
     setChatError('')
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
     setChatLoading(true)
@@ -543,7 +587,8 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agent: agentSlug,
-          question: userMessage,
+          question: questionWithMentions,
+          mentionedFileIds,
           conversationHistory: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       })
@@ -563,6 +608,35 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     } finally {
       setChatLoading(false)
     }
+  }
+
+  // Selecting a file: strip the in-progress "@query" from the input and add the
+  // file to selectedMentions (a pill). The mention no longer lives in the input
+  // text — it's carried in state and prepended to the question on send.
+  function selectMention(file: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    // Remove the @query from the input.
+    const val = chatInput
+    const atIndex = val.lastIndexOf('@')
+    const cleanInput = atIndex === -1 ? val.trim() : val.slice(0, atIndex).trim()
+    setChatInput(cleanInput)
+
+    // Add to selected mentions (avoid duplicates by id).
+    setSelectedMentions((prev) => {
+      if (prev.find((m) => m.id === file.id)) return prev
+      return [
+        ...prev,
+        {
+          id: file.id,
+          title: file.title,
+          meeting_date: file.meeting_date ?? null,
+          created_at: file.created_at,
+        },
+      ]
+    })
+
+    setMentionQuery(null)
+    setMentionIndex(0)
+    inputRef.current?.focus()
   }
 
   // Soft-delete a file, then drop it from local state on success.
@@ -1143,16 +1217,142 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
               )}
 
               {/* ── Input area (bottom) ──────────────────────────── */}
-              <div className="mt-auto pt-4 shrink-0">
+              {/* position:relative so the @mention dropdown can anchor above it. */}
+              <div className="mt-auto pt-4 shrink-0" style={{ position: 'relative' }}>
+                {/* ── @mention file dropdown (floats above the input) ── */}
+                {mentionResults.length > 0 && (
+                  <div
+                    className="rounded-xl overflow-hidden shadow-lg max-h-[240px] overflow-y-auto z-50"
+                    style={{
+                      position: 'absolute',
+                      bottom: '100%',
+                      left: 0,
+                      right: 0,
+                      marginBottom: 8,
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    <div
+                      className="text-xs px-3 py-2"
+                      style={{ color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
+                    >
+                      Files in memory
+                    </div>
+                    {mentionResults.map((f, index) => (
+                      <div
+                        key={f.id}
+                        onClick={() => selectMention(f)}
+                        onMouseEnter={() => setMentionIndex(index)}
+                        className="px-3 py-2 cursor-pointer flex items-center gap-2"
+                        style={{ background: index === mentionIndex ? 'var(--surface2)' : 'transparent' }}
+                      >
+                        <span className="shrink-0" style={{ fontSize: 14 }}>
+                          {sourceIcon(f.source_type)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>
+                            {f.title}
+                          </div>
+                          {(f.meeting_date || f.created_at) && (
+                            <div className="text-xs" style={{ color: 'var(--text3)' }}>
+                              {fmtDate(f.meeting_date || f.created_at)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ── Active @mention pills (which files are attached) ── */}
+                {/* A plain <input> can't style inline text, so mentioned files are
+                    shown as removable indigo pills just above the input. */}
+                {activeMentions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 px-1 pb-1">
+                    {activeMentions.map((f) => (
+                      <span
+                        key={f.id}
+                        className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium"
+                        style={{
+                          background: 'rgba(99,102,241,0.15)',
+                          border: '1px solid rgba(99,102,241,0.4)',
+                          color: '#818cf8',
+                        }}
+                      >
+                        📎 {f.title}
+                        <button
+                          // Remove this file from the selected mentions.
+                          onClick={() => setSelectedMentions((prev) => prev.filter((m) => m.id !== f.id))}
+                          aria-label={`Remove ${f.title} mention`}
+                          className="bg-transparent border-0 p-0 cursor-pointer"
+                          style={{ color: '#818cf8', marginLeft: 2, fontFamily: 'inherit' }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <div
                   className="flex items-center gap-2 rounded-xl p-2"
                   style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
                 >
                   <input
                     type="text"
+                    ref={inputRef}
                     value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setChatInput(val)
+
+                      // Detect an in-progress @mention based on the last "@".
+                      const atIndex = val.lastIndexOf('@')
+                      if (atIndex !== -1 && atIndex === val.length - 1) {
+                        // Just typed "@" — show all files.
+                        setMentionQuery('')
+                        setMentionIndex(0)
+                      } else if (atIndex !== -1) {
+                        const afterAt = val.slice(atIndex + 1)
+                        // Keep the dropdown open while still typing the mention
+                        // (no space yet, or short enough to still be one token).
+                        if (!afterAt.includes(' ') || afterAt.length < 30) {
+                          setMentionQuery(afterAt)
+                          setMentionIndex(0)
+                        } else {
+                          setMentionQuery(null)
+                        }
+                      } else {
+                        setMentionQuery(null)
+                      }
+                    }}
                     onKeyDown={(e) => {
+                      // When the mention dropdown is open, arrows/Enter/Tab/Escape
+                      // drive it instead of sending the message.
+                      if (mentionResults.length > 0) {
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault()
+                          setMentionIndex((prev) => Math.min(prev + 1, mentionResults.length - 1))
+                          return
+                        }
+                        if (e.key === 'ArrowUp') {
+                          e.preventDefault()
+                          setMentionIndex((prev) => Math.max(prev - 1, 0))
+                          return
+                        }
+                        if (e.key === 'Enter' || e.key === 'Tab') {
+                          e.preventDefault()
+                          selectMention(mentionResults[mentionIndex])
+                          return
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          setMentionQuery(null)
+                          return
+                        }
+                      }
+
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault()
                         sendMessage()
@@ -1160,7 +1360,13 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                     }}
                     placeholder={`Ask anything about ${agent.shortName}…`}
                     className="flex-1 bg-transparent border-0 outline-none text-[13px] px-2"
-                    style={{ color: 'var(--text)', fontFamily: 'inherit' }}
+                    style={{
+                      color: 'var(--text)',
+                      fontFamily: 'inherit',
+                      // Subtle accent when files are @mentioned. Inline style wins
+                      // over the `border-0` class.
+                      borderLeft: activeMentions.length > 0 ? '2px solid #818cf8' : 'none',
+                    }}
                   />
                   <button
                     aria-label="Send"
