@@ -113,7 +113,7 @@ const AGENT_INSTRUCTIONS: Record<string, string> = {
 // Cap the injected memory context so a large file set can't blow past the model's
 // context window (or run up cost).
 const MAX_CONTEXT_CHARS = 180000
-// (FILE_LIMIT removed — retrieval now caps at match_count: 15 in both the RAG RPC
+// (FILE_LIMIT removed — retrieval now caps at match_count: 25 in both the RAG RPC
 // and the layer/recency fallback, so the old 50-row limit is no longer used.)
 
 // A single conversation turn coming from the client.
@@ -263,7 +263,7 @@ export async function POST(req: Request) {
         {
           query_embedding: queryEmbedding,
           match_category: category,
-          match_count: 15,
+          match_count: 25,
         },
       )
 
@@ -282,9 +282,10 @@ export async function POST(req: Request) {
         .select('id, title, content, summary, source_type, layer, categories, leader')
         .eq('is_active', true)
         .overlaps('categories', [category])
+        .not('content', 'is', null)
         .order('layer', { ascending: true })
         .order('created_at', { ascending: false })
-        .limit(15)
+        .limit(25)
 
       if (queryErr) {
         console.error('[big-vision-chat] hub_memory query failed:', queryErr.message, queryErr.code)
@@ -402,7 +403,7 @@ export async function POST(req: Request) {
     let actualFilesUsed = 0
     for (const f of filesWithContent) {
       const entry = `--- ${f.title} (${f.source_type}, layer ${f.layer}) ---\n${f.content}\n\n`
-      if (totalChars + entry.length > MAX_CONTEXT_CHARS) break
+      if (totalChars + entry.length > MAX_CONTEXT_CHARS) continue
       memoryContext += entry
       totalChars += entry.length
       actualFilesUsed++
