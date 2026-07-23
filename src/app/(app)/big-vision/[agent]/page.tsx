@@ -427,11 +427,18 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
 
   // ── Agent chat state ───────────────────────────────────────────────
   const [messages, setMessages] = useState<
-    Array<{ role: 'user' | 'assistant'; content: string; filesUsed?: number }>
+    Array<{
+      role: 'user' | 'assistant'
+      content: string
+      filesUsed?: number
+      userName?: string
+      createdAt?: string
+    }>
   >([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [chatError, setChatError] = useState('')
+  const [historyLoading, setHistoryLoading] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // ── @mention file dropdown ─────────────────────────────────────────
@@ -493,6 +500,37 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
       }
     }
     loadFiles()
+    return () => {
+      cancelled = true
+    }
+  }, [agentSlug])
+
+  // Load this user's saved chat history for the agent on mount / slug change.
+  useEffect(() => {
+    let cancelled = false
+    async function loadHistory() {
+      setHistoryLoading(true)
+      try {
+        const res = await fetch(`/api/big-vision/history?agent=${agentSlug}`)
+        const data = await res.json()
+        if (!cancelled && data.history && data.history.length > 0) {
+          setMessages(
+            data.history.map((h: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+              role: h.role,
+              content: h.content,
+              filesUsed: h.files_used,
+              userName: h.user_name,
+              createdAt: h.created_at,
+            })),
+          )
+        }
+      } catch (e) {
+        console.error('[history] load error:', e)
+      } finally {
+        if (!cancelled) setHistoryLoading(false)
+      }
+    }
+    loadHistory()
     return () => {
       cancelled = true
     }
@@ -600,6 +638,18 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
           ...prev,
           { role: 'assistant', content: data.answer, filesUsed: data.filesUsed },
         ])
+
+        // Save the exchange to history (non-blocking — failures are logged only).
+        fetch('/api/big-vision/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent: agentSlug,
+            userMessage: userMessage,
+            assistantMessage: data.answer,
+            filesUsed: data.filesUsed ?? 0,
+          }),
+        }).catch((e) => console.error('[history] save error:', e))
       } else {
         setChatError('Failed to get response. Try again.')
       }
@@ -1115,7 +1165,19 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
 
               {/* ── Chat messages area (fills space, scrolls) ────── */}
               <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
-                {messages.length === 0 ? (
+                {historyLoading && messages.length === 0 ? (
+                  // History still loading — show 3 skeleton pulse rows (alternating
+                  // sides) instead of the empty state.
+                  <div className="flex flex-col gap-3">
+                    {[0, 1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className={`animate-pulse rounded-xl ${i % 2 === 0 ? 'max-w-[85%] ml-auto' : 'max-w-[95%]'}`}
+                        style={{ background: 'var(--surface2)', height: 56 }}
+                      />
+                    ))}
+                  </div>
+                ) : messages.length === 0 ? (
                   // Clean empty state — no fake sample Q&A. Centered agent identity,
                   // a subtitle, and the quick-action pills.
                   <div className="h-full flex flex-col items-center justify-center text-center px-4 py-8">
@@ -1168,10 +1230,30 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                           className="rounded-xl px-4 py-3 text-sm max-w-[85%] ml-auto"
                           style={{ background: 'var(--surface2)', color: 'var(--text)' }}
                         >
+                          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4, textAlign: 'right' }}>
+                            {m.userName || 'You'} ·{' '}
+                            {m.createdAt
+                              ? new Date(m.createdAt).toLocaleTimeString('en-US', {
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  hour12: true,
+                                })
+                              : ''}
+                          </div>
                           {m.content}
                         </div>
                       ) : (
                         <div key={i} className="max-w-[95%]">
+                          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>
+                            {agent.shortName} Agent ·{' '}
+                            {m.createdAt
+                              ? new Date(m.createdAt).toLocaleTimeString('en-US', {
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  hour12: true,
+                                })
+                              : ''}
+                          </div>
                           <div
                             className="rounded-xl px-4 py-3 text-sm leading-relaxed"
                             style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}

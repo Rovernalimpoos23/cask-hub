@@ -112,7 +112,7 @@ const AGENT_INSTRUCTIONS: Record<string, string> = {
 
 // Cap the injected memory context so a large file set can't blow past the model's
 // context window (or run up cost).
-const MAX_CONTEXT_CHARS = 100000
+const MAX_CONTEXT_CHARS = 180000
 // (FILE_LIMIT removed — retrieval now caps at match_count: 15 in both the RAG RPC
 // and the layer/recency fallback, so the old 50-row limit is no longer used.)
 
@@ -442,7 +442,7 @@ ${
         },
         body: JSON.stringify({
           model: 'claude-opus-4-8',
-          max_tokens: 4000,
+          max_tokens: 6000,
           system: systemPrompt,
           messages: [...conversationHistory, { role: 'user', content: question }],
         }),
