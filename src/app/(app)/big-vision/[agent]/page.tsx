@@ -434,6 +434,15 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   const [chatError, setChatError] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // ── Resizable divider between the two panels ───────────────────────
+  const [leftWidth, setLeftWidth] = useState(38) // percentage of the container width
+  const [isDragging, setIsDragging] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dividerRef = useRef<HTMLDivElement>(null)
+
+  // Right-panel full-width toggle: hides the left panel + divider when true.
+  const [rightExpanded, setRightExpanded] = useState(false)
+
   // Fetch this agent's files on mount / when the slug changes.
   useEffect(() => {
     let cancelled = false
@@ -459,6 +468,17 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, chatLoading])
+
+  // Restore the saved panel split on mount.
+  useEffect(() => {
+    const saved = localStorage.getItem('bv-panel-width')
+    if (saved) setLeftWidth(parseFloat(saved))
+  }, [])
+
+  // Persist the panel split whenever it changes.
+  useEffect(() => {
+    localStorage.setItem('bv-panel-width', leftWidth.toString())
+  }, [leftWidth])
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -569,6 +589,39 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     }
   }
 
+  // Begin dragging the divider. Tracks the pointer on `document` (not the divider)
+  // so the drag continues even when the cursor moves off the 4px handle.
+  function startDrag(e: React.MouseEvent) {
+    e.preventDefault()
+    setIsDragging(true)
+
+    const container = containerRef.current
+    if (!container) return
+
+    const startX = e.clientX
+    const startWidth = leftWidth
+    const containerWidth = container.getBoundingClientRect().width
+
+    function onMouseMove(e: MouseEvent) {
+      const delta = e.clientX - startX
+      const newWidth = startWidth + (delta / containerWidth) * 100
+      setLeftWidth(Math.min(60, Math.max(20, newWidth)))
+    }
+
+    function onMouseUp() {
+      setIsDragging(false)
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      // Reset divider color
+      if (dividerRef.current) {
+        dividerRef.current.style.background = 'var(--border)'
+      }
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }
+
   // Hooks above run unconditionally; bail out for unknown agents afterwards.
   if (!agent) notFound()
 
@@ -592,7 +645,12 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
       `}</style>
 
       <div className="flex-1 min-h-0 overflow-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
-        <div className="px-6 py-8 h-full flex flex-col min-h-0" style={{ maxWidth: 1080, margin: '0 auto' }}>
+        {/* When the right panel is expanded, drop the 1080px cap + page padding so the
+            chat goes edge-to-edge of the content area; otherwise keep the centered layout. */}
+        <div
+          className={`h-full flex flex-col min-h-0${rightExpanded ? '' : ' px-6 py-8'}`}
+          style={{ width: '100%', maxWidth: rightExpanded ? '100%' : 1080, margin: '0 auto' }}
+        >
           {/* ── Back ───────────────────────────────────────────── */}
           <Link
             href="/big-vision"
@@ -669,17 +727,29 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
             </span>
           </div>
 
-          {/* ── Two columns: ~40% left / 60% right ─────────────── */}
-          {/* flex-1 + min-h-0 makes the grid fill the fixed page height; the 1fr row
-              gives both column cells a definite full height so each can scroll internally. */}
+          {/* ── Resizable two-panel layout ─────────────────────── */}
+          {/* Was a fixed 2-col grid; now a flex row split by a draggable divider.
+              flex-1 + min-h-0 fill the fixed page height (used instead of the spec's
+              height:100% because the back-link + header sit above this row in the same
+              flex column). Container cursor flips to col-resize during a drag. */}
           <div
-            className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-4 flex-1 min-h-0"
-            style={{ gridTemplateRows: 'minmax(0, 1fr)' }}
+            ref={containerRef}
+            className="flex-1 min-h-0"
+            style={{ display: 'flex', width: '100%', flex: 1, cursor: isDragging ? 'col-resize' : 'default' }}
           >
             {/* ── LEFT PANEL ─────────────────────────────────── */}
             {/* min-h-0 + overflow-y-auto → the Files-in-memory panel scrolls inside
-                the fixed column height instead of growing the page. */}
-            <div className="flex flex-col gap-4 min-h-0 overflow-y-auto">
+                the fixed column height instead of growing the page. Width is the
+                draggable split (clamped 20–60% in startDrag; minWidth is a px floor). */}
+            <div
+              className="flex flex-col gap-4 min-h-0 overflow-y-auto"
+              style={{
+                width: `${leftWidth}%`,
+                minWidth: '240px',
+                maxWidth: '60%',
+                display: rightExpanded ? 'none' : 'flex',
+              }}
+            >
               {/* Files in memory */}
               <div className="rounded-xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
                 <div className="flex items-center justify-between mb-3">
@@ -886,15 +956,87 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
 
             </div>
 
+            {/* ── DIVIDER (drag to resize · double-click to reset) ─ */}
+            <div
+              ref={dividerRef}
+              onMouseDown={startDrag}
+              onDoubleClick={() => setLeftWidth(38)}
+              style={{
+                position: 'relative',
+                width: '4px',
+                background: 'var(--border)',
+                cursor: 'col-resize',
+                flexShrink: 0,
+                transition: isDragging ? 'none' : 'background 0.15s',
+                display: rightExpanded ? 'none' : 'block',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--red)'
+              }}
+              onMouseLeave={(e) => {
+                if (!isDragging) e.currentTarget.style.background = 'var(--border)'
+              }}
+            >
+              {/* Center grip hint — three subtle dots */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '3px',
+                }}
+              >
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: '2px',
+                      height: '2px',
+                      borderRadius: '50%',
+                      background: 'var(--text3)',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
             {/* ── RIGHT PANEL ────────────────────────────────── */}
             {/* min-h-0 lets the inner flex-1 messages area shrink and scroll; the panel
-                fills the fixed cell height (no minHeight, so it never forces page scroll). */}
+                fills the remaining width (flex:1) with a 300px floor, no minHeight so it
+                never forces page scroll. */}
             <div
               className="rounded-xl p-5 flex flex-col min-h-0"
-              style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+              style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                flex: 1,
+                width: rightExpanded ? '100%' : undefined,
+                minWidth: '300px',
+                overflow: 'hidden',
+              }}
             >
-              <div className="flex items-center gap-2 text-[14px] font-semibold mb-4 shrink-0" style={{ color: 'var(--text)' }}>
-                <span>💬</span> Ask the {agent.shortName} agent
+              <div className="flex items-center justify-between gap-2 text-[14px] font-semibold mb-4 shrink-0" style={{ color: 'var(--text)' }}>
+                <span className="flex items-center gap-2">
+                  <span>💬</span> Ask the {agent.shortName} agent
+                </span>
+                <button
+                  onClick={() => setRightExpanded(!rightExpanded)}
+                  title={rightExpanded ? 'Collapse chat' : 'Expand chat'}
+                  aria-label={rightExpanded ? 'Collapse chat' : 'Expand chat'}
+                  className="text-sm cursor-pointer bg-transparent border-0 p-0"
+                  style={{ color: 'var(--text3)', transition: 'color 0.15s' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--text)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--text3)'
+                  }}
+                >
+                  {rightExpanded ? '⤡' : '⤢'}
+                </button>
               </div>
 
               {/* ── Chat messages area (fills space, scrolls) ────── */}
