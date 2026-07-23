@@ -33,6 +33,8 @@ const AGENT_CATEGORY: Record<string, string> = {
   chad: 'chad',
   matteo: 'matteo',
   kaitlyn: 'kaitlyn',
+  'big-vision': 'big_vision',
+  strategy: 'strategy',
 }
 
 const DEFAULT_LIMIT = 50

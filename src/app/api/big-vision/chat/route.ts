@@ -286,9 +286,33 @@ export async function POST(req: Request) {
       files = (fallbackFiles as MemoryFile[] | null) ?? []
     }
 
+    // ── 5a. Always include Foundation files (Layer 0 + 1) ────────────
+    // The $1B strategy and 2-year direction are shared context for every agent,
+    // regardless of which agent is being asked. Fetched separately and merged ahead
+    // of the agent's own files (de-duped by id).
+    const { data: foundationFiles, error: foundationErr } = await supabaseService
+      .from('hub_memory')
+      .select('id, title, content, summary, source_type, layer, categories, leader')
+      .eq('is_active', true)
+      .lte('layer', 1)
+      .not('content', 'is', null)
+      .order('layer', { ascending: true })
+      .limit(5)
+
+    if (foundationErr) {
+      // Non-fatal — the agent still answers from its own files if this fails.
+      console.error('[big-vision-chat] foundation query failed:', foundationErr.message, foundationErr.code)
+    }
+
+    const foundation = (foundationFiles as MemoryFile[] | null) ?? []
+    const allFiles: MemoryFile[] = [
+      ...foundation,
+      ...files.filter((f) => !foundation.find((ff) => ff.id === f.id)),
+    ]
+
     // ── 5b. Build the memory context string ──────────────────────────
     // Lower-layer files (more strategic) come first since we ORDER BY layer ASC.
-    const filesWithContent = files.filter((f) => f.content)
+    const filesWithContent = allFiles.filter((f) => f.content)
     const fileCount = filesWithContent.length
 
     let memoryContext = ''

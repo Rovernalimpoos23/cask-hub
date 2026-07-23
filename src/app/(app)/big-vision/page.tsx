@@ -7,7 +7,7 @@
 // Matches the Hub dark theme via CSS variables from globals.css.
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // ── Typography ───────────────────────────────────────────────────────
 const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
@@ -28,11 +28,15 @@ const FOUNDATION = [
     title: 'Big Vision — $1B strategy',
     meta: 'Layer 0 · the reference every agent traces back to',
     icon: '◎',
+    category: 'big_vision' as const,
+    layer: 0 as const,
   },
   {
     title: '2-Year Direction',
     meta: 'Layer 1 · St. Petersburg → Tampa → Clearwater',
     icon: '⇄',
+    category: 'strategy' as const,
+    layer: 1 as const,
   },
 ]
 
@@ -97,6 +101,16 @@ export default function BigVisionPage() {
   const [agentFileCounts, setAgentFileCounts] = useState<Record<string, number>>({})
   const [countsLoading, setCountsLoading] = useState(true)
 
+  // ── Foundation-card uploads (Big Vision / 2-Year Direction) ────────
+  const [uploadingFoundation, setUploadingFoundation] = useState<string | null>(null)
+  const [foundationSuccess, setFoundationSuccess] = useState<string | null>(null)
+  const bigVisionInputRef = useRef<HTMLInputElement>(null)
+  const strategyInputRef = useRef<HTMLInputElement>(null)
+  const [foundationCounts, setFoundationCounts] = useState<Record<string, number>>({
+    big_vision: 0,
+    strategy: 0,
+  })
+
   useEffect(() => {
     let cancelled = false
     async function loadStats() {
@@ -156,15 +170,84 @@ export default function BigVisionPage() {
       }
     }
 
+    // Foundation card counts. NOTE: /api/big-vision/files only maps the agent slugs in
+    // its AGENT_CATEGORY table — it does NOT recognize 'big-vision' or 'strategy', and
+    // adding those mappings would mean editing that API route, which is out of scope for
+    // this task. So these requests currently return no files and the counts stay 0
+    // ("No files uploaded yet"); a successful upload bumps the count locally. If the
+    // files route later maps these slugs, this fetch will populate real counts.
+    async function loadFoundationCounts() {
+      const pairs = [
+        { slug: 'big-vision', key: 'big_vision' },
+        { slug: 'strategy', key: 'strategy' },
+      ]
+      try {
+        const results = await Promise.all(
+          pairs.map(async ({ slug, key }) => {
+            const res = await fetch(`/api/big-vision/files?agent=${slug}&limit=50`)
+            const data = await res.json()
+            return { key, count: data.files?.length ?? 0 }
+          }),
+        )
+        if (!cancelled) {
+          setFoundationCounts((prev) => {
+            const next = { ...prev }
+            results.forEach(({ key, count }) => {
+              next[key] = count
+            })
+            return next
+          })
+        }
+      } catch (e) {
+        console.error('foundation counts error', e)
+      }
+    }
+
     async function run() {
       await loadStats()
       if (!cancelled) await loadAgentCounts()
+      if (!cancelled) await loadFoundationCounts()
     }
     run()
     return () => {
       cancelled = true
     }
   }, [])
+
+  // Upload a seed doc straight into a Foundation category (big_vision → layer 0,
+  // strategy → layer 1). Wrapped in try/finally so a network throw still clears the
+  // "Uploading…" state; on success it bumps the local count so the card updates now.
+  async function handleFoundationUpload(
+    file: File,
+    category: 'big_vision' | 'strategy',
+    layer: 0 | 1,
+  ) {
+    setUploadingFoundation(category)
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('title', file.name.replace(/\.[^.]+$/, ''))
+    formData.append('categories', category)
+    formData.append('layer', layer.toString())
+    formData.append('source_type', 'seed_doc')
+
+    try {
+      const res = await fetch('/api/big-vision/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (res.ok) {
+        setFoundationSuccess(category)
+        setTimeout(() => setFoundationSuccess(null), 3000)
+        setFoundationCounts((prev) => ({ ...prev, [category]: (prev[category] ?? 0) + 1 }))
+      }
+    } catch (e) {
+      console.error('foundation upload error', e)
+    } finally {
+      setUploadingFoundation(null)
+    }
+  }
 
   // Stat cards derived from live data. Placeholders shown while loading.
   const statCards: StatCard[] = [
@@ -211,6 +294,8 @@ export default function BigVisionPage() {
         .bv-menu:hover { background: var(--surface2); color: var(--text2); }
         .bv-rollup-btn { transition: opacity 150ms ease; }
         .bv-rollup-btn:hover { opacity: 0.9; }
+        .bv-found-upload { transition: opacity 150ms ease; }
+        .bv-found-upload:hover { opacity: 0.9; }
       `}</style>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
@@ -300,28 +385,90 @@ export default function BigVisionPage() {
             >
               Foundation
             </div>
+            {/* Hidden file inputs — opened by each Foundation card's Upload button */}
+            <input
+              type="file"
+              className="hidden"
+              ref={bigVisionInputRef}
+              accept=".pdf,.docx,.xlsx,.txt"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) handleFoundationUpload(f, 'big_vision', 0)
+                e.target.value = ''
+              }}
+            />
+            <input
+              type="file"
+              className="hidden"
+              ref={strategyInputRef}
+              accept=".pdf,.docx,.xlsx,.txt"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) handleFoundationUpload(f, 'strategy', 1)
+                e.target.value = ''
+              }}
+            />
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {FOUNDATION.map((f) => (
-                <div
-                  key={f.title}
-                  className="bv-found rounded-xl p-5"
-                  style={{
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    borderLeft: '3px solid var(--red)',
-                  }}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span style={{ color: 'var(--red)', fontSize: 15 }}>{f.icon}</span>
-                    <span className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>
-                      {f.title}
-                    </span>
+              {FOUNDATION.map((f) => {
+                const inputRef = f.category === 'big_vision' ? bigVisionInputRef : strategyInputRef
+                const isUploading = uploadingFoundation === f.category
+                const isSuccess = foundationSuccess === f.category
+                const count = foundationCounts[f.category] ?? 0
+                return (
+                  <div
+                    key={f.title}
+                    className="bv-found rounded-xl p-5"
+                    style={{
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderLeft: '3px solid var(--red)',
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span style={{ color: 'var(--red)', fontSize: 15 }}>{f.icon}</span>
+                        <span className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>
+                          {f.title}
+                        </span>
+                      </div>
+                      {isSuccess ? (
+                        <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--green)' }}>
+                          ✓ Uploaded!
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => inputRef.current?.click()}
+                          disabled={isUploading}
+                          className="bv-found-upload inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold shrink-0"
+                          style={{
+                            padding: '6px 12px',
+                            background: 'var(--red)',
+                            color: '#fff',
+                            border: 'none',
+                            cursor: isUploading ? 'default' : 'pointer',
+                            opacity: isUploading ? 0.7 : 1,
+                          }}
+                        >
+                          <span>↑</span> {isUploading ? 'Uploading...' : 'Upload'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="text-[13px] mt-1.5" style={{ color: 'var(--text2)' }}>
+                      {f.meta}
+                    </div>
+                    {count === 0 ? (
+                      <div className="text-xs italic mt-1" style={{ color: 'var(--text3)' }}>
+                        No files uploaded yet
+                      </div>
+                    ) : (
+                      <div className="text-xs mt-1" style={{ color: 'var(--text3)', ...NUM }}>
+                        {count} files
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[13px] mt-1.5" style={{ color: 'var(--text2)' }}>
-                    {f.meta}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 
