@@ -359,18 +359,6 @@ export default function Sidebar() {
               style={{ color: 'rgba(255,255,255,0.25)' }}
             >
               {section.label}
-              {section.locked && (
-                <span
-                  className="ml-2 text-[9px] font-semibold tracking-[0.8px] uppercase py-[2px] px-1.5 rounded-[3px]"
-                  style={{
-                    color: 'rgba(255,255,255,0.3)',
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                  }}
-                >
-                  SOON
-                </span>
-              )}
             </div>
             {section.items.map((item) => {
               // Hide President's Inbox from Rovern's account only. Every other
@@ -381,29 +369,7 @@ export default function Sidebar() {
               ) {
                 return null
               }
-              const isActive = !item.locked && pathname === item.href
-              if (item.locked) {
-                return (
-                  <div
-                    key={item.label}
-                    className="flex items-center gap-[9px] px-2.5 py-2 rounded-[6px] opacity-40 cursor-not-allowed"
-                    style={{ color: 'rgba(255,255,255,0.75)' }}
-                  >
-                    <span className="text-[13px] w-4 text-center opacity-50 shrink-0">{item.icon}</span>
-                    <span className="font-sans text-[13px] font-medium tracking-[-0.1px]">{item.label}</span>
-                    <span
-                      className="ml-auto text-[9px] font-semibold tracking-[0.8px] uppercase py-[2px] px-1.5 rounded-[3px] shrink-0"
-                      style={{
-                        color: 'rgba(255,255,255,0.3)',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                      }}
-                    >
-                      SOON
-                    </span>
-                  </div>
-                )
-              }
+              const isActive = pathname === item.href
               return (
                 <SideNavLink
                   key={item.label}

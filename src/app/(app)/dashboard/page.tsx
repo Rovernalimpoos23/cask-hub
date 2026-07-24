@@ -2287,7 +2287,7 @@ export default function DashboardPage() {
 
           {/* All users (including restricted) now see "Today's schedule", so the
               briefing keeps the two-column layout with the right divider. */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
             {/* Main briefing text */}
             <div style={{ padding: '18px 20px', borderRight: '1px solid var(--fable-line-soft, var(--border))' }}>
               <p
@@ -2522,7 +2522,10 @@ export default function DashboardPage() {
                 using the same Connect Outlook empty state / skeleton / Graph data
                 path as everyone else. */}
             {(
-            <div style={{ padding: '18px 20px' }}>
+            // minWidth:0 lets this grid column shrink below its content's intrinsic
+            // width; without it the 1fr track expands to fit long email text and the
+            // Recent Emails rows spill past the card edge (see screenshot).
+            <div style={{ padding: '18px 20px', minWidth: 0 }}>
               <h3
                 style={{
                   fontSize: 10,
@@ -2812,17 +2815,38 @@ export default function DashboardPage() {
                             <li
                               key={m.id ?? i}
                               onClick={() => router.push(inboxHref)}
-                              className={`flex cursor-pointer items-center gap-2 px-0 py-2 hover:bg-[var(--surface2)] ${last ? '' : 'border-b-[0.5px] border-[var(--border)]'}`}
+                              className={`cursor-pointer px-0 py-2 hover:bg-[var(--surface2)] ${last ? '' : 'border-b-[0.5px] border-[var(--border)]'}`}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', width: '100%' }}
                             >
                               {unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--red)]" />}
-                              <span className={`max-w-[38%] shrink-0 truncate text-sm text-[var(--text)] ${unread ? 'font-medium' : 'font-normal'}`}>
+                              {/* Sender truncates at 35% max so long emails collapse to "help@Ameri…".
+                                  display:block is required — an inline <span> ignores max-width/overflow. */}
+                              <span
+                                className={`text-sm text-[var(--text)] ${unread ? 'font-medium' : 'font-normal'}`}
+                                style={{
+                                  maxWidth: '35%',
+                                  minWidth: 0,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  flexShrink: 1,
+                                  display: 'block',
+                                }}
+                              >
                                 {sender}
                               </span>
-                              <span className={`min-w-0 flex-1 truncate text-xs text-[var(--text2)] ${unread ? 'font-medium' : 'font-normal'}`}>
+                              {/* Subject takes remaining space and truncates cleanly with an ellipsis. */}
+                              <span
+                                className={`text-xs text-[var(--text2)] ${unread ? 'font-medium' : 'font-normal'}`}
+                                style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              >
                                 {m.subject || '(No subject)'}
                               </span>
                               {m.receivedDateTime && (
-                                <span className="shrink-0 text-xs text-[var(--text3)]">
+                                <span
+                                  className="text-xs text-[var(--text3)]"
+                                  style={{ flexShrink: 0, marginLeft: 'auto' }}
+                                >
                                   {fmtEmailTime(m.receivedDateTime)}
                                 </span>
                               )}
