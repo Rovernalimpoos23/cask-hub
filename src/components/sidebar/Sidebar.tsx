@@ -64,32 +64,6 @@ const NAV_SECTIONS = [
       { href: '/design-center', icon: '🏛', label: 'Design Center', locked: false },
     ],
   },
-  {
-    label: 'Meeting Intelligence',
-    locked: true,
-    items: [
-      { href: '#', icon: '🎙', label: 'AI Notetaker', locked: true },
-      { href: '#', icon: '📋', label: 'Transcripts', locked: true },
-    ],
-  },
-  {
-    label: 'Estimates',
-    locked: true,
-    items: [
-      { href: '#', icon: '📐', label: 'Upload Drawing', locked: true },
-      { href: '#', icon: '💰', label: 'ACE Budget Format', locked: true },
-      { href: '#', icon: '📁', label: 'Past Estimates', locked: true },
-    ],
-  },
-  {
-    label: 'KPI Dashboard',
-    locked: true,
-    items: [
-      { href: '#', icon: '📊', label: 'Revenue Tracker', locked: true },
-      { href: '#', icon: '🎯', label: '$20M Goal', locked: true },
-      { href: '#', icon: '👥', label: 'Team Performance', locked: true },
-    ],
-  },
 ]
 
 // ── Role-based access ────────────────────────────────────────────────
@@ -135,12 +109,6 @@ const CHANGE_PW_TOGGLE_STYLE: React.CSSProperties = {
   fontFamily: 'inherit',
   padding: 0,
 }
-
-const RECENT_SESSIONS = [
-  { label: 'Apr 30 · Leadership', href: '/sessions/a1b2c3d4-0006-0006-0006-000000000006' },
-  { label: 'Mar 27 · Q2 Planning', href: '/sessions/a1b2c3d4-0003-0003-0003-000000000003' },
-  { label: 'Feb 27 · Leadership', href: '/sessions/a1b2c3d4-0001-0001-0001-000000000001' },
-]
 
 function getInitials(name: string | null | undefined, email: string | null | undefined): string {
   if (name) {
@@ -188,30 +156,6 @@ function SideNavLink({ href, icon, label, isActive, standalone }: { href: string
       >
         {icon}
       </span>
-      {label}
-    </Link>
-  )
-}
-
-function SideRecentLink({ href, label }: { href: string; label: string }) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <Link
-      href={href}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className="flex items-center gap-[9px] rounded-[6px] font-sans text-[12px] font-normal tracking-[-0.1px] no-underline"
-      style={{
-        paddingTop: '7px',
-        paddingBottom: '7px',
-        paddingRight: '10px',
-        paddingLeft: hovered ? '14px' : '10px',
-        background: hovered ? 'rgba(255,255,255,0.07)' : 'transparent',
-        color: 'rgba(255,255,255,0.45)',
-        transition: 'padding-left 180ms ease, background 180ms ease',
-      }}
-    >
-      <span style={{ color: 'rgba(255,255,255,0.25)' }}>›</span>
       {label}
     </Link>
   )
@@ -473,61 +417,6 @@ export default function Sidebar() {
           </div>
         ))}
 
-        {/* Separator + Recent Sessions + Upcoming — hidden for restricted roles,
-            and withheld entirely until the role resolves (no admin flash). */}
-        {roleLoaded && !isRestricted && (
-          <>
-        {/* Separator */}
-        <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
-
-        {/* Recent Sessions */}
-        <div
-          className="text-[10px] font-medium tracking-[1.5px] uppercase px-2 pt-3 pb-1"
-          style={{ color: 'rgba(255,255,255,0.25)' }}
-        >
-          Recent Sessions
-        </div>
-        {RECENT_SESSIONS.map((s) => (
-          <SideRecentLink key={s.href} href={s.href} label={s.label} />
-        ))}
-
-        {/* Upcoming */}
-        <div
-          className="mx-0.5 mt-2.5 rounded-lg p-3.5 relative overflow-hidden"
-          style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-          }}
-        >
-          <div
-            className="absolute top-0 left-0 right-0 h-[2px]"
-            style={{ background: 'linear-gradient(90deg, var(--red), #e8754a)' }}
-          />
-          <div
-            className="text-[9px] font-semibold tracking-[1.5px] uppercase mb-1.5"
-            style={{ color: 'rgba(255,255,255,0.35)' }}
-          >
-            Upcoming
-          </div>
-          <div
-            className="text-[12px] font-semibold mb-[3px] leading-tight"
-            style={{ color: 'rgba(255,255,255,0.85)' }}
-          >
-            Leadership Meeting
-          </div>
-          <div className="text-[11px]" style={{ color: 'rgba(255,255,255,0.35)' }}>
-            May 28, 2026 · 11am–3pm
-          </div>
-          <Link
-            href="/generate"
-            className="block w-full mt-2.5 text-center text-[11px] font-semibold text-white py-2 rounded-[5px] transition-colors no-underline"
-            style={{ background: 'rgba(200,49,26,0.8)' }}
-          >
-            Prepare Agenda →
-          </Link>
-        </div>
-          </>
-        )}
       </nav>
 
       {/* Footer / User */}
