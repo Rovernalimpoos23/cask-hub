@@ -2,22 +2,278 @@
 
 // src/app/(app)/big-vision/[agent]/page.tsx
 // Individual Big Vision agent page.
-// The left "Files in memory" panel and the Upload button are wired to the live
-// hub_memory API (/api/big-vision/files + /api/big-vision/upload).
-// The right-hand AI chat panel is still VISUAL ONLY (hardcoded) — it gets wired
-// in Phase C, so its static data below is intentionally left in place.
+//
+// VISUAL REBUILD ONLY (jeff-agent-premium.html mockup). Every hook, state
+// variable, effect and handler is unchanged: the draggable divider, the
+// expand/collapse mode, the @mention system, chat-history persistence, Clear,
+// upload, delete-with-confirm, the file "+N more" toggle, clickable meeting
+// links, real meeting dates, quick-action pills and markdown rendering all
+// behave exactly as before — only their presentation was rewritten.
+//
+// Additive per the spec: a client-side title search over the already-fetched
+// `files` array, a "fed X ago" header segment, and the composer footer line.
+// Both derive from data already in state — no new fetch, no new endpoint.
+//
+// Scoping note: the mockup's CSS variable names (--bg, --card, --line, --ink…)
+// collide with the Hub's own tokens in globals.css, so every rule below is
+// prefixed with `.bva-root` and the variables are redefined on that div.
+// Nothing leaks out of this page's subtree. Same pattern as the precon page and
+// the Big Vision main page.
+//
+// Theme follows the Hub's global setting via useTheme() rather than hardcoding
+// dark. The mockup is dark-only, so its exact palette lives under
+// [data-theme="dark"] and light mode maps to the Hub's own light tokens.
 
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
+import { useTheme } from '@/lib/theme-context'
 
-// ── Typography ───────────────────────────────────────────────────────
-const SERIF = 'var(--font-fraunces), Georgia, "Times New Roman", serif'
+// ── Scoped stylesheet (port of the mockup's <style>) ─────────────────
+//
+// Fraunces and Inter are already self-hosted by next/font in src/app/layout.tsx
+// (--font-fraunces / --font-inter), so they are referenced rather than re-fetched
+// from Google. IBM Plex Mono and the Tabler icon webfont are not in the project,
+// so they come from CDN exactly as the mockup does.
+const AGENT_CSS = `
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap");
+@import url("https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css");
+
+.bva-root{
+  /* Light mode — mapped to the Hub's own light tokens (globals.css :root). The
+     mockup only specified a dark palette. */
+  --bg:#FAFAFA; --card:#FFFFFF; --card-hi:#F5F5F5; --chip:#F0EFEE; --sunk:#FCFCFB;
+  --line:#EAEAEA; --line-strong:#D8D7D5;
+  --ink:#111111; --ink-2:#666666; --ink-3:#8A8A8A; --ink-4:#A9A8A5;
+  --coral:#c8311a; --live:#166534; --live-bg:rgba(22,101,52,.1);
+  --av:#F2F1F0; --send-ink:#FFFFFF;
+  --r:10px;
+  --fs:var(--font-fraunces),Georgia,serif;
+  --fb:var(--font-inter),system-ui,sans-serif;
+  --fm:"IBM Plex Mono",ui-monospace,monospace;
+}
+.bva-root[data-theme="dark"]{
+  /* Exact palette from the approved mockup */
+  --bg:#121110; --card:#1A1918; --card-hi:#1F1E1D; --chip:#242322; --sunk:#151413;
+  --line:#2A2928; --line-strong:#3A3937;
+  --ink:#ECEBE8; --ink-2:#A8A7A3; --ink-3:#7B7A77; --ink-4:#5A5957;
+  --coral:#F0565E; --live:#59B87E; --live-bg:rgba(89,184,126,.1);
+  --av:#282625; --send-ink:#1A0A0C;
+}
+
+.bva-root *{box-sizing:border-box;margin:0;padding:0}
+.bva-root{
+  flex:1;min-width:0;min-height:0;overflow:hidden;
+  background:var(--bg);color:var(--ink);
+  font:450 14px/1.5 var(--fb);letter-spacing:-.005em;
+  -webkit-font-smoothing:antialiased;
+}
+.bva-root :focus-visible{outline:2px solid var(--coral);outline-offset:2px}
+
+/* The mockup is a standalone scrolling page; here the Hub shell gives this page a
+   fixed height, so .page is a flex column and .split fills what is left. That is
+   what keeps the two panels scrolling internally instead of growing the page. */
+.bva-root .page{height:100%;display:flex;flex-direction:column;min-height:0;
+  max-width:1180px;width:100%;margin:0 auto;padding:30px 40px 28px}
+.bva-root .page.wide{max-width:100%;padding:18px 20px}
+
+/* ---------- header ---------- */
+.bva-root .back{display:inline-flex;align-items:center;gap:6px;color:var(--ink-3);text-decoration:none;
+  font-size:13px;padding:5px 8px;margin:0 0 18px -8px;border-radius:7px;align-self:flex-start;
+  transition:color .12s,background .12s;flex:0 0 auto}
+.bva-root .back i{font-size:15px}
+.bva-root .back:hover{color:var(--ink);background:var(--card)}
+.bva-root .head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:22px;flex:0 0 auto}
+.bva-root .who{display:flex;align-items:flex-start;gap:14px;min-width:0}
+.bva-root .who .av{width:44px;height:44px;border-radius:50%;background:var(--av);border:1px solid var(--line-strong);
+  display:grid;place-items:center;font:400 13px/1 var(--fm);color:var(--ink-2);flex:0 0 auto;margin-top:2px}
+.bva-root .who .av i{font-size:19px;color:var(--ink-2)}
+.bva-root h1{font:400 32px/1.05 var(--fs);letter-spacing:-.02em;color:var(--ink)}
+.bva-root .who .role{display:flex;align-items:center;gap:9px;margin-top:7px;flex-wrap:wrap}
+.bva-root .who .role span{font:400 10px/1 var(--fm);letter-spacing:.1em;color:var(--ink-4);text-transform:uppercase}
+.bva-root .who .role .sep{width:1px;height:10px;background:var(--line-strong);padding:0}
+.bva-root .who .sub{font-size:13px;color:var(--ink-3);margin-top:8px;line-height:1.5}
+.bva-root .hact{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.bva-root .pill{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--fm);letter-spacing:.09em;
+  padding:5px 8px;border-radius:5px;text-transform:uppercase;color:var(--live);background:var(--live-bg);white-space:nowrap}
+.bva-root .pill .dot{width:5px;height:5px;border-radius:50%;background:var(--live)}
+.bva-root .icon-btn{width:30px;height:30px;border:0;background:transparent;border-radius:7px;color:var(--ink-4);
+  display:grid;place-items:center;cursor:pointer;font-size:16px;transition:background .12s,color .12s;flex:0 0 auto}
+.bva-root .icon-btn:hover{background:var(--card-hi);color:var(--ink-2)}
+.bva-root .icon-btn.danger:hover{color:var(--coral)}
+
+/* ---------- shell ---------- */
+/* The mockup used a fixed 376px grid column; the existing draggable divider needs
+   a flex row with a % width, so .split is flex here and the drag logic is intact. */
+.bva-root .split{display:flex;align-items:stretch;flex:1;min-height:0;width:100%}
+.bva-root .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.bva-root .p-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);flex:0 0 auto}
+.bva-root .p-head h2{flex:1;min-width:0;font:500 13.5px/1 var(--fb);letter-spacing:-.01em;color:var(--ink)}
+.bva-root .p-head .count{font:400 11px/1 var(--fm);color:var(--ink-4)}
+.bva-root .ghost{border:1px solid var(--line-strong);background:transparent;color:var(--ink-2);
+  font:450 12px/1 var(--fb);padding:6px 10px;border-radius:7px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;transition:background .12s,color .12s,border-color .12s;flex:0 0 auto}
+.bva-root .ghost i{font-size:14px}
+.bva-root .ghost:hover:not(:disabled){background:var(--card-hi);color:var(--ink);border-color:var(--ink-4)}
+.bva-root .ghost:disabled{cursor:default;opacity:.6}
+
+/* ---------- divider (drag to resize · double-click to reset) ---------- */
+.bva-root .divider{position:relative;width:10px;flex:0 0 auto;cursor:col-resize;background:transparent}
+.bva-root .divider::before{content:"";position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%);
+  width:1px;background:var(--line);transition:background .12s,width .12s}
+.bva-root .divider:hover::before,.bva-root .divider.on::before{width:2px;background:var(--coral)}
+.bva-root .divider .grip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;gap:3px}
+.bva-root .divider .grip i{width:2px;height:2px;border-radius:50%;background:var(--ink-4);display:block}
+
+/* ---------- search ---------- */
+.bva-root .tools{display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);flex:0 0 auto}
+.bva-root .field{flex:1;min-width:0;display:flex;align-items:center;gap:8px;background:var(--sunk);
+  border:1px solid var(--line);border-radius:8px;padding:0 10px;height:32px}
+.bva-root .field i{font-size:15px;color:var(--ink-4);flex:0 0 auto}
+.bva-root .field input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);
+  font:450 13px/1 var(--fb);outline:0}
+.bva-root .field input::placeholder{color:var(--ink-4)}
+.bva-root .field:focus-within{border-color:var(--line-strong)}
+
+/* ---------- file rows ---------- */
+.bva-root .list{overflow-y:auto;flex:1;min-height:0;padding:4px 0}
+.bva-root .list::-webkit-scrollbar{width:8px}
+.bva-root .list::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px;border:2px solid var(--card)}
+.bva-root .row{display:block;width:100%;text-align:left;border:0;background:transparent;
+  border-bottom:1px solid var(--line);padding:12px 16px;transition:background .12s}
+.bva-root .row:last-child{border-bottom:0}
+.bva-root .row:hover{background:var(--card-hi)}
+.bva-root .row .t{display:flex;align-items:flex-start;gap:9px}
+.bva-root .row .t>i{font-size:14px;color:var(--ink-4);margin-top:2px;flex:0 0 auto}
+.bva-root .row .t b{flex:1;min-width:0;font:450 13px/1.4 var(--fb);color:var(--ink);letter-spacing:-.005em}
+.bva-root .row .t b a{color:var(--ink);text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
+.bva-root .row .t b a:hover{color:var(--coral)}
+.bva-root .row .m{display:flex;align-items:center;gap:7px;margin:8px 0 0 23px;flex-wrap:wrap}
+.bva-root .tag{font:400 10px/1 var(--fm);color:var(--ink-3);background:var(--chip);padding:4px 6px;
+  border-radius:4px;letter-spacing:.01em;white-space:nowrap}
+.bva-root .tag.more{color:var(--ink-4);background:transparent;padding:4px 2px}
+.bva-root .row .d{font:400 10.5px/1 var(--fm);color:var(--ink-4);margin-left:auto;white-space:nowrap}
+.bva-root .row .trash{opacity:0;transition:opacity .12s,color .12s}
+.bva-root .row:hover .trash{opacity:1}
+.bva-root .row .trash:hover{color:var(--coral)}
+.bva-root .p-foot{padding:10px 16px;border-top:1px solid var(--line);flex:0 0 auto}
+.bva-root .p-foot .ghost{width:100%;justify-content:center}
+.bva-root .note{padding:14px 16px;font-size:13px;color:var(--ink-3);line-height:1.5}
+.bva-root .note.err{color:var(--coral)}
+.bva-root .note.ok{color:var(--live)}
+
+/* delete confirmation (replaces a row while confirming) */
+.bva-root .confirm{margin:0 16px 12px;padding:12px;border-radius:9px;background:var(--card-hi);
+  border:1px solid var(--coral)}
+.bva-root .confirm b{display:block;font:500 13px/1.4 var(--fb);color:var(--ink)}
+.bva-root .confirm span{display:block;font-size:12px;color:var(--ink-3);margin-top:3px}
+.bva-root .confirm .acts{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px}
+.bva-root .confirm .cancel{border:0;background:transparent;color:var(--ink-2);font:450 12px/1 var(--fb);
+  cursor:pointer;padding:6px 4px}
+.bva-root .confirm .cancel:hover{color:var(--ink)}
+.bva-root .confirm .del{border:0;background:var(--coral);color:var(--send-ink);font:500 12px/1 var(--fb);
+  padding:7px 10px;border-radius:6px;cursor:pointer}
+.bva-root .confirm .del:disabled{opacity:.6;cursor:default}
+
+/* skeletons */
+.bva-root .sk{background:var(--chip);border-radius:4px}
+@keyframes bva-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.bva-root .pulse{animation:bva-pulse 1.5s ease-in-out infinite}
+
+/* ---------- chat ---------- */
+.bva-root .chat .body{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padding:22px 22px 0}
+.bva-root .chat .body::-webkit-scrollbar{width:8px}
+.bva-root .chat .body::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px;border:2px solid var(--card)}
+/* Empty state sits against the composer, as in the mockup. */
+.bva-root .chat .body.empty{justify-content:flex-end;padding-bottom:4px}
+.bva-root .chat h3{font:400 19px/1.3 var(--fs);letter-spacing:-.01em;color:var(--ink)}
+.bva-root .chat .lede{font-size:13px;color:var(--ink-3);margin-top:7px;max-width:46ch;line-height:1.55}
+.bva-root .starters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:20px}
+.bva-root .starter{border:1px solid var(--line);background:transparent;color:var(--ink-2);
+  font:450 12.5px/1.35 var(--fb);text-align:left;padding:10px 12px;border-radius:8px;cursor:pointer;
+  transition:background .12s,color .12s,border-color .12s}
+.bva-root .starter:hover:not(:disabled){background:var(--card-hi);color:var(--ink);border-color:var(--line-strong)}
+.bva-root .starter:disabled{cursor:default;opacity:.6}
+
+/* messages */
+.bva-root .thread{display:flex;flex-direction:column;gap:16px;padding-bottom:4px}
+.bva-root .msg{max-width:88%}
+.bva-root .msg.me{margin-left:auto}
+.bva-root .msg .who-line{font:400 10px/1 var(--fm);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-4);margin-bottom:6px}
+.bva-root .msg.me .who-line{text-align:right}
+.bva-root .msg.me .bubble{background:var(--chip);border:1px solid var(--line);border-radius:11px;
+  padding:11px 14px;font-size:13.5px;line-height:1.55;color:var(--ink)}
+.bva-root .msg.ai .bubble{font-size:13.5px;line-height:1.6;color:var(--ink)}
+.bva-root .msg.ai .bubble p{margin:0}
+.bva-root .msg.ai .bubble p+p{margin-top:9px}
+.bva-root .msg.ai .bubble strong{font-weight:600;color:var(--ink)}
+.bva-root .msg.ai .bubble li{list-style:none;margin-left:2px}
+/* Emitted by renderMarkdown() for ## and ### headings */
+.bva-root .msg.ai .bubble .md-h{font:500 13.5px/1.4 var(--fb);color:var(--ink);margin:12px 0 4px}
+.bva-root .msg.ai .bubble .md-sub{font:500 12.5px/1.4 var(--fb);color:var(--ink-2);margin:9px 0 3px}
+.bva-root .cite{display:inline-flex;align-items:center;gap:6px;font:400 10.5px/1 var(--fm);
+  letter-spacing:.05em;text-transform:uppercase;color:var(--ink-4);margin-top:10px}
+.bva-root .cite i{font-size:13px}
+.bva-root .typing{display:inline-flex;align-items:center;gap:9px;font-size:13px;color:var(--ink-3)}
+.bva-root .typing span{width:5px;height:5px;border-radius:50%;background:var(--ink-4);display:block}
+
+/* composer */
+.bva-root .composer{flex:0 0 auto;padding:16px 22px 16px;position:relative}
+.bva-root .box{display:flex;align-items:center;gap:10px;background:var(--sunk);border:1px solid var(--line);
+  border-radius:11px;padding:8px 8px 8px 14px;transition:border-color .12s}
+.bva-root .box:focus-within{border-color:var(--line-strong)}
+.bva-root .box input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);
+  font:450 13.5px/1.5 var(--fb);outline:0;padding:4px 0}
+.bva-root .box input::placeholder{color:var(--ink-4)}
+.bva-root .send{width:30px;height:30px;border:0;border-radius:8px;background:var(--coral);color:var(--send-ink);
+  display:grid;place-items:center;cursor:pointer;font-size:16px;flex:0 0 auto;
+  transition:filter .12s,transform .08s}
+.bva-root .send:hover:not(:disabled){filter:brightness(1.07)}
+.bva-root .send:active:not(:disabled){transform:scale(.96)}
+.bva-root .send:disabled{opacity:.5;cursor:default}
+@keyframes bva-spin{to{transform:rotate(360deg)}}
+.bva-root .send .ti-loader-2{animation:bva-spin .9s linear infinite}
+.bva-root .fine{font:400 10.5px/1 var(--fm);letter-spacing:.06em;color:var(--ink-4);margin-top:11px;
+  display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.bva-root .fine .sep{width:1px;height:10px;background:var(--line)}
+.bva-root .fine.err{color:var(--coral)}
+
+/* @mention dropdown + pills */
+.bva-root .mentions{position:absolute;bottom:100%;left:22px;right:22px;margin-bottom:8px;z-index:50;
+  background:var(--card);border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;
+  max-height:240px;overflow-y:auto;box-shadow:0 18px 40px rgba(0,0,0,.4)}
+.bva-root .mentions .cap{font:400 10px/1 var(--fm);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-4);padding:10px 12px;border-bottom:1px solid var(--line)}
+.bva-root .mentions .opt{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer}
+.bva-root .mentions .opt.on{background:var(--card-hi)}
+.bva-root .mentions .opt i{font-size:14px;color:var(--ink-4);flex:0 0 auto}
+.bva-root .mentions .opt b{display:block;font:450 13px/1.35 var(--fb);color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bva-root .mentions .opt em{display:block;font:400 10.5px/1 var(--fm);color:var(--ink-4);
+  font-style:normal;margin-top:4px}
+.bva-root .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.bva-root .chips .att{display:inline-flex;align-items:center;gap:5px;font:400 11px/1 var(--fm);
+  color:var(--coral);background:transparent;border:1px solid var(--line-strong);
+  padding:5px 7px;border-radius:6px;max-width:100%}
+.bva-root .chips .att i{font-size:13px;flex:0 0 auto}
+.bva-root .chips .att b{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.bva-root .chips .att button{border:0;background:transparent;color:var(--coral);cursor:pointer;
+  font-size:13px;line-height:1;padding:0 0 0 2px}
+
+@media (max-width:980px){
+  .bva-root .page{padding:22px 18px 18px}
+  .bva-root .starters{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){.bva-root *{transition:none!important;animation:none!important}}
+`
 
 // ── Tag pill styles ──────────────────────────────────────────────────
-// Category tags are solid-colored; leader (person) tags use each leader's
-// avatar color; department tags are muted. Unknown keys fall back to muted
-// in TagPill, so `tags` is a plain string[].
+// RETAINED but no longer applied: the mockup renders every tag as one uniform
+// muted mono chip (.tag), so TagPill below ignores this map. Kept in place so the
+// per-tag colour scheme can be restored without rebuilding the data.
 const TAG_STYLES: Record<string, { bg: string; color: string }> = {
   // Category tags
   pit: { bg: 'var(--red)', color: '#fff' },
@@ -37,6 +293,7 @@ const TAG_STYLES: Record<string, { bg: string; color: string }> = {
   operations: { bg: 'var(--surface2)', color: 'var(--text2)' },
   hr: { bg: 'var(--surface2)', color: 'var(--text2)' },
 }
+void TAG_STYLES // referenced so the retained map is not flagged as dead code
 
 // ── Data model ───────────────────────────────────────────────────────
 type Source = 'seed doc' | 'fireflies' | 'manual'
@@ -314,10 +571,20 @@ const LEADER_AGENTS: Record<string, AgentData> = Object.fromEntries(
 const ALL_AGENTS: Record<string, AgentData> = { ...AGENTS, ...LEADER_AGENTS }
 
 // ── Icons ────────────────────────────────────────────────────────────
-// Icon for a real hub_memory source_type ('fireflies' | 'seed_doc' | 'manual' |
-// 'meeting_note'). Fireflies transcripts get a mic; everything else a document.
+// Tabler icon for a real hub_memory source_type ('fireflies' | 'seed_doc' |
+// 'manual' | 'meeting_note'). Fireflies transcripts get a mic; everything else a
+// document. Replaces the previous emoji version.
 function sourceIcon(sourceType: string): string {
-  return sourceType === 'fireflies' ? '🎤' : '📄'
+  return sourceType === 'fireflies' ? 'ti-microphone' : 'ti-file-text'
+}
+
+// Header avatar glyph for the four category agents (leaders use their initials).
+// Same icon choices as the Big Vision main page.
+const AGENT_ICONS: Record<string, string> = {
+  'ai-hub': 'ti-building-community',
+  pit: 'ti-settings-2',
+  'design-center': 'ti-palette',
+  'dept-alignment': 'ti-sitemap',
 }
 
 // Format an ISO timestamp as "Jul 21, 2026".
@@ -325,6 +592,27 @@ function fmtDate(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Compact "Jul 21" for the file rows, matching the mockup.
+function fmtShort(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// "fed 6h ago" / "fed 1 day ago" from the newest file in memory. Only ever called
+// with a date that arrived from the client-side files fetch, so it never runs
+// against real data during SSR and cannot cause a hydration mismatch.
+function fedAgo(iso?: string | null): string | null {
+  if (!iso) return null
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return null
+  const h = Math.max(0, (Date.now() - t) / 3_600_000)
+  if (h < 1) return 'fed just now'
+  if (h < 24) return `fed ${Math.floor(h)}h ago`
+  const d = Math.floor(h / 24)
+  return `fed ${d} day${d === 1 ? '' : 's'} ago`
 }
 
 // A fireflies file links to its source session only when source_ref is a valid UUID.
@@ -381,16 +669,16 @@ function renderMarkdown(text: string): string {
 
   const html = escaped
     // H2 → h3 (block heading)
-    .replace(/^## (.*)$/gm, '<h3 class="font-semibold text-sm mt-3 mb-1" style="color:var(--text)">$1</h3>')
+    .replace(/^## (.*)$/gm, '<h3 class="md-h">$1</h3>')
     // H3 → styled paragraph label
-    .replace(/^### (.*)$/gm, '<p class="font-medium text-sm mt-2 mb-1" style="color:var(--text2)">$1</p>')
+    .replace(/^### (.*)$/gm, '<p class="md-sub">$1</p>')
     // Bullet points
-    .replace(/^- (.*)$/gm, '<li class="ml-4 text-sm" style="color:var(--text)">• $1</li>')
+    .replace(/^- (.*)$/gm, '<li>• $1</li>')
     // Bold, then italic (bold consumes ** first so lone * become italic)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     // Paragraph breaks, then single line breaks
-    .replace(/\n\n/g, '</p><p class="mt-2">')
+    .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br/>')
 
   return `<p>${html}</p>`
@@ -399,6 +687,10 @@ function renderMarkdown(text: string): string {
 export default function AgentPage({ params }: { params: { agent: string } }) {
   const agentSlug = params.agent
   const agent = ALL_AGENTS[agentSlug]
+
+  // Theme follows the Hub's global setting (the `dark` class on <html>) via the
+  // shared useTheme hook — same pattern as the Big Vision main page and precon.
+  const { theme } = useTheme()
 
   // Slug → category (+ optional leader) used for uploads. Falls back to the slug.
   const agentCategory = AGENT_META[agentSlug]?.category ?? agentSlug
@@ -419,11 +711,22 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
+  // ── File title search (client-side only — additive) ────────────────
+  // Filters the already-fetched `files` array by title. No request is made and
+  // `files` itself is never mutated, so upload/delete/@mention all still see the
+  // full list. With an empty query filteredFiles === files, so the expand/collapse
+  // maths below behaves exactly as it did before.
+  const [fileSearch, setFileSearch] = useState('')
+  const searchTerm = fileSearch.trim().toLowerCase()
+  const filteredFiles = searchTerm
+    ? files.filter((f) => (f.title ?? '').toLowerCase().includes(searchTerm))
+    : files
+
   // ── File list expand/collapse ──────────────────────────────────────
   const [filesExpanded, setFilesExpanded] = useState(false)
   const VISIBLE_FILES = 4
-  const visibleFiles = filesExpanded ? files : files.slice(0, VISIBLE_FILES)
-  const hiddenCount = files.length - VISIBLE_FILES
+  const visibleFiles = filesExpanded ? filteredFiles : filteredFiles.slice(0, VISIBLE_FILES)
+  const hiddenCount = filteredFiles.length - VISIBLE_FILES
 
   // ── Agent chat state ───────────────────────────────────────────────
   const [messages, setMessages] = useState<
@@ -463,7 +766,8 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   >([])
 
   // Files whose title matches the in-progress @mention (max 50). Empty when no
-  // mention is being typed.
+  // mention is being typed. Deliberately searches the FULL `files` array, not the
+  // left panel's filtered view — the panel search must not narrow @mentions.
   const mentionResults =
     mentionQuery !== null
       ? files
@@ -714,7 +1018,10 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   }
 
   // Begin dragging the divider. Tracks the pointer on `document` (not the divider)
-  // so the drag continues even when the cursor moves off the 4px handle.
+  // so the drag continues even when the cursor moves off the handle.
+  // Unchanged logic — the only edit is that the drag-end visual reset now toggles
+  // the `.on` class instead of writing an inline colour, since the divider's look
+  // is driven by CSS in this rebuild.
   function startDrag(e: React.MouseEvent) {
     e.preventDefault()
     setIsDragging(true)
@@ -736,9 +1043,9 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
       setIsDragging(false)
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
-      // Reset divider color
+      // Reset divider highlight
       if (dividerRef.current) {
-        dividerRef.current.style.background = 'var(--border)'
+        dividerRef.current.classList.remove('on')
       }
     }
 
@@ -746,498 +1053,327 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     document.addEventListener('mouseup', onMouseUp)
   }
 
+  // ── Derived presentation values (from data already in state) ───────
+  // The files route returns rows sorted newest-first by meeting_date||created_at,
+  // so files[0] is the freshest. Powers "fed X ago" and "LAST INDEXED".
+  const newestIso: string | null = files.length > 0 ? files[0].meeting_date || files[0].created_at : null
+  const fedLabel = fedAgo(newestIso)
+
   // Hooks above run unconditionally; bail out for unknown agents afterwards.
   if (!agent) notFound()
 
+  const avatarIcon = AGENT_ICONS[agentSlug]
+
   return (
     <>
-      <style>{`
-        .bv-file { transition: background 130ms ease; }
-        .bv-file:hover { background: var(--surface2); }
-        .bv-upload { transition: opacity 150ms ease; }
-        .bv-upload:hover { opacity: 0.9; }
-        .bv-back { transition: color 150ms ease; }
-        .bv-back:hover { color: var(--text); }
-        .bv-send { transition: opacity 150ms ease; }
-        .bv-send:hover { opacity: 0.9; }
-        .bv-icon-btn:hover { background: var(--surface2); color: var(--text2); }
-        .bv-edit:hover { color: var(--text); }
-        .bv-pill { transition: background 130ms ease, color 130ms ease; }
-        .bv-pill:not(:disabled):hover { background: var(--surface); color: var(--text); }
-        .bv-trash { transition: opacity 130ms ease, color 130ms ease; }
-        .bv-trash:hover { color: var(--red); }
-      `}</style>
+      <style dangerouslySetInnerHTML={{ __html: AGENT_CSS }} />
 
-      <div className="flex-1 min-h-0 overflow-hidden animate-page-in" style={{ background: 'var(--bg)' }}>
-        {/* When the right panel is expanded, drop the 1080px cap + page padding so the
-            chat goes edge-to-edge of the content area; otherwise keep the centered layout. */}
-        <div
-          className={`h-full flex flex-col min-h-0${rightExpanded ? '' : ' px-6 py-8'}`}
-          style={{ width: '100%', maxWidth: rightExpanded ? '100%' : 1080, margin: '0 auto' }}
-        >
+      <div className="bva-root animate-page-in" data-theme={theme}>
+        <div className={`page${rightExpanded ? ' wide' : ''}`}>
           {/* ── Back ───────────────────────────────────────────── */}
-          <Link
-            href="/big-vision"
-            className="bv-back inline-flex items-center gap-1.5 text-[13px] font-medium no-underline mb-5"
-            style={{ color: 'var(--text3)' }}
-          >
-            ← Big Vision
+          <Link href="/big-vision" className="back">
+            <i className="ti ti-arrow-left" aria-hidden="true" />
+            Big Vision
           </Link>
 
           {/* ── Header ─────────────────────────────────────────── */}
-          <div className="flex items-start justify-between gap-6 mb-8">
-            <div>
-              <h1
-                className="flex items-center gap-3"
-                style={{
-                  fontFamily: SERIF,
-                  fontWeight: 500,
-                  fontSize: 30,
-                  letterSpacing: '-0.5px',
-                  lineHeight: 1.1,
-                  color: 'var(--text)',
-                  margin: 0,
-                }}
-              >
+          <div className="head">
+            <div className="who">
+              <div className="av">
                 {agent.isLeader ? (
-                  <span
-                    className="inline-flex items-center justify-center rounded-full shrink-0 text-white font-bold"
-                    style={{
-                      width: 40,
-                      height: 40,
-                      background: agent.initialsBg,
-                      fontSize: 15,
-                      letterSpacing: '0.3px',
-                      fontFamily: 'var(--font-inter), sans-serif',
-                    }}
-                  >
-                    {agent.initials}
-                  </span>
+                  agent.initials
                 ) : (
-                  <span style={{ fontSize: 24 }}>{agent.icon}</span>
+                  <i className={`ti ${avatarIcon ?? 'ti-circle-dot'}`} aria-hidden="true" />
                 )}
-                {agent.name}
-                {agent.isLeader && agent.role && (
-                  <span
-                    className="rounded-full font-semibold"
-                    style={{
-                      fontFamily: 'var(--font-inter), sans-serif',
-                      fontSize: 11,
-                      padding: '3px 9px',
-                      background: 'var(--surface2)',
-                      color: 'var(--text2)',
-                      border: '1px solid var(--border)',
-                    }}
-                  >
-                    {agent.role}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <h1>{agent.name}</h1>
+                <div className="role">
+                  {agent.role && (
+                    <>
+                      <span>{agent.role}</span>
+                      <span className="sep" />
+                    </>
+                  )}
+                  <span>
+                    {filesLoading ? '—' : `${files.length} file${files.length === 1 ? '' : 's'}`}
                   </span>
-                )}
-              </h1>
-              <p className="text-[14px] mt-2" style={{ color: 'var(--text2)' }}>
-                {agent.subtitle}
-              </p>
+                  {fedLabel && (
+                    <>
+                      <span className="sep" />
+                      <span>{fedLabel}</span>
+                    </>
+                  )}
+                </div>
+                {/* Not in the mockup, but the existing page showed this and dropping
+                    it would lose content, so it sits under the meta row. */}
+                <p className="sub">{agent.subtitle}</p>
+              </div>
             </div>
-            <span
-              className="shrink-0 inline-flex items-center rounded-full text-[10px] font-bold uppercase mt-1"
-              style={{
-                letterSpacing: '0.6px',
-                padding: '3px 10px',
-                background: 'var(--pill-green-bg)',
-                color: 'var(--pill-green-color)',
-                border: '1px solid var(--pill-green-border)',
-              }}
-            >
-              Live
-            </span>
+            <div className="hact">
+              {/* Unconditional, exactly as before — this pill was static in the
+                  previous version and this is a visual-only rebuild. */}
+              <span className="pill">
+                <span className="dot" />
+                Live
+              </span>
+              {/* Visual only — same as the previous version. */}
+              <button className="icon-btn" aria-label="Options">
+                <i className="ti ti-dots" aria-hidden="true" />
+              </button>
+            </div>
           </div>
 
           {/* ── Resizable two-panel layout ─────────────────────── */}
-          {/* Was a fixed 2-col grid; now a flex row split by a draggable divider.
-              flex-1 + min-h-0 fill the fixed page height (used instead of the spec's
-              height:100% because the back-link + header sit above this row in the same
-              flex column). Container cursor flips to col-resize during a drag. */}
           <div
             ref={containerRef}
-            className="flex-1 min-h-0"
-            style={{ display: 'flex', width: '100%', flex: 1, cursor: isDragging ? 'col-resize' : 'default' }}
+            className="split"
+            style={{ cursor: isDragging ? 'col-resize' : 'default' }}
           >
-            {/* ── LEFT PANEL ─────────────────────────────────── */}
-            {/* min-h-0 + overflow-y-auto → the Files-in-memory panel scrolls inside
-                the fixed column height instead of growing the page. Width is the
-                draggable split (clamped 20–60% in startDrag; minWidth is a px floor). */}
-            <div
-              className="flex flex-col gap-4 min-h-0 overflow-y-auto"
+            {/* ── LEFT PANEL — files in memory ───────────────── */}
+            <section
+              className="panel"
               style={{
                 width: `${leftWidth}%`,
-                minWidth: '240px',
+                minWidth: 260,
                 maxWidth: '60%',
                 display: rightExpanded ? 'none' : 'flex',
               }}
             >
-              {/* Files in memory */}
-              <div className="rounded-xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 text-[14px] font-semibold" style={{ color: 'var(--text)' }}>
-                    <span>🗂</span> Files in memory
-                  </div>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadingFile}
-                    className="bv-upload inline-flex items-center gap-1.5 rounded-lg text-[12px] font-semibold"
-                    style={{
-                      padding: '6px 12px',
-                      background: 'var(--red)',
-                      color: '#fff',
-                      border: 'none',
-                      cursor: uploadingFile ? 'default' : 'pointer',
-                      opacity: uploadingFile ? 0.7 : 1,
-                    }}
-                  >
-                    <span>↑</span> {uploadingFile ? 'Uploading…' : 'Upload'}
-                  </button>
-                </div>
-
-                {/* Hidden file input — opened by the Upload button */}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  className="hidden"
-                  accept=".pdf,.docx,.xlsx,.txt"
-                  onChange={handleFileUpload}
-                />
-
-                {/* Upload status */}
-                {uploadError && (
-                  <div className="text-xs mb-2" style={{ color: 'var(--red)' }}>
-                    {uploadError}
-                  </div>
-                )}
-                {uploadSuccess && (
-                  <div className="text-xs mb-2" style={{ color: '#059669' }}>
-                    {uploadSuccess}
-                  </div>
-                )}
-
-                {/* File list — live hub_memory rows */}
-                {filesLoading ? (
-                  // Loading: 3 skeleton rows
-                  <div className="-mx-2">
-                    {[0, 1, 2].map((i) => (
-                      <div
-                        key={i}
-                        className="animate-pulse px-2 py-2.5"
-                        style={{ borderBottom: i < 2 ? '1px solid var(--border)' : 'none' }}
-                      >
-                        <div className="flex items-start gap-2.5">
-                          <div className="shrink-0 rounded" style={{ width: 14, height: 14, marginTop: 1, background: 'var(--surface2)' }} />
-                          <div className="min-w-0 flex-1">
-                            <div className="rounded" style={{ height: 12, width: '60%', background: 'var(--surface2)' }} />
-                            <div className="rounded mt-2" style={{ height: 10, width: '35%', background: 'var(--surface2)' }} />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : files.length === 0 ? (
-                  // Empty state
-                  <div className="text-sm italic px-2 py-4" style={{ color: 'var(--text3)' }}>
-                    No files yet. Upload the first file to get started.
-                  </div>
-                ) : (
-                  // Real files (first 4)
-                  <>
-                    <div className="-mx-2">
-                      {visibleFiles.map((f, i) => {
-                        const linkable =
-                          f.source_type === 'fireflies' && !!f.source_ref && UUID_RE.test(f.source_ref)
-                        return (
-                        <div
-                          key={f.id}
-                          className="group bv-file rounded-lg px-2 py-2.5"
-                          style={{ borderBottom: i < visibleFiles.length - 1 ? '1px solid var(--border)' : 'none' }}
-                        >
-                          {confirmDeleteId === f.id ? (
-                            // Confirmation UI (replaces the row while confirming)
-                            <div
-                              className="rounded-lg p-3"
-                              style={{
-                                background: 'var(--surface2)',
-                                border: '1px solid color-mix(in srgb, var(--red) 50%, transparent)',
-                              }}
-                            >
-                              <div className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>
-                                🗑 Delete &ldquo;{f.title.length > 30 ? `${f.title.slice(0, 30)}…` : f.title}&rdquo;?
-                              </div>
-                              <div className="text-xs mt-0.5" style={{ color: 'var(--text3)' }}>
-                                This cannot be undone.
-                              </div>
-                              <div className="flex items-center justify-end gap-3 mt-3">
-                                <button
-                                  onClick={() => setConfirmDeleteId(null)}
-                                  className="text-xs bg-transparent border-0 p-0"
-                                  style={{ color: 'var(--text2)', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(f.id, f.title)}
-                                  disabled={deletingId === f.id}
-                                  className="text-xs rounded px-2 py-1"
-                                  style={{
-                                    background: 'var(--red)',
-                                    color: '#fff',
-                                    border: 'none',
-                                    fontFamily: 'inherit',
-                                    cursor: deletingId === f.id ? 'default' : 'pointer',
-                                    opacity: deletingId === f.id ? 0.5 : 1,
-                                  }}
-                                >
-                                  {deletingId === f.id ? 'Deleting…' : 'Yes, delete'}
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-start gap-2.5">
-                              <span className="shrink-0" style={{ fontSize: 14, marginTop: 1 }}>
-                                {sourceIcon(f.source_type)}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <div className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>
-                                  {linkable ? (
-                                    <Link
-                                      href={`/sessions/${f.source_ref}`}
-                                      className="underline decoration-dotted"
-                                      style={{ color: 'var(--text)' }}
-                                    >
-                                      {f.title}
-                                    </Link>
-                                  ) : (
-                                    f.title
-                                  )}
-                                </div>
-                                <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 mt-1">
-                                  <span className="text-[11px]" style={{ color: 'var(--text3)' }}>
-                                    {f.source_type} · layer {f.layer}
-                                  </span>
-                                  {(f.categories ?? []).map((t: string) => (
-                                    <TagPill key={t} tag={t} />
-                                  ))}
-                                  {f.leader && (
-                                    <span
-                                      className="rounded-full text-xs px-2 py-0.5 font-medium"
-                                      style={{ background: 'var(--surface2)', color: 'var(--text2)', fontSize: 10.5, lineHeight: 1.4 }}
-                                    >
-                                      {f.leader}
-                                    </span>
-                                  )}
-                                </div>
-                                {(f.meeting_date || f.created_at) && (
-                                  <div className="text-xs mt-1" style={{ color: 'var(--text3)' }}>
-                                    {fmtDate(f.meeting_date || f.created_at)}
-                                  </div>
-                                )}
-                              </div>
-                              {/* Delete — visible on row hover */}
-                              <button
-                                onClick={() => setConfirmDeleteId(f.id)}
-                                aria-label="Delete file"
-                                className="bv-trash shrink-0 opacity-0 group-hover:opacity-100 bg-transparent border-0 p-0"
-                                style={{ color: 'var(--text3)', cursor: 'pointer', marginTop: 1 }}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                </svg>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        )
-                      })}
-                    </div>
-
-                    {hiddenCount > 0 && !filesExpanded && (
-                      <button
-                        onClick={() => setFilesExpanded(true)}
-                        className="bv-edit text-xs mt-2 block text-center w-full bg-transparent border-0 p-0"
-                        style={{ color: 'var(--text2)', cursor: 'pointer', fontFamily: 'inherit' }}
-                      >
-                        + {hiddenCount} more ↓
-                      </button>
-                    )}
-                    {filesExpanded && (
-                      <button
-                        onClick={() => setFilesExpanded(false)}
-                        className="bv-edit text-xs mt-2 block text-center w-full bg-transparent border-0 p-0"
-                        style={{ color: 'var(--text2)', cursor: 'pointer', fontFamily: 'inherit' }}
-                      >
-                        Show less ↑
-                      </button>
-                    )}
-                  </>
-                )}
+              <div className="p-head">
+                <h2>Files in memory</h2>
+                <span className="count">{filesLoading ? '—' : filteredFiles.length}</span>
+                <button
+                  className="ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFile}
+                >
+                  <i className="ti ti-upload" aria-hidden="true" />
+                  {uploadingFile ? 'Uploading…' : 'Upload'}
+                </button>
               </div>
 
-            </div>
+              {/* Hidden file input — opened by the Upload button */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept=".pdf,.docx,.xlsx,.txt"
+                onChange={handleFileUpload}
+              />
+
+              {/* Search — client-side title filter over the fetched files.
+                  The mockup also had a filter button next to this field; it is
+                  omitted because no filter behaviour exists to wire it to and a
+                  dead control is worse than none. */}
+              <div className="tools">
+                <label className="field">
+                  <i className="ti ti-search" aria-hidden="true" />
+                  <input
+                    value={fileSearch}
+                    onChange={(e) => setFileSearch(e.target.value)}
+                    placeholder="Search file titles"
+                    aria-label="Search file titles"
+                  />
+                </label>
+              </div>
+
+              {/* Upload status */}
+              {uploadError && <div className="note err">{uploadError}</div>}
+              {uploadSuccess && <div className="note ok">{uploadSuccess}</div>}
+
+              {/* File list — live hub_memory rows */}
+              {filesLoading ? (
+                <div className="list">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="row pulse">
+                      <div className="t">
+                        <div className="sk" style={{ width: 14, height: 14, marginTop: 2, flex: '0 0 auto' }} />
+                        <div style={{ flex: 1 }}>
+                          <div className="sk" style={{ height: 12, width: '65%' }} />
+                          <div className="sk" style={{ height: 10, width: '38%', marginTop: 8 }} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : files.length === 0 ? (
+                <div className="list">
+                  <div className="note">No files yet. Upload the first file to get started.</div>
+                </div>
+              ) : filteredFiles.length === 0 ? (
+                <div className="list">
+                  <div className="note">No files match &ldquo;{fileSearch.trim()}&rdquo;.</div>
+                </div>
+              ) : (
+                <div className="list">
+                  {visibleFiles.map((f) => {
+                    const linkable =
+                      f.source_type === 'fireflies' && !!f.source_ref && UUID_RE.test(f.source_ref)
+                    const dateIso = f.meeting_date || f.created_at
+                    // source + categories + leader, capped like the mockup's rows.
+                    const allTags: string[] = [
+                      f.source_type,
+                      ...(f.categories ?? []),
+                      ...(f.leader ? [f.leader] : []),
+                    ].filter(Boolean)
+                    const shownTags = allTags.slice(0, 3)
+                    const extraTags = allTags.length - shownTags.length
+
+                    if (confirmDeleteId === f.id) {
+                      return (
+                        <div key={f.id} className="confirm">
+                          <b>Delete &ldquo;{f.title.length > 30 ? `${f.title.slice(0, 30)}…` : f.title}&rdquo;?</b>
+                          <span>This cannot be undone.</span>
+                          <div className="acts">
+                            <button className="cancel" onClick={() => setConfirmDeleteId(null)}>
+                              Cancel
+                            </button>
+                            <button
+                              className="del"
+                              onClick={() => handleDelete(f.id, f.title)}
+                              disabled={deletingId === f.id}
+                            >
+                              {deletingId === f.id ? 'Deleting…' : 'Yes, delete'}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      // Layer is no longer shown as text (the mockup's rows don't
+                      // carry it) — it is kept in the row tooltip so nothing is lost.
+                      <div key={f.id} className="row" title={`layer ${f.layer}`}>
+                        <div className="t">
+                          <i className={`ti ${sourceIcon(f.source_type)}`} aria-hidden="true" />
+                          <b>
+                            {linkable ? <Link href={`/sessions/${f.source_ref}`}>{f.title}</Link> : f.title}
+                          </b>
+                          <button
+                            className="icon-btn trash"
+                            onClick={() => setConfirmDeleteId(f.id)}
+                            aria-label={`Delete ${f.title}`}
+                            style={{ width: 22, height: 22, marginTop: -2 }}
+                          >
+                            <i className="ti ti-trash" aria-hidden="true" style={{ fontSize: 14 }} />
+                          </button>
+                        </div>
+                        <div className="m">
+                          {shownTags.map((t, ti) => (
+                            <TagPill key={`${t}-${ti}`} tag={t} />
+                          ))}
+                          {extraTags > 0 && <span className="tag more">+{extraTags}</span>}
+                          {dateIso && <span className="d">{fmtShort(dateIso)}</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Expand / collapse — unchanged logic, restyled as the mockup's foot */}
+              {!filesLoading && filteredFiles.length > 0 && (hiddenCount > 0 || filesExpanded) && (
+                <div className="p-foot">
+                  {hiddenCount > 0 && !filesExpanded && (
+                    <button className="ghost" onClick={() => setFilesExpanded(true)}>
+                      <i className="ti ti-chevron-down" aria-hidden="true" />
+                      Load {hiddenCount} more
+                    </button>
+                  )}
+                  {filesExpanded && (
+                    <button className="ghost" onClick={() => setFilesExpanded(false)}>
+                      <i className="ti ti-chevron-up" aria-hidden="true" />
+                      Show less
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
 
             {/* ── DIVIDER (drag to resize · double-click to reset) ─ */}
             <div
               ref={dividerRef}
+              className={`divider${isDragging ? ' on' : ''}`}
               onMouseDown={startDrag}
               onDoubleClick={() => setLeftWidth(38)}
-              style={{
-                position: 'relative',
-                width: '4px',
-                background: 'var(--border)',
-                cursor: 'col-resize',
-                flexShrink: 0,
-                transition: isDragging ? 'none' : 'background 0.15s',
-                display: rightExpanded ? 'none' : 'block',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--red)'
-              }}
-              onMouseLeave={(e) => {
-                if (!isDragging) e.currentTarget.style.background = 'var(--border)'
-              }}
+              style={{ display: rightExpanded ? 'none' : 'block' }}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize panels"
             >
-              {/* Center grip hint — three subtle dots */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '3px',
-                }}
-              >
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: '2px',
-                      height: '2px',
-                      borderRadius: '50%',
-                      background: 'var(--text3)',
-                    }}
-                  />
-                ))}
-              </div>
+              <span className="grip">
+                <i />
+                <i />
+                <i />
+              </span>
             </div>
 
-            {/* ── RIGHT PANEL ────────────────────────────────── */}
-            {/* min-h-0 lets the inner flex-1 messages area shrink and scroll; the panel
-                fills the remaining width (flex:1) with a 300px floor, no minHeight so it
-                never forces page scroll. */}
-            <div
-              className="rounded-xl p-5 flex flex-col min-h-0"
-              style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                flex: 1,
-                width: rightExpanded ? '100%' : undefined,
-                minWidth: '300px',
-                overflow: 'hidden',
-              }}
+            {/* ── RIGHT PANEL — chat ─────────────────────────── */}
+            <section
+              className="panel chat"
+              style={{ flex: 1, minWidth: 300, width: rightExpanded ? '100%' : undefined }}
             >
-              <div className="flex items-center justify-between gap-2 text-[14px] font-semibold mb-4 shrink-0" style={{ color: 'var(--text)' }}>
-                <span className="flex items-center gap-2">
-                  <span>💬</span> Ask the {agent.shortName} agent
-                </span>
-                <span className="flex items-center gap-3">
-                  {/* Clear the chat UI state only — history stays in the DB and
-                      reloads on refresh. */}
-                  <button
-                    onClick={() => {
-                      setMessages([])
-                      setSelectedMentions([])
-                      setChatInput('')
-                      setChatError('')
-                    }}
-                    title="Clear chat"
-                    aria-label="Clear chat"
-                    className="text-xs cursor-pointer bg-transparent border-0 p-0"
-                    style={{ color: 'var(--text3)', transition: 'color 0.15s' }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = 'var(--red)'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = 'var(--text3)'
-                    }}
-                  >
-                    Clear
-                  </button>
-                  <button
-                    onClick={() => setRightExpanded(!rightExpanded)}
-                    title={rightExpanded ? 'Collapse chat' : 'Expand chat'}
-                    aria-label={rightExpanded ? 'Collapse chat' : 'Expand chat'}
-                    className="text-sm cursor-pointer bg-transparent border-0 p-0"
-                    style={{ color: 'var(--text3)', transition: 'color 0.15s' }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = 'var(--text)'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = 'var(--text3)'
-                    }}
-                  >
-                    {rightExpanded ? '⤡' : '⤢'}
-                  </button>
-                </span>
+              <div className="p-head">
+                <h2>Ask this memory</h2>
+                {/* Clear the chat UI state only — history stays in the DB and
+                    reloads on refresh. */}
+                <button
+                  className="icon-btn danger"
+                  onClick={() => {
+                    setMessages([])
+                    setSelectedMentions([])
+                    setChatInput('')
+                    setChatError('')
+                  }}
+                  title="Clear chat"
+                  aria-label="Clear chat"
+                >
+                  <i className="ti ti-eraser" aria-hidden="true" />
+                </button>
+                <button
+                  className="icon-btn"
+                  onClick={() => setRightExpanded(!rightExpanded)}
+                  title={rightExpanded ? 'Collapse chat' : 'Expand chat'}
+                  aria-label={rightExpanded ? 'Collapse chat' : 'Expand chat'}
+                >
+                  <i
+                    className={`ti ${rightExpanded ? 'ti-arrows-diagonal-minimize-2' : 'ti-arrows-diagonal'}`}
+                    aria-hidden="true"
+                  />
+                </button>
               </div>
 
-              {/* ── Chat messages area (fills space, scrolls) ────── */}
-              <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+              {/* ── Chat body (fills space, scrolls) ────────────── */}
+              <div className={`body${messages.length === 0 ? ' empty' : ''}`}>
                 {historyLoading && messages.length === 0 ? (
-                  // History still loading — show 3 skeleton pulse rows (alternating
-                  // sides) instead of the empty state.
-                  <div className="flex flex-col gap-3">
+                  // History still loading — skeleton rows instead of the empty state.
+                  <div className="thread">
                     {[0, 1, 2].map((i) => (
                       <div
                         key={i}
-                        className={`animate-pulse rounded-xl ${i % 2 === 0 ? 'max-w-[85%] ml-auto' : 'max-w-[95%]'}`}
-                        style={{ background: 'var(--surface2)', height: 56 }}
+                        className={`sk pulse${i % 2 === 0 ? ' msg me' : ' msg'}`}
+                        style={{ height: 56, borderRadius: 11 }}
                       />
                     ))}
                   </div>
                 ) : messages.length === 0 ? (
-                  // Clean empty state — no fake sample Q&A. Centered agent identity,
-                  // a subtitle, and the quick-action pills.
-                  <div className="h-full flex flex-col items-center justify-center text-center px-4 py-8">
-                    {agent.isLeader ? (
-                      <span
-                        className="inline-flex items-center justify-center rounded-full text-white font-bold mb-3"
-                        style={{ width: 44, height: 44, background: agent.initialsBg, fontSize: 16 }}
-                      >
-                        {agent.initials}
-                      </span>
-                    ) : (
-                      <span className="mb-3" style={{ fontSize: 32, lineHeight: 1 }}>
-                        {agent.icon}
-                      </span>
-                    )}
-                    <div className="text-sm" style={{ color: 'var(--text2)' }}>
-                      Ask {agent.shortName} agent anything
-                    </div>
-                    <div className="text-xs mt-1" style={{ color: 'var(--text3)' }}>
-                      CASK Intelligence · Claude · {files.length} files in memory
-                    </div>
-
-                    {/* Quick-action pills */}
-                    <div className="flex flex-wrap justify-center gap-2 mt-5">
+                  // Empty state — Fraunces headline, lede, 2-col starter grid.
+                  <div>
+                    <h3>
+                      Ask anything from {filesLoading ? 'this memory' : `these ${files.length} files`}
+                    </h3>
+                    <p className="lede">
+                      Answers come only from {agent.shortName}&apos;s memory and cite the file they came
+                      from. Start with one of these, or write your own.
+                    </p>
+                    <div className="starters">
                       {quickPills.map((p) => (
                         <button
                           key={p}
+                          className="starter"
                           onClick={() => sendMessage(p)}
                           disabled={chatLoading}
-                          className="bv-pill rounded-full px-3 py-1.5 text-xs"
-                          style={{
-                            background: 'var(--surface2)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text2)',
-                            cursor: chatLoading ? 'default' : 'pointer',
-                          }}
                         >
                           {p}
                         </button>
@@ -1246,46 +1382,42 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                   </div>
                 ) : (
                   // Real conversation.
-                  <div className="flex flex-col gap-3">
+                  <div className="thread">
                     {messages.map((m, i) =>
                       m.role === 'user' ? (
-                        <div
-                          key={i}
-                          className="rounded-xl px-4 py-3 text-sm max-w-[85%] ml-auto"
-                          style={{ background: 'var(--surface2)', color: 'var(--text)' }}
-                        >
-                          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4, textAlign: 'right' }}>
-                            {m.userName || 'You'} ·{' '}
+                        <div key={i} className="msg me">
+                          <div className="who-line">
+                            {m.userName || 'You'}
                             {m.createdAt
-                              ? new Date(m.createdAt).toLocaleTimeString('en-US', {
+                              ? ` · ${new Date(m.createdAt).toLocaleTimeString('en-US', {
                                   hour: 'numeric',
                                   minute: '2-digit',
                                   hour12: true,
-                                })
+                                })}`
                               : ''}
                           </div>
-                          {m.content}
+                          <div className="bubble">{m.content}</div>
                         </div>
                       ) : (
-                        <div key={i} className="max-w-[95%]">
-                          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>
-                            {agent.shortName} Agent ·{' '}
+                        <div key={i} className="msg ai">
+                          <div className="who-line">
+                            {agent.shortName} Agent
                             {m.createdAt
-                              ? new Date(m.createdAt).toLocaleTimeString('en-US', {
+                              ? ` · ${new Date(m.createdAt).toLocaleTimeString('en-US', {
                                   hour: 'numeric',
                                   minute: '2-digit',
                                   hour12: true,
-                                })
+                                })}`
                               : ''}
                           </div>
                           <div
-                            className="rounded-xl px-4 py-3 text-sm leading-relaxed"
-                            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                            className="bubble"
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
                           />
                           {typeof m.filesUsed === 'number' && m.filesUsed > 0 && (
-                            <div className="text-xs mt-2" style={{ color: 'var(--text3)' }}>
-                              🗂 Drawn from {m.filesUsed} files in memory
+                            <div className="cite">
+                              <i className="ti ti-files" aria-hidden="true" />
+                              Drawn from {m.filesUsed} files
                             </div>
                           )}
                         </div>
@@ -1294,16 +1426,11 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
 
                     {/* Typing indicator */}
                     {chatLoading && (
-                      <div className="max-w-[95%]">
-                        <div
-                          className="rounded-xl px-4 py-3 text-sm inline-flex items-center gap-2"
-                          style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text3)' }}
-                        >
-                          <span className="inline-flex gap-1">
-                            <span className="rounded-full animate-pulse" style={{ width: 6, height: 6, background: 'var(--text3)' }} />
-                            <span className="rounded-full animate-pulse" style={{ width: 6, height: 6, background: 'var(--text3)', animationDelay: '150ms' }} />
-                            <span className="rounded-full animate-pulse" style={{ width: 6, height: 6, background: 'var(--text3)', animationDelay: '300ms' }} />
-                          </span>
+                      <div className="msg ai">
+                        <div className="typing">
+                          <span className="pulse" />
+                          <span className="pulse" style={{ animationDelay: '150ms' }} />
+                          <span className="pulse" style={{ animationDelay: '300ms' }} />
                           Thinking…
                         </div>
                       </div>
@@ -1315,55 +1442,24 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Error */}
-              {chatError && (
-                <div className="text-xs mt-2" style={{ color: 'var(--red)' }}>
-                  {chatError}
-                </div>
-              )}
-
-              {/* ── Input area (bottom) ──────────────────────────── */}
-              {/* position:relative so the @mention dropdown can anchor above it. */}
-              <div className="mt-auto pt-4 shrink-0" style={{ position: 'relative' }}>
+              {/* ── Composer ─────────────────────────────────────── */}
+              <div className="composer">
                 {/* ── @mention file dropdown (floats above the input) ── */}
                 {mentionResults.length > 0 && (
-                  <div
-                    className="rounded-xl overflow-hidden shadow-lg max-h-[240px] overflow-y-auto z-50"
-                    style={{
-                      position: 'absolute',
-                      bottom: '100%',
-                      left: 0,
-                      right: 0,
-                      marginBottom: 8,
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                    }}
-                  >
-                    <div
-                      className="text-xs px-3 py-2"
-                      style={{ color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}
-                    >
-                      Files in memory
-                    </div>
+                  <div className="mentions">
+                    <div className="cap">Files in memory</div>
                     {mentionResults.map((f, index) => (
                       <div
                         key={f.id}
                         onClick={() => selectMention(f)}
                         onMouseEnter={() => setMentionIndex(index)}
-                        className="px-3 py-2 cursor-pointer flex items-center gap-2"
-                        style={{ background: index === mentionIndex ? 'var(--surface2)' : 'transparent' }}
+                        className={`opt${index === mentionIndex ? ' on' : ''}`}
                       >
-                        <span className="shrink-0" style={{ fontSize: 14 }}>
-                          {sourceIcon(f.source_type)}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>
-                            {f.title}
-                          </div>
+                        <i className={`ti ${sourceIcon(f.source_type)}`} aria-hidden="true" />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <b>{f.title}</b>
                           {(f.meeting_date || f.created_at) && (
-                            <div className="text-xs" style={{ color: 'var(--text3)' }}>
-                              {fmtDate(f.meeting_date || f.created_at)}
-                            </div>
+                            <em>{fmtDate(f.meeting_date || f.created_at)}</em>
                           )}
                         </div>
                       </div>
@@ -1372,27 +1468,16 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                 )}
 
                 {/* ── Active @mention pills (which files are attached) ── */}
-                {/* A plain <input> can't style inline text, so mentioned files are
-                    shown as removable indigo pills just above the input. */}
                 {activeMentions.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 px-1 pb-1">
+                  <div className="chips">
                     {activeMentions.map((f) => (
-                      <span
-                        key={f.id}
-                        className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium"
-                        style={{
-                          background: 'rgba(99,102,241,0.15)',
-                          border: '1px solid rgba(99,102,241,0.4)',
-                          color: '#818cf8',
-                        }}
-                      >
-                        📎 {f.title}
+                      <span key={f.id} className="att">
+                        <i className="ti ti-paperclip" aria-hidden="true" />
+                        <b>{f.title}</b>
                         <button
                           // Remove this file from the selected mentions.
                           onClick={() => setSelectedMentions((prev) => prev.filter((m) => m.id !== f.id))}
                           aria-label={`Remove ${f.title} mention`}
-                          className="bg-transparent border-0 p-0 cursor-pointer"
-                          style={{ color: '#818cf8', marginLeft: 2, fontFamily: 'inherit' }}
                         >
                           ×
                         </button>
@@ -1401,10 +1486,9 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                   </div>
                 )}
 
-                <div
-                  className="flex items-center gap-2 rounded-xl p-2"
-                  style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
-                >
+                {/* Kept as <input> (not the mockup's <textarea>) so inputRef stays
+                    HTMLInputElement and the @mention key handling is unchanged. */}
+                <div className="box">
                   <input
                     type="text"
                     ref={inputRef}
@@ -1465,44 +1549,41 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                       }
                     }}
                     placeholder={`Ask anything about ${agent.shortName}…`}
-                    className="flex-1 bg-transparent border-0 outline-none text-[13px] px-2"
-                    style={{
-                      color: 'var(--text)',
-                      fontFamily: 'inherit',
-                      // Subtle accent when files are @mentioned. Inline style wins
-                      // over the `border-0` class.
-                      borderLeft: activeMentions.length > 0 ? '2px solid #818cf8' : 'none',
-                    }}
                   />
                   <button
+                    className="send"
                     aria-label="Send"
                     onClick={() => sendMessage()}
                     disabled={chatLoading || chatInput.trim() === ''}
-                    className="bv-send shrink-0 rounded-lg flex items-center justify-center"
-                    style={{
-                      width: 32,
-                      height: 32,
-                      background: 'var(--red)',
-                      color: '#fff',
-                      border: 'none',
-                      cursor: chatLoading || chatInput.trim() === '' ? 'default' : 'pointer',
-                      opacity: chatLoading || chatInput.trim() === '' ? 0.6 : 1,
-                    }}
                   >
-                    {chatLoading ? (
-                      <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                      </svg>
-                    ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="12" y1="19" x2="12" y2="5" />
-                        <polyline points="5 12 12 5 19 12" />
-                      </svg>
-                    )}
+                    <i
+                      className={`ti ${chatLoading ? 'ti-loader-2' : 'ti-arrow-up'}`}
+                      aria-hidden="true"
+                    />
                   </button>
                 </div>
+
+                {/* Footer — derived from the files already in state, no new fetch.
+                    Doubles as the chat error line so errors are never hidden. */}
+                <div className={`fine${chatError ? ' err' : ''}`}>
+                  {chatError ? (
+                    <span>{chatError}</span>
+                  ) : (
+                    <>
+                      <span>
+                        {filesLoading ? '—' : files.length} FILE{files.length === 1 ? '' : 'S'} IN CONTEXT
+                      </span>
+                      {newestIso && (
+                        <>
+                          <span className="sep" />
+                          <span>LAST INDEXED {fmtShort(newestIso).toUpperCase()}</span>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
+            </section>
           </div>
         </div>
       </div>
@@ -1511,14 +1592,8 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
 }
 
 // ── Tag pill ─────────────────────────────────────────────────────────
+// Restyled to the mockup's uniform muted mono chip. TAG_STYLES above is retained
+// but no longer consulted — the mockup renders every tag identically.
 function TagPill({ tag }: { tag: string }) {
-  const s = TAG_STYLES[tag] ?? { bg: 'var(--surface2)', color: 'var(--text2)' }
-  return (
-    <span
-      className="rounded-full text-xs px-2 py-0.5 font-medium"
-      style={{ background: s.bg, color: s.color, fontSize: 10.5, lineHeight: 1.4 }}
-    >
-      {tag}
-    </span>
-  )
+  return <span className="tag">{tag}</span>
 }
