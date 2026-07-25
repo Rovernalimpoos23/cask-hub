@@ -22,6 +22,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
+import { useTheme } from '@/lib/theme-context'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -298,7 +299,7 @@ const PRECON_CSS = `
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
 .precon-root{
-  --bg:#FFFFFF; --sunken:#F7F8F9; --rail:#FBFBFC;
+  --bg:#FAFAFA; --sunken:#F7F8F9; --rail:#FBFBFC;
   --ink:#191C24; --text-2:#565C68; --text-3:#8B909B; --text-4:#AEB2BB;
   --line:#ECEDF0; --line-soft:#F2F3F5; --line-strong:#DFE1E6;
   --s-sales:#7B8593;   --bg-sales:#F1F2F4;
@@ -322,14 +323,15 @@ const PRECON_CSS = `
   font-feature-settings:"cv05","ss01";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .precon-root .num{font-variant-numeric:tabular-nums}
 .precon-root .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
-.precon-root ::selection{background:#DBE3F0}
+/* Hub red accent (--red) at 20% — matches the dark-mode selection highlight */
+.precon-root ::selection{background:rgba(240,86,94,0.2)}
 .precon-root button{font-family:inherit}
 .precon-root :focus-visible{outline:2px solid var(--s-design);outline-offset:2px;border-radius:4px}
 .precon-root .p-body::-webkit-scrollbar,.precon-root .col-scroll::-webkit-scrollbar{width:8px;height:8px}
 .precon-root .p-body::-webkit-scrollbar-thumb,.precon-root .col-scroll::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:8px;border:2px solid var(--bg)}
 
 .precon-root .topbar{display:flex;align-items:center;gap:16px;height:60px;padding:0 30px;border-bottom:1px solid var(--line);
-  background:rgba(255,255,255,.85);backdrop-filter:saturate(180%) blur(8px);position:sticky;top:0;z-index:20}
+  background:rgba(250,250,250,.85);backdrop-filter:saturate(180%) blur(8px);position:sticky;top:0;z-index:20}
 .precon-root .crumb{font-family:var(--fd);font-weight:600;font-size:15px;letter-spacing:-.2px}
 .precon-root .search{margin-left:auto;position:relative;width:300px}
 .precon-root .search input{width:100%;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--sunken);
@@ -512,11 +514,34 @@ const PRECON_CSS = `
 .precon-root .st-hold{background:var(--bg-bid);color:var(--hold)}
 .precon-root .st-done{background:var(--bg-contract);color:var(--s-contract)}
 
+/* ---------- Light theme (default — anything that is not data-theme="dark") ----------
+   The mockup used a single --bg token for both the page and every card, so light
+   mode rendered white cards on a white page. The Hub separates the two (--bg
+   #FAFAFA for the page, --surface #FFFFFF for cards), so these mirror the dark
+   block below and give light mode the same separation.
+
+   Specificity is 0-3-0 — identical to the dark rules — but the two selectors are
+   mutually exclusive, so source order between the blocks never matters. The base
+   rules they override (e.g. ".precon-root .card") are 0-2-0, so these win. No
+   :hover background is set anywhere in the base light CSS for these elements, so
+   the hover treatments (border/transform/shadow) are unaffected. */
+.precon-root:not([data-theme="dark"]) .metric,.precon-root:not([data-theme="dark"]) .flow,
+.precon-root:not([data-theme="dark"]) .tablewrap,.precon-root:not([data-theme="dark"]) .pmcard,
+.precon-root:not([data-theme="dark"]) .panel,.precon-root:not([data-theme="dark"]) .chip,
+.precon-root:not([data-theme="dark"]) .tbtn,.precon-root:not([data-theme="dark"]) .card,
+.precon-root:not([data-theme="dark"]) .sheet-sec{background:#FFFFFF}
+/* NOT ADDED — .seg button.on was not in the supplied element list, so it still
+   resolves to var(--bg) (#FAFAFA) over the .seg container's --sunken (#F7F8F9).
+   That is a fainter lift than when --bg was #FFFFFF; #FFFFFF here would restore it. */
+
 /* ---------- Dark theme ---------- */
 .precon-root[data-theme="dark"]{
-  --bg:#0E1015; --sunken:#08090C; --rail:#0B0D11;
-  --ink:#E9EBEF; --text-2:#9CA1AC; --text-3:#6B7078; --text-4:#4B505A;
-  --line:#232830; --line-soft:#191D24; --line-strong:#2F353F;
+  /* Matches the Hub ladder in globals.css .dark: --bg #121110, --surface #1A1918,
+     --surface2 #201F1D, --sidebar #0D0C0B. --rail is defined by the mockup but
+     never referenced (no var(--rail) in this file), so it is left as-is. */
+  --bg:#121110; --sunken:#0D0C0B; --rail:#171615;
+  --ink:#ECEBE8; --text-2:#9CA1AC; --text-3:#6B7078; --text-4:#4B505A;
+  --line:rgba(255,255,255,0.09); --line-soft:rgba(255,255,255,0.06); --line-strong:rgba(255,255,255,0.14);
   --s-sales:#8B94A2;    --bg-sales:#1A1D23;
   --s-design:#6B93D6;   --bg-design:#15202F;
   --s-permit:#4FB89E;   --bg-permit:#0F241F;
@@ -529,18 +554,22 @@ const PRECON_CSS = `
   --sh-pop:0 24px 56px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.5);
 }
 .precon-root[data-theme="dark"] .metric,.precon-root[data-theme="dark"] .flow,.precon-root[data-theme="dark"] .tablewrap,
-.precon-root[data-theme="dark"] .pmcard,.precon-root[data-theme="dark"] .panel{background:#14171D}
-.precon-root[data-theme="dark"] .chip,.precon-root[data-theme="dark"] .tbtn{background:#14171D}
-.precon-root[data-theme="dark"] .seg button.on{background:#1B1F27}
-.precon-root[data-theme="dark"] .col-head .ct{background:#12151B}
-.precon-root[data-theme="dark"] .search input:focus{background:#14171D}
-.precon-root[data-theme="dark"] .search .kbd span{background:#171B22}
-.precon-root[data-theme="dark"] .topbar{background:rgba(14,16,21,.82)}
-.precon-root[data-theme="dark"] .card{background:#16191F;box-shadow:inset 0 1px 0 rgba(255,255,255,.03),var(--sh-1)}
-.precon-root[data-theme="dark"] .card:hover{background:#1C2028;box-shadow:inset 0 1px 0 rgba(255,255,255,.045),var(--sh-2)}
-.precon-root[data-theme="dark"] .note{background:#0E1015}
-.precon-root[data-theme="dark"] .sheet-sec{background:#14171D}
-.precon-root[data-theme="dark"] ::selection{background:#22344D}
+.precon-root[data-theme="dark"] .pmcard,.precon-root[data-theme="dark"] .panel{background:#1A1918}
+.precon-root[data-theme="dark"] .chip,.precon-root[data-theme="dark"] .tbtn{background:#1A1918}
+.precon-root[data-theme="dark"] .seg button.on{background:#201F1D}
+/* NOT SHIFTED — #171615 was not in the supplied mapping. It sits between the new
+   --bg (#121110) and --surface (#1A1918) and still reads as a lift over the page. */
+.precon-root[data-theme="dark"] .col-head .ct{background:#171615}
+.precon-root[data-theme="dark"] .search input:focus{background:#1A1918}
+.precon-root[data-theme="dark"] .search .kbd span{background:#1A1918}
+/* rgba form of --bg (#121110), kept in sync with the --bg change above */
+.precon-root[data-theme="dark"] .topbar{background:rgba(18,17,16,.82)}
+.precon-root[data-theme="dark"] .card{background:#1A1918;box-shadow:inset 0 1px 0 rgba(255,255,255,.03),var(--sh-1)}
+.precon-root[data-theme="dark"] .card:hover{background:#201F1D;box-shadow:inset 0 1px 0 rgba(255,255,255,.045),var(--sh-2)}
+.precon-root[data-theme="dark"] .note{background:#121110}
+.precon-root[data-theme="dark"] .sheet-sec{background:#1A1918}
+/* Hub red accent (--red #F0565E) at 25% for the selection highlight */
+.precon-root[data-theme="dark"] ::selection{background:rgba(240,86,94,0.25)}
 `
 
 // ── Small presentational helpers (ports of av() / dc() pills) ────────
@@ -605,7 +634,12 @@ export default function PreconPipelinePage() {
   const [curPM, setCurPM] = useState<string>('all')
   const [curView, setCurView] = useState<'pipeline' | 'table' | 'pm' | 'sheet'>('pipeline')
   const [curScope, setCurScope] = useState<'active' | 'completed'>('active')
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  // Theme follows the Hub's global setting instead of a private toggle. useTheme
+  // is the Hub's own detector (src/lib/theme-context.tsx): it reads the `dark`
+  // class on <html>, and re-syncs on the `cask-theme-change` event so switching
+  // the theme anywhere in the Hub updates this page too. Its initial value is
+  // 'dark', matching what this page used to hardcode, so SSR output is unchanged.
+  const { theme } = useTheme()
   // `openId` drives the panel's `.on` class; `shownId` holds the content and is
   // never cleared, so the panel keeps its detail while sliding closed — same as
   // the mockup, which only removed the class and left the innerHTML in place.
@@ -1017,18 +1051,8 @@ export default function PreconPipelinePage() {
     })
   }
 
-  // ── Theme toggle icon ──────────────────────────────────────────────
-  const themeIcon =
-    theme === 'dark' ? (
-      <svg viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="4.4" />
-        <path d="M12 2v1.6M12 20.4V22M4.6 4.6l1.1 1.1M18.3 18.3l1.1 1.1M2 12h1.6M20.4 12H22M4.6 19.4l1.1-1.1M18.3 5.7l1.1-1.1" />
-      </svg>
-    ) : (
-      <svg viewBox="0 0 24 24">
-        <path d="M20 14.4A8 8 0 1 1 9.6 4 6.5 6.5 0 0 0 20 14.4z" />
-      </svg>
-    )
+  // The mockup's private theme-toggle icon was removed along with the toggle
+  // button — the page follows the Hub's global theme now.
 
   return (
     <>
@@ -1050,9 +1074,7 @@ export default function PreconPipelinePage() {
               <span>K</span>
             </span>
           </div>
-          <button className="tbtn" title="Toggle theme" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>
-            {themeIcon}
-          </button>
+          {/* Theme toggle removed — the Hub's global theme control drives this page. */}
           {/* Visual only for now. */}
           <button className="tbtn" title="Filter">
             <svg viewBox="0 0 24 24">
