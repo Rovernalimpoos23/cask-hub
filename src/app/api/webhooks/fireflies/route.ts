@@ -243,13 +243,20 @@ export async function POST(req: NextRequest) {
 
     // 3. Claude extraction
     const claudeRes = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-opus-5',
       system: buildExtractionPrompt(),
       messages: [{ role: 'user', content: fullTranscript || transcript.title }],
-      max_tokens: 4000,
+      // Raised from 4000: Opus 5 runs adaptive thinking by default and max_tokens
+      // now covers thinking + response text combined. This call has to emit a
+      // summary, key decisions, and action items for transcripts that can run
+      // 1-2 hours, so it needs the most headroom of any call in this file.
+      max_tokens: 8000,
     })
 
-    const rawContent = claudeRes.content[0].type === 'text' ? claudeRes.content[0].text : ''
+    // Opus 5 returns a thinking block first, so content[0] is no longer the text
+    // block — find it by type instead of indexing.
+    const extractionTextBlock = claudeRes.content.find((b) => b.type === 'text')
+    const rawContent = extractionTextBlock?.type === 'text' ? extractionTextBlock.text : ''
     console.log('[fireflies] Claude raw response:', rawContent.slice(0, 500))
 
     let extracted: Record<string, unknown> = {}
@@ -427,13 +434,20 @@ RULES:
 - Return ONLY the JSON, no other text`
 
           const profileRes = await anthropic.messages.create({
-            model: 'claude-opus-4-8',
+            model: 'claude-opus-5',
             messages: [{ role: 'user', content: profilePrompt }],
-            max_tokens: 700,
+            // Raised from 700: Opus 5 runs adaptive thinking by default and
+            // max_tokens now covers thinking + response text combined. If this
+            // truncates, the JSON comes back incomplete, extractJSON throws, and
+            // the profile update is skipped.
+            max_tokens: 1500,
           })
 
-          const profileRaw = profileRes.content[0].type === 'text'
-            ? profileRes.content[0].text
+          // Opus 5 returns a thinking block first, so content[0] is no longer the
+          // text block — find it by type instead of indexing.
+          const profileTextBlock = profileRes.content.find((b) => b.type === 'text')
+          const profileRaw = profileTextBlock?.type === 'text'
+            ? profileTextBlock.text
               .replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/\n?```$/, '').trim()
             : ''
           console.log('[fireflies] profile Claude raw:', profileRaw.slice(0, 300))
@@ -652,12 +666,19 @@ Clean HTML only:
 Return ONLY the email body HTML. No subject line in the body.`
 
             const emailRes = await anthropic.messages.create({
-              model: 'claude-opus-4-8',
+              model: 'claude-opus-5',
               messages: [{ role: 'user', content: emailPrompt }],
-              max_tokens: 1200,
+              // Raised from 1200: Opus 5 runs adaptive thinking by default and
+              // max_tokens now covers thinking + response text combined. Note a
+              // truncated body still passes the `if (emailBody)` check below, so a
+              // half-written draft would be inserted rather than failing loudly.
+              max_tokens: 2500,
             })
 
-            let emailBody = emailRes.content[0].type === 'text' ? emailRes.content[0].text.trim() : ''
+            // Opus 5 returns a thinking block first, so content[0] is no longer the
+            // text block — find it by type instead of indexing.
+            const emailTextBlock = emailRes.content.find((b) => b.type === 'text')
+            let emailBody = emailTextBlock?.type === 'text' ? emailTextBlock.text.trim() : ''
             emailBody = emailBody
               .replace(/^```html\n?/, '')
               .replace(/^```\n?/, '')

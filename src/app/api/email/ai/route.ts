@@ -18,8 +18,10 @@ export const dynamic = 'force-dynamic'
 // never logged.
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-opus-4-8'
-const MAX_TOKENS = 2000
+const MODEL = 'claude-opus-5'
+// Raised from 2000: Opus 5 runs adaptive thinking by default, so this budget
+// covers thinking tokens as well as the response text.
+const MAX_TOKENS = 4000
 
 type Action = 'summarize' | 'draft_reply' | 'extract' | 'revise'
 

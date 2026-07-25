@@ -447,8 +447,10 @@ ${
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-opus-4-8',
-          max_tokens: 6000,
+          model: 'claude-opus-5',
+          // Raised from 6000: on Opus 5 this budget covers thinking tokens as
+          // well as the response text.
+          max_tokens: 8000,
           system: systemPrompt,
           messages: [...conversationHistory, { role: 'user', content: question }],
         }),
@@ -461,8 +463,12 @@ ${
       }
 
       const data = await response.json()
+      // Opus 5 runs adaptive thinking by default, so content[0] is a thinking
+      // block (empty text — `display` defaults to "omitted"). Find the text
+      // block instead of indexing, matching what email/ai/route.ts already does.
       answer =
-        data?.content?.[0]?.text ?? 'Unable to generate a response. Please try again.'
+        data?.content?.find((b: { type?: string }) => b.type === 'text')?.text ??
+        'Unable to generate a response. Please try again.'
     } catch (err) {
       console.error('[big-vision-chat] Anthropic call failed:', err instanceof Error ? err.message : 'unknown')
       return NextResponse.json({ error: 'ai_error' }, { status: 502 })
