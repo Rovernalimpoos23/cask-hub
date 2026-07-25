@@ -6,6 +6,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { TopBar, PillRed } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
@@ -50,7 +51,10 @@ const STATS: { label: string; value: string }[] = [
   { label: 'Budget Variance', value: '$0' },
 ]
 
-const REPORTS: { icon: string; name: string; description: string }[] = [
+// `href` + `liveForRole` are optional: a report that has both is a real, built
+// page that goes LIVE for that one role. Every other role sees the same
+// "Coming Soon" badge as the rest of the grid and the card is inert.
+const REPORTS: { icon: string; name: string; description: string; href?: string; liveForRole?: string }[] = [
   { icon: '🏗️', name: 'WIP Report', description: 'Track all work in progress across active projects' },
   { icon: '📈', name: 'Project Profitability', description: 'Monitor margin and profitability per project' },
   { icon: '📋', name: 'PM Scorecards', description: 'Evaluate project manager performance metrics' },
@@ -61,6 +65,13 @@ const REPORTS: { icon: string; name: string; description: string }[] = [
   { icon: '✅', name: 'Closeout Status', description: 'Track projects approaching or in closeout phase' },
   { icon: '📦', name: 'Open Commitments', description: 'View all open purchase orders and commitments' },
   { icon: '🦺', name: 'Safety Performance', description: 'Monitor safety incidents and compliance metrics' },
+  {
+    icon: '🧭',
+    name: 'Precon Pipeline',
+    description: 'Every active project across sales, design, permitting, and bid',
+    href: '/command-center/operations/precon',
+    liveForRole: 'ai_specialist',
+  },
 ]
 
 const DATA_SOURCE_OPTIONS = ['BuilderTrend']
@@ -189,13 +200,44 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
   )
 }
 
-function ReportCard({ icon, name, description }: { icon: string; name: string; description: string }) {
+// `live` flips the badge from "Coming Soon" to a green "Live" and makes the card
+// navigate to `href`. Defaults to false, so a card is inert and looks exactly
+// like every other Coming Soon card unless explicitly unlocked.
+function ReportCard({
+  icon,
+  name,
+  description,
+  live = false,
+  href,
+}: {
+  icon: string
+  name: string
+  description: string
+  live?: boolean
+  href?: string
+}) {
   const [hovered, setHovered] = useState(false)
+  const router = useRouter()
+  const clickable = live && !!href
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={clickable ? () => router.push(href!) : undefined}
+      role={clickable ? 'link' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                router.push(href!)
+              }
+            }
+          : undefined
+      }
       style={{
+        cursor: clickable ? 'pointer' : 'default',
         position: 'relative',
         background: 'var(--surface)',
         backgroundImage: GRID_BG,
@@ -257,11 +299,28 @@ function ReportCard({ icon, name, description }: { icon: string; name: string; d
             padding: '5px 11px',
             borderRadius: 20,
             color: 'rgba(255,255,255,0.92)',
-            background: '#1a1a2e',
+            background: live ? '#10b981' : '#1a1a2e',
             border: '1px solid rgba(255,255,255,0.1)',
           }}
         >
-          <LockIcon size={10} color="rgba(255,255,255,0.92)" /> Coming Soon
+          {live ? (
+            <>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.92)',
+                  boxShadow: '0 0 6px rgba(255,255,255,0.7)',
+                }}
+              />{' '}
+              Live
+            </>
+          ) : (
+            <>
+              <LockIcon size={10} color="rgba(255,255,255,0.92)" /> Coming Soon
+            </>
+          )}
         </span>
       </div>
     </div>
@@ -659,6 +718,25 @@ function FloatingOperationsAI() {
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function OperationsDepartmentPage() {
+  // Current user's role, used ONLY to decide which report cards are unlocked.
+  // Starts empty so every card renders as "Coming Soon" until the role resolves
+  // (fails closed — no card ever flashes as Live for the wrong role).
+  const [role, setRole] = useState('')
+
+  useEffect(() => {
+    async function loadRole() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: publicUser } = await supabase
+        .from('users')
+        .select('role')
+        .eq('email', user?.email ?? '')
+        .maybeSingle()
+      setRole(publicUser?.role ?? '')
+    }
+    loadRole()
+  }, [])
+
   return (
     <>
       <TopBar title="Operations" subtitle="Operations Manager · Weekly">
@@ -748,9 +826,19 @@ export default function OperationsDepartmentPage() {
         <div style={{ marginBottom: 32 }}>
           <SectionHeader title="Reports" subtitle="10 reports · unlock by connecting BuilderTrend" />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
-            {REPORTS.map((r) => (
-              <ReportCard key={r.name} icon={r.icon} name={r.name} description={r.description} />
-            ))}
+            {REPORTS.map((r) => {
+              const live = !!r.liveForRole && role === r.liveForRole
+              return (
+                <ReportCard
+                  key={r.name}
+                  icon={r.icon}
+                  name={r.name}
+                  description={r.description}
+                  live={live}
+                  href={live ? r.href : undefined}
+                />
+              )
+            })}
           </div>
         </div>
 
