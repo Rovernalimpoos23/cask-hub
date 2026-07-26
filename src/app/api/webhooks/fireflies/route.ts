@@ -82,6 +82,17 @@ ACTION ITEMS EXTRACTION RULES:
 - Never leave action_items empty if commitments
   were made in the transcript
 
+KEY DECISIONS DEFINITION:
+key_decisions = genuinely strategic or directional choices that were finalized during the meeting — for example: a target or deadline changed, a structure or process was approved, someone was assigned ownership of a new area, or a direction was explicitly decided between options.
+Do NOT include routine tasks, logistics, or scheduling items — those belong in action_items instead.
+Include EVERY decision that genuinely meets this definition, however many that is for this specific meeting — a short simple meeting may have 1-2, a long complex meeting may have 8+. Do not artificially limit or pad the count. Do not include anything that doesn't genuinely qualify just to reach a target number.
+
+SUMMARY GUIDELINE:
+Write tight, executive-readable bullets covering what genuinely matters most from this meeting. Each bullet must be a complete, standalone thought. Use as many bullets as the meeting's content actually warrants — a short simple meeting may need only 2, a long complex meeting may need 6+. Do not pad with minor details just to reach a target count, and do not compress genuinely distinct points into one bullet just to keep the count low.
+
+ACCURACY REQUIREMENT:
+Every summary bullet, key decision, and action item must be directly grounded in something actually said in this transcript — do not infer, assume, or invent details that weren't stated or clearly implied by context. If a deadline, owner, or detail wasn't mentioned, use null rather than guessing. If you're uncertain whether something qualifies as a decision or action item, err on the side of leaving it out rather than including a shaky inference.
+
 Return this exact structure:
 {
   "title": "string (meeting title)",
@@ -91,9 +102,9 @@ Return this exact structure:
   "attendees": ["first names only"],
   "meeting_type": "leadership | planning | coaching | education",
   "module": "ActionCOACH or President Workflow — Daily Meetings or President Workflow — Coaching Sessions or President Workflow — Department Alignment or Customer Journey — Active Clients",
-  "summary": ["bullet 1", "bullet 2", "bullet 3"],
-  "action_items": [{"task": "string", "owner": "string", "due_date": "YYYY-MM-DD or null", "done": false}],
-  "key_decisions": ["string array"]
+  "summary": ["as many bullets as the content warrants"],
+  "action_items": [{"task": "string", "owner": "string or null", "due_date": "YYYY-MM-DD or null", "done": false}],
+  "key_decisions": ["as many entries as genuinely qualify"]
 }
 
 CASK Construction context:
@@ -246,11 +257,12 @@ export async function POST(req: NextRequest) {
       model: 'claude-opus-5',
       system: buildExtractionPrompt(),
       messages: [{ role: 'user', content: fullTranscript || transcript.title }],
-      // Raised from 4000: Opus 5 runs adaptive thinking by default and max_tokens
-      // now covers thinking + response text combined. This call has to emit a
-      // summary, key decisions, and action items for transcripts that can run
-      // 1-2 hours, so it needs the most headroom of any call in this file.
-      max_tokens: 8000,
+      // Opus 5 runs adaptive thinking by default and max_tokens now covers
+      // thinking + response text combined. This call emits a summary, key
+      // decisions, and action items for transcripts that can run 1-2 hours, so
+      // it carries the same 16000 budget as the manual /api/extract-meeting
+      // route, which runs the identical prompt over the same transcripts.
+      max_tokens: 16000,
     })
 
     // Opus 5 returns a thinking block first, so content[0] is no longer the text
