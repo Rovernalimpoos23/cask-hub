@@ -92,18 +92,19 @@ Write tight, executive-readable bullets covering what genuinely matters most fro
 
 ACCURACY REQUIREMENT:
 Every summary bullet, key decision, and action item must be directly grounded in something actually said in this transcript — do not infer, assume, or invent details that weren't stated or clearly implied by context. If a deadline, owner, or detail wasn't mentioned, use null rather than guessing. If you're uncertain whether something qualifies as a decision or action item, err on the side of leaving it out rather than including a shaky inference.
+Never output literal placeholder or format-hint text as an actual value — for example, never write "mm/dd/yyyy", "YYYY-MM-DD", "Owner", "string", or any other schema hint as if it were real data. These schema hints in the structure below are format examples only, not values to copy. If a real value isn't known, use the JSON null value (not the word "null" as text, and not any placeholder string).
 
 Return this exact structure:
 {
-  "title": "string (meeting title)",
-  "date": "YYYY-MM-DD",
-  "time_start": "string or null (e.g. 10:00 AM)",
-  "time_end": "string or null",
+  "title": "the actual meeting title based on context — never the literal word string",
+  "date": "the actual meeting date in YYYY-MM-DD format based on context or today's date — never the literal text YYYY-MM-DD",
+  "time_start": "the actual start time if mentioned (e.g. 10:00 AM), otherwise JSON null",
+  "time_end": "the actual end time if mentioned, otherwise JSON null",
   "attendees": ["first names only"],
   "meeting_type": "leadership | planning | coaching | education",
   "module": "ActionCOACH or President Workflow — Daily Meetings or President Workflow — Coaching Sessions or President Workflow — Department Alignment or Customer Journey — Active Clients",
   "summary": ["as many bullets as the content warrants"],
-  "action_items": [{"task": "string", "owner": "string or null", "due_date": "YYYY-MM-DD or null", "done": false}],
+  "action_items": [{"task": "a clear description of the actual task discussed", "owner": "the actual person's first name if mentioned, otherwise JSON null — never the literal word owner or string", "due_date": "an actual date in YYYY-MM-DD format if mentioned, otherwise JSON null — never the literal text YYYY-MM-DD", "done": false}],
   "key_decisions": ["as many entries as genuinely qualify"]
 }
 
