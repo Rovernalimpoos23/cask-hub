@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     }
 
     const completion = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-opus-5',
       system: `You are an AI assistant for CASK Construction. Extract meeting information from this transcript and return ONLY a valid JSON object with no other text, no markdown, no backticks.
 
 Today's date is ${new Date().toISOString().split('T')[0]}. Always use the current year unless the transcript explicitly mentions a different year.
@@ -57,10 +57,11 @@ CASK Construction context:
           content: `Extract meeting information from this transcript:\n\n${transcript}`,
         },
       ],
-      max_tokens: 4000,
+      max_tokens: 16000,
     })
 
-    const text = completion.content[0].type === 'text' ? completion.content[0].text : ''
+    const textBlock = completion.content.find((b) => b.type === 'text')
+    const text = textBlock?.type === 'text' ? textBlock.text : ''
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {

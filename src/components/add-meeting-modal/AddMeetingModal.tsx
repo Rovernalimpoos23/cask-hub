@@ -624,7 +624,7 @@ export default function AddMeetingModal() {
                         </span>
                       </>
                     ) : (
-                      '✦ Auto-fill with Groq AI'
+                      '✦ Auto-fill with AI'
                     )}
                   </button>
                   <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>
