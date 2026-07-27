@@ -20,7 +20,9 @@
 //
 // The RPC must exist in the database. Run this in the Supabase SQL editor:
 //
-// -- Run this in Supabase SQL editor:
+// -- Run this in Supabase SQL editor. The DROP is required — Postgres refuses to change
+// -- an existing function's return type via CREATE OR REPLACE alone:
+// -- DROP FUNCTION IF EXISTS public.match_hub_memory(vector, text, int);
 // -- CREATE OR REPLACE FUNCTION
 // --   match_hub_memory(
 // --     query_embedding vector(1024),
@@ -36,6 +38,9 @@
 // --   layer smallint,
 // --   categories hub_category[],
 // --   leader text,
+// --   source_ref text,
+// --   chunk_index int,
+// --   chunk_total int,
 // --   similarity float
 // -- )
 // -- LANGUAGE plpgsql
@@ -47,6 +52,9 @@
 // --     h.summary, h.source_type,
 // --     h.layer, h.categories,
 // --     h.leader,
+// --     h.source_ref::text,
+// --     h.chunk_index::int,
+// --     h.chunk_total::int,
 // --     1 - (h.embedding <=>
 // --       query_embedding) AS similarity
 // --   FROM hub_memory h
@@ -113,8 +121,9 @@ const AGENT_INSTRUCTIONS: Record<string, string> = {
 // Cap the injected memory context so a large file set can't blow past the model's
 // context window (or run up cost).
 const MAX_CONTEXT_CHARS = 180000
-// (FILE_LIMIT removed — retrieval now caps at match_count: 25 in both the RAG RPC
-// and the layer/recency fallback, so the old 50-row limit is no longer used.)
+// (FILE_LIMIT removed — retrieval caps at match_count: 40 in the RAG RPC and 25 in the
+// layer/recency fallback, so the old 50-row limit is no longer used. Both count chunk
+// ROWS; MAX_CONTEXT_CHARS above is the real ceiling once chunks expand to documents.)
 
 // A single conversation turn coming from the client.
 interface HistoryMessage {
@@ -134,8 +143,19 @@ interface MemoryFile {
   layer: number | null
   categories: string[] | null
   leader: string | null
+  // Chunking: long documents are stored as several hub_memory rows sharing one
+  // source_ref. chunk_total is 1 (or null, for rows written before chunking) when the
+  // document is a single row.
+  source_ref: string | null
+  chunk_index: number | null
+  chunk_total: number | null
   similarity?: number
 }
+
+// Columns every hub_memory retrieval path selects. Kept in one place so the paths
+// can't drift — the chunk columns must be present on all of them for grouping to work.
+const MEMORY_SELECT =
+  'id, title, content, summary, source_type, layer, categories, leader, source_ref, chunk_index, chunk_total'
 
 // Generate a Voyage AI embedding for a QUESTION. Note input_type: 'query' (documents
 // are embedded with input_type: 'document' on upload) — using the matching input_type
@@ -254,6 +274,38 @@ export async function POST(req: Request) {
     // always has something to work with.
     let files: MemoryFile[] = []
 
+    // Expand any chunked document in `rows` to its COMPLETE set of chunks. Retrieval
+    // matches individual chunk rows, but the agent needs whole documents — so for every
+    // row with chunk_total > 1 we pull all siblings sharing its source_ref and merge in
+    // the ones that are missing (deduped by id, input order preserved).
+    // Best-effort: a failed query returns the input unchanged rather than throwing.
+    const expandChunkGroups = async (rows: MemoryFile[]): Promise<MemoryFile[]> => {
+      const chunkedSourceRefs = Array.from(
+        new Set(
+          rows
+            .filter((f) => f.chunk_total && f.chunk_total > 1 && f.source_ref)
+            .map((f) => f.source_ref as string),
+        ),
+      )
+      if (chunkedSourceRefs.length === 0) return rows
+
+      const { data: allChunks, error: expandErr } = await supabaseService
+        .from('hub_memory')
+        .select(MEMORY_SELECT)
+        .eq('is_active', true)
+        .in('source_ref', chunkedSourceRefs)
+        .not('content', 'is', null)
+
+      if (expandErr) {
+        // Non-fatal — keep the un-expanded rows rather than failing the whole request.
+        console.error('[big-vision-chat] chunk expansion failed:', expandErr.message, expandErr.code)
+        return rows
+      }
+
+      const siblings = (allChunks as MemoryFile[] | null) ?? []
+      return [...rows, ...siblings.filter((c) => !rows.find((f) => f.id === c.id))]
+    }
+
     const queryEmbedding = await generateQueryEmbedding(question)
 
     if (queryEmbedding !== null) {
@@ -263,7 +315,10 @@ export async function POST(req: Request) {
         {
           query_embedding: queryEmbedding,
           match_category: category,
-          match_count: 25,
+          // Raised from 25: rows are now chunks rather than whole documents, so a long
+          // transcript can occupy several slots. The real ceiling on what reaches the
+          // model is MAX_CONTEXT_CHARS after full-document expansion below.
+          match_count: 40,
         },
       )
 
@@ -281,7 +336,7 @@ export async function POST(req: Request) {
     if (files.length < 10) {
       const { data: fallbackFiles, error: queryErr } = await supabaseService
         .from('hub_memory')
-        .select('id, title, content, summary, source_type, layer, categories, leader')
+        .select(MEMORY_SELECT)
         .eq('is_active', true)
         .overlaps('categories', [category])
         .not('content', 'is', null)
@@ -299,13 +354,18 @@ export async function POST(req: Request) {
       files = [...files, ...fallback.filter((f) => !files.find((rf) => rf.id === f.id))]
     }
 
+    // ── 5-i. Expand matched chunks into their full documents ─────────
+    // A vector match hits one chunk; the surrounding chunks of that document carry the
+    // rest of the meaning, so pull them all in before context assembly.
+    files = await expandChunkGroups(files)
+
     // ── 5a. Always include Foundation files (Layer 0 + 1) ────────────
     // The $1B strategy and 2-year direction are shared context for every agent,
     // regardless of which agent is being asked. Fetched separately and merged ahead
     // of the agent's own files (de-duped by id).
     const { data: foundationFiles, error: foundationErr } = await supabaseService
       .from('hub_memory')
-      .select('id, title, content, summary, source_type, layer, categories, leader')
+      .select(MEMORY_SELECT)
       .eq('is_active', true)
       .lte('layer', 1)
       .not('content', 'is', null)
@@ -317,7 +377,10 @@ export async function POST(req: Request) {
       console.error('[big-vision-chat] foundation query failed:', foundationErr.message, foundationErr.code)
     }
 
-    const foundation = (foundationFiles as MemoryFile[] | null) ?? []
+    // Expanded too: the .limit(5) above counts chunk ROWS, so a chunked strategy doc
+    // would otherwise arrive truncated — and these layer 0/1 files are the shared
+    // context every agent depends on.
+    const foundation = await expandChunkGroups((foundationFiles as MemoryFile[] | null) ?? [])
 
     // ── 5a-i. Exact @mention by file ID (UI-selected files) ──────────
     // When the client sends mentionedFileIds (files picked from the mention
@@ -328,12 +391,14 @@ export async function POST(req: Request) {
     if (mentionedFileIds.length > 0) {
       const { data: mentionedById } = await supabaseService
         .from('hub_memory')
-        .select('id, title, content, summary, source_type, layer, categories, leader')
+        .select(MEMORY_SELECT)
         .eq('is_active', true)
         .in('id', mentionedFileIds)
         .not('content', 'is', null)
 
-      const mentionedFiles = (mentionedById as MemoryFile[] | null) ?? []
+      // Expanded: the UI sends the id of ONE chunk row, but naming a document means
+      // the whole document, not just the part that happened to be clicked.
+      const mentionedFiles = await expandChunkGroups((mentionedById as MemoryFile[] | null) ?? [])
       if (mentionedFiles.length > 0) {
         // Force mentioned files first, then the regular files (de-duped by id).
         files = [
@@ -359,7 +424,7 @@ export async function POST(req: Request) {
       // outside the retrieved set can still be found.
       const { data: allAgentFiles } = await supabaseService
         .from('hub_memory')
-        .select('id, title, content, summary, source_type, layer, categories, leader')
+        .select(MEMORY_SELECT)
         .eq('is_active', true)
         .overlaps('categories', [category])
         .not('content', 'is', null)
@@ -383,14 +448,22 @@ export async function POST(req: Request) {
 
     // Titles of the @mentioned files that made it into context — returned to the
     // frontend so it can indicate which files were pulled in by @mention.
+    // One entry per DOCUMENT, not per chunk row: chunk titles carry a "(part N of M)"
+    // suffix, so strip it and de-dupe by source_ref before reporting.
     const mentionedFileTitles: string[] =
       rawMentions.length > 0
-        ? files
-            .filter((f) =>
-              rawMentions.some((m) => (f.title ?? '').toLowerCase().includes(m)),
-            )
-            .map((f) => f.title ?? '')
-            .filter((t) => t.length > 0)
+        ? Array.from(
+            new Map<string, string>(
+              files
+                .filter((f) =>
+                  rawMentions.some((m) => (f.title ?? '').toLowerCase().includes(m)),
+                )
+                .map((f) => [
+                  f.source_ref ?? f.id,
+                  (f.title ?? '').replace(/\s*\(part \d+ of \d+\)$/i, ''),
+                ]),
+            ).values(),
+          ).filter((t) => t.length > 0)
         : []
 
     const allFiles: MemoryFile[] = [
@@ -403,16 +476,60 @@ export async function POST(req: Request) {
     const filesWithContent = allFiles.filter((f) => f.content)
     const fileCount = filesWithContent.length
 
+    // Group chunk rows back into documents, keyed by source_ref (falling back to the row
+    // id for unchunked rows, which are each their own single-chunk document). Document
+    // order follows first appearance, preserving the retrieval priority established above
+    // (@mentions → foundation → RAG → fallback); chunks within a document are ordered by
+    // chunk_index so the text reads in sequence.
+    const docOrder: string[] = []
+    const docGroups = new Map<string, MemoryFile[]>()
+    for (const f of filesWithContent) {
+      const docKey = f.source_ref ?? f.id
+      const group = docGroups.get(docKey)
+      if (group) {
+        group.push(f)
+      } else {
+        docGroups.set(docKey, [f])
+        docOrder.push(docKey)
+      }
+    }
+    for (const group of Array.from(docGroups.values())) {
+      group.sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0))
+    }
+
+    // A document is included WHOLE or not at all: if its chunks together don't fit the
+    // remaining budget the document is skipped entirely. The previous per-row skip could
+    // admit parts 1, 2 and 5 of a transcript and drop 3-4, leaving the model reading
+    // across a gap with nothing to signal the omission.
     let memoryContext = ''
     let totalChars = 0
-    let actualFilesUsed = 0
-    for (const f of filesWithContent) {
-      const entry = `--- ${f.title} (${f.source_type}, layer ${f.layer}) ---\n${f.content}\n\n`
-      if (totalChars + entry.length > MAX_CONTEXT_CHARS) continue
-      memoryContext += entry
-      totalChars += entry.length
-      actualFilesUsed++
+    let chunkRowsUsed = 0
+    const skippedSourceRefs = new Set<string>()
+
+    for (const docKey of docOrder) {
+      const group = docGroups.get(docKey) ?? []
+      let groupText = ''
+      for (const f of group) {
+        groupText += `--- ${f.title} (${f.source_type}, layer ${f.layer}) ---\n${f.content}\n\n`
+      }
+
+      if (totalChars + groupText.length > MAX_CONTEXT_CHARS) {
+        skippedSourceRefs.add(docKey)
+        continue
+      }
+
+      memoryContext += groupText
+      totalChars += groupText.length
+      chunkRowsUsed += group.length
     }
+
+    // Counts reported to the model and the UI are DOCUMENTS, not chunk rows.
+    const distinctDocsAvailable = docOrder.length
+    const distinctDocsUsed = distinctDocsAvailable - skippedSourceRefs.size
+
+    console.log(
+      `[big-vision-chat] context: ${distinctDocsUsed}/${distinctDocsAvailable} documents | ${chunkRowsUsed}/${fileCount} chunk rows | ${totalChars} chars`,
+    )
 
     // ── 6. Assemble the system prompt ────────────────────────────────
     // When the user @mentioned files, tell the model to prioritize them by name.
@@ -423,7 +540,7 @@ export async function POST(req: Request) {
 
     const systemPrompt = `${agentInstruction}
 
-FILES IN MEMORY (${actualFilesUsed} of ${fileCount} total files loaded — some files were too large to include in this context):
+FILES IN MEMORY (${distinctDocsUsed} of ${distinctDocsAvailable} total files loaded — some files were too large to include in this context):
 
 ${
   memoryContext ||
@@ -478,8 +595,10 @@ ${
     return NextResponse.json(
       {
         answer,
-        filesUsed: actualFilesUsed,
-        totalFilesAvailable: fileCount,
+        // Document counts, not chunk-row counts — this drives the "Drawn from N files"
+        // citation in the UI, which must not multiply when a document is chunked.
+        filesUsed: distinctDocsUsed,
+        totalFilesAvailable: distinctDocsAvailable,
         agent,
         mentionedFiles: mentionedFileTitles,
       },

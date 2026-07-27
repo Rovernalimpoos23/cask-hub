@@ -53,6 +53,26 @@ async function generateEmbedding(text: string): Promise<number[] | null> {
   }
 }
 
+// Long transcripts are stored as multiple hub_memory rows instead of being truncated.
+// Each chunk carries its own embedding so RAG can match the specific passage, and all
+// chunks of one meeting share a source_ref so they can be regrouped.
+// NOTE: kept identical (not imported) in the fireflies webhook and upload routes — the
+// three hub_memory writers have no shared module today.
+const CHUNK_SIZE = 15000
+
+function chunkText(text: string): string[] {
+  if (!text || text.length <= CHUNK_SIZE) {
+    return [text]
+  }
+  const chunks: string[] = []
+  let i = 0
+  while (i < text.length) {
+    chunks.push(text.slice(i, i + CHUNK_SIZE))
+    i += CHUNK_SIZE
+  }
+  return chunks
+}
+
 // A meeting row as read for migration (subset of the meetings table).
 interface MeetingRow {
   id: string
@@ -210,32 +230,58 @@ export async function POST() {
           continue
         }
 
-        // ── Insert ───────────────────────────────────────────────────
-        const truncatedTranscript = (meeting.full_transcript ?? '').slice(0, 20000)
+        // ── Insert (full transcript, no truncation — one row per chunk) ──
+        const baseTitle = meeting.title || 'Untitled Meeting'
+        const chunks = chunkText(meeting.full_transcript ?? '')
+        const chunkTotal = chunks.length
+        let chunksSaved = 0
 
-        // Best-effort embedding — null on failure/missing key never blocks the insert.
-        const embedding = truncatedTranscript
-          ? await generateEmbedding(truncatedTranscript)
-          : null
+        for (let idx = 0; idx < chunks.length; idx++) {
+          const chunkContent = chunks[idx]
 
-        const { error: insertErr } = await supabaseService.from('hub_memory').insert({
-          title: meeting.title || 'Untitled Meeting',
-          content: truncatedTranscript,
-          categories: allTags,
-          layer: 4,
-          source_type: 'fireflies',
-          source_ref: meeting.id.toString(),
-          leader: attendeeTags.length === 1 ? attendeeTags[0] : null,
-          created_by: 'migration',
-          is_active: true,
-          embedding: embedding,
-        })
+          // Per-chunk embedding — each row gets a vector for its own text. Best-effort:
+          // null on failure/missing key never blocks the insert.
+          const embedding = chunkContent ? await generateEmbedding(chunkContent) : null
 
-        if (insertErr) {
-          console.error('[migrate] insert error for meeting', meeting.id, ':', insertErr.message)
-          errors++
-        } else {
+          const { error: insertErr } = await supabaseService.from('hub_memory').insert({
+            title: chunkTotal > 1 ? `${baseTitle} (part ${idx + 1} of ${chunkTotal})` : baseTitle,
+            content: chunkContent,
+            chunk_index: idx,
+            chunk_total: chunkTotal,
+            categories: allTags,
+            layer: 4,
+            source_type: 'fireflies',
+            // SAME value for every chunk of this meeting.
+            source_ref: meeting.id.toString(),
+            leader: attendeeTags.length === 1 ? attendeeTags[0] : null,
+            created_by: 'migration',
+            is_active: true,
+            embedding: embedding,
+          })
+
+          // One failed chunk must not abort the remaining chunks of this meeting.
+          if (insertErr) {
+            console.error(
+              `[migrate] insert error for meeting ${meeting.id} (chunk ${idx + 1}/${chunkTotal}):`,
+              insertErr.message,
+            )
+          } else {
+            chunksSaved++
+          }
+        }
+
+        // Counters stay meeting-granular so the response summary keeps its meaning
+        // (imported + skipped + noTags + errors still totals the meetings processed).
+        // A meeting counts as imported when at least one of its chunks landed.
+        if (chunksSaved > 0) {
           imported++
+          if (chunksSaved < chunkTotal) {
+            console.warn(
+              `[migrate] partial import for meeting ${meeting.id}: ${chunksSaved}/${chunkTotal} chunks saved`,
+            )
+          }
+        } else {
+          errors++
         }
       } catch (err) {
         // One bad meeting must not stop the rest.

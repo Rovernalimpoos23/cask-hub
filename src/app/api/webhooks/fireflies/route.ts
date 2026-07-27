@@ -36,6 +36,26 @@ async function generateEmbedding(text: string): Promise<number[] | null> {
   }
 }
 
+// Long transcripts are stored as multiple hub_memory rows instead of being truncated.
+// Each chunk carries its own embedding so RAG can match the specific passage, and all
+// chunks of one meeting share a source_ref so they can be regrouped.
+// NOTE: kept identical (not imported) in the migrate and upload routes — the three
+// hub_memory writers have no shared module today.
+const CHUNK_SIZE = 15000
+
+function chunkText(text: string): string[] {
+  if (!text || text.length <= CHUNK_SIZE) {
+    return [text]
+  }
+  const chunks: string[] = []
+  let i = 0
+  while (i < text.length) {
+    chunks.push(text.slice(i, i + CHUNK_SIZE))
+    i += CHUNK_SIZE
+  }
+  return chunks
+}
+
 const TRANSCRIPT_QUERY = `
   query GetTranscript($id: String!) {
     transcript(id: $id) {
@@ -771,7 +791,15 @@ Return ONLY the email body HTML. No subject line in the body.`
       owner:           'calin',
     }
 
-    const { error: dbError } = await supabase.from('meetings').insert(record)
+    // Capture the new row's id — it becomes the hub_memory source_ref below so both
+    // writers key on meetings.id. (The migrate route already uses meetings.id; this
+    // webhook previously used the Fireflies meeting_id, so the same meeting could land
+    // in hub_memory twice under two different source_ref values.)
+    const { data: insertedMeeting, error: dbError } = await supabase
+      .from('meetings')
+      .insert(record)
+      .select('id')
+      .single()
 
     if (dbError) {
       console.error('[fireflies] Supabase insert error:', dbError.message, dbError.details)
@@ -784,7 +812,8 @@ Return ONLY the email body HTML. No subject line in the body.`
     // title/transcript. Reuses the SAME `supabase` service-role client above. Fully
     // isolated in its own try/catch so any failure here can't affect the meetings
     // save above or the webhook response. Variables reused from the existing code:
-    //   fullTranscript (plain text), transcript.meeting_attendees, sessionTitle, meeting_id.
+    //   fullTranscript (plain text), transcript.meeting_attendees, sessionTitle,
+    //   insertedMeeting (for source_ref).
     try {
       const ATTENDEE_TAG_MAP: Record<string, string> = {
         'j.azcona@caskconstruction.com': 'jeff',
@@ -869,31 +898,61 @@ Return ONLY the email body HTML. No subject line in the body.`
       const allTags = Array.from(new Set([...attendeeTags, ...keywordTags]))
 
       if (allTags.length > 0) {
-        const truncatedTranscript = (fullTranscript ?? '').slice(0, 20000)
-
-        // Best-effort embedding — null on failure/missing key never blocks the insert.
-        const embedding = truncatedTranscript
-          ? await generateEmbedding(truncatedTranscript)
-          : null
-
-        const { error: hubErr } = await supabase.from('hub_memory').insert({
-          title: sessionTitle || 'Untitled Meeting',
-          content: truncatedTranscript,
-          categories: allTags,
-          layer: 4,
-          source_type: 'fireflies',
-          source_ref: meeting_id || null,
-          leader: attendeeTags.length === 1 ? attendeeTags[0] : null,
-          created_by: 'fireflies-webhook',
-          is_active: true,
-          embedding: embedding,
-        })
-
-        if (hubErr) {
-          console.error('[fireflies] hub_memory insert error:', hubErr.message)
-        } else {
-          console.log('[fireflies] hub_memory insert:', sessionTitle, 'tags:', allTags)
+        // source_ref links these rows back to their meetings row, and is the SAME for
+        // every chunk of this meeting so they can be regrouped. If the meetings insert
+        // above failed there is no id to link to — still save the content (unlinked
+        // memory rows beat losing the transcript) and warn rather than skipping.
+        const hubSourceRef: string | null = insertedMeeting?.id ?? null
+        if (!hubSourceRef) {
+          console.warn(
+            '[fireflies] meetings insert returned no id — saving hub_memory rows with source_ref: null for:',
+            sessionTitle,
+          )
         }
+
+        // Full transcript, no truncation — split into chunks, one row each.
+        const baseTitle = sessionTitle || 'Untitled Meeting'
+        const chunks = chunkText(fullTranscript ?? '')
+        const chunkTotal = chunks.length
+        let chunksSaved = 0
+
+        for (let idx = 0; idx < chunks.length; idx++) {
+          const chunkContent = chunks[idx]
+
+          // Per-chunk embedding — each row gets a vector for its own text. Best-effort:
+          // null on failure/missing key never blocks the insert.
+          const embedding = chunkContent ? await generateEmbedding(chunkContent) : null
+
+          const { error: hubErr } = await supabase.from('hub_memory').insert({
+            title: chunkTotal > 1 ? `${baseTitle} (part ${idx + 1} of ${chunkTotal})` : baseTitle,
+            content: chunkContent,
+            chunk_index: idx,
+            chunk_total: chunkTotal,
+            categories: allTags,
+            layer: 4,
+            source_type: 'fireflies',
+            source_ref: hubSourceRef,
+            leader: attendeeTags.length === 1 ? attendeeTags[0] : null,
+            created_by: 'fireflies-webhook',
+            is_active: true,
+            embedding: embedding,
+          })
+
+          // One failed chunk must not abort the remaining chunks of this meeting.
+          if (hubErr) {
+            console.error(
+              `[fireflies] hub_memory insert error (chunk ${idx + 1}/${chunkTotal}):`,
+              hubErr.message,
+            )
+          } else {
+            chunksSaved++
+          }
+        }
+
+        console.log(
+          `[fireflies] hub_memory insert: ${baseTitle} | chunks saved: ${chunksSaved}/${chunkTotal} | tags:`,
+          allTags,
+        )
       } else {
         console.log('[fireflies] no tags matched, skipping hub_memory insert:', sessionTitle)
       }
