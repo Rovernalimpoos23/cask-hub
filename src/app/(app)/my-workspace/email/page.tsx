@@ -36,6 +36,10 @@
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
+// Renders the markdown Claude emits for Summarize / Extract (bold, bullet lists).
+// Escapes by construction — no dangerouslySetInnerHTML — which matters here because
+// the source text derives from third-party email bodies.
+import ReactMarkdown from 'react-markdown'
 
 const ET = 'America/New_York'
 
@@ -2197,9 +2201,9 @@ export default function MyEmailPage() {
                     <SparklesIcon className="text-[var(--red)]" />
                     {aiCard.kind === 'summarize' ? 'Summary' : 'Action Items'}
                   </div>
-                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-[var(--text)]">
-                    {aiCard.text}
-                  </pre>
+                  <div className="text-sm leading-relaxed text-[var(--text)] [&>p]:mb-2 [&>ul]:mb-2 [&>ul]:pl-5 [&>ul]:list-disc [&>ol]:mb-2 [&>ol]:pl-5 [&>ol]:list-decimal [&_strong]:font-semibold [&_strong]:text-[var(--text)]">
+                    <ReactMarkdown>{aiCard.text}</ReactMarkdown>
+                  </div>
                 </div>
               )}
 

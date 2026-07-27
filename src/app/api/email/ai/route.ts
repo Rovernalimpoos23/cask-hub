@@ -57,16 +57,23 @@ type ContentBlock =
 const ATTACHMENT_NOTE =
   ' If attachments are provided, read them carefully and include their content in your response.'
 
+// Appended to the email-PRODUCING actions only (draft_reply / revise). Their output
+// goes into a textarea and is then sent as an email body, where markdown is never
+// interpreted — recipients would see literal ** and ##. summarize/extract keep their
+// markdown: those render through react-markdown in the reading pane.
+const PLAIN_TEXT_NOTE =
+  ' Return plain text only — do not use markdown formatting. No asterisks for bold/emphasis, no pound signs for headers. Bullet points using a plain dash (-) are fine if genuinely needed, but avoid them in a normal email reply unless the content is truly a list.'
+
 // System prompts per action (verbatim from the spec, plus the attachment note).
 const SYSTEM_PROMPTS: Record<Action, string> = {
   summarize:
     'You are a senior executive communications assistant for CASK Construction. Summarize this email in 3-4 sentences. Be concise and focus on what matters most for a busy executive.' + ATTACHMENT_NOTE,
   draft_reply:
-    'You are a senior executive communications assistant for CASK Construction. Draft a professional reply to this email. Be concise, match the tone of the original, do not make up facts. Do not include a subject line.' + ATTACHMENT_NOTE,
+    'You are a senior executive communications assistant for CASK Construction. Draft a professional reply to this email. Be concise, match the tone of the original, do not make up facts. Do not include a subject line.' + ATTACHMENT_NOTE + PLAIN_TEXT_NOTE,
   extract:
     'You are a senior executive communications assistant for CASK Construction. Read this email and extract all action items, deadlines, and follow-ups. Format as a clean bullet list. Be specific and include names and dates where mentioned.' + ATTACHMENT_NOTE,
   revise:
-    'You are a senior executive communications assistant for CASK Construction. Revise the following email draft based on the instruction given. Keep the same general meaning but apply the requested change. Return only the revised email text, no explanation.' + ATTACHMENT_NOTE,
+    'You are a senior executive communications assistant for CASK Construction. Revise the following email draft based on the instruction given. Keep the same general meaning but apply the requested change. Return only the revised email text, no explanation.' + ATTACHMENT_NOTE + PLAIN_TEXT_NOTE,
 }
 
 // Claude accepts only these image media types; normalize "image/jpg" → the
