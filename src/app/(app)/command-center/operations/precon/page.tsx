@@ -17,11 +17,13 @@
 // metrics, stage rail, toolbar, all four views, slide-out detail panel) is a
 // verbatim port.
 //
-// Access: role === 'ai_specialist' ONLY. Role is read from the `users` table with
-// the same pattern used by src/app/(app)/sessions/[id]/page.tsx.
+// Access: governed by src/middleware.ts, which redirects the restricted roles
+// (vp_sales / ops_manager / vp_ops / vp_finance / vp_hr / member) away from every
+// /command-center/* route. Anyone who can load this page is therefore already
+// permitted — president (Calin), ea (Kai), ai_specialist (Rovern) — so there is no
+// in-page role gate, matching the parent Operations page which has none either.
 
 import { useState, useEffect, useCallback } from 'react'
-import { createClient } from '@/lib/supabase'
 import { useTheme } from '@/lib/theme-context'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -625,11 +627,6 @@ const DASH = <span style={{ color: 'var(--text-4)' }}>—</span>
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function PreconPipelinePage() {
-  // Access control — role read from the `users` table (same pattern as
-  // src/app/(app)/sessions/[id]/page.tsx).
-  const [userRole, setUserRole] = useState('')
-  const [roleResolved, setRoleResolved] = useState(false)
-
   // Mockup state: curPM / curView / curScope, plus theme + open panel id.
   const [curPM, setCurPM] = useState<string>('all')
   const [curView, setCurView] = useState<'pipeline' | 'table' | 'pm' | 'sheet'>('pipeline')
@@ -646,21 +643,6 @@ export default function PreconPipelinePage() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [shownId, setShownId] = useState<string | null>(null)
 
-  useEffect(() => {
-    async function loadUser() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data: publicUser } = await supabase
-        .from('users')
-        .select('role')
-        .eq('email', user?.email ?? '')
-        .maybeSingle()
-      setUserRole(publicUser?.role ?? '')
-      setRoleResolved(true)
-    }
-    loadUser()
-  }, [])
-
   const close = useCallback(() => setOpenId(null), [])
   const open = useCallback((id: string) => {
     setShownId(id)
@@ -675,32 +657,6 @@ export default function PreconPipelinePage() {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [close])
-
-  // ── Gates ──────────────────────────────────────────────────────────
-  if (!roleResolved) {
-    return (
-      <div className="flex-1 overflow-y-auto p-7">
-        <div className="rounded-[10px] h-[120px] shimmer mb-3" style={{ border: '1px solid var(--border)' }} />
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-lg h-[140px] shimmer" style={{ border: '1px solid var(--border)' }} />
-          <div className="rounded-lg h-[140px] shimmer" style={{ border: '1px solid var(--border)' }} />
-        </div>
-      </div>
-    )
-  }
-
-  if (userRole !== 'ai_specialist') {
-    return (
-      <div className="flex-1 overflow-y-auto p-7">
-        <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
-          Not available
-        </div>
-        <p style={{ color: 'var(--text3)', fontSize: 14 }}>
-          You don&apos;t have access to the Preconstruction Pipeline.
-        </p>
-      </div>
-    )
-  }
 
   // ── Derived (ports of vis() and the render() display matrix) ───────
   const vis = P.filter((p) => curPM === 'all' || p.pm === curPM)

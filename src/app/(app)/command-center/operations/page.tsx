@@ -51,10 +51,10 @@ const STATS: { label: string; value: string }[] = [
   { label: 'Budget Variance', value: '$0' },
 ]
 
-// `href` + `liveForRole` are optional: a report that has both is a real, built
-// page that goes LIVE for that one role. Every other role sees the same
-// "Coming Soon" badge as the rest of the grid and the card is inert.
-const REPORTS: { icon: string; name: string; description: string; href?: string; liveForRole?: string }[] = [
+// `href` is optional: a report that has one is a real, built page and goes LIVE for
+// every user who can reach this page (middleware already keeps the restricted roles
+// out of /command-center/*). Reports without an href stay "Coming Soon" and inert.
+const REPORTS: { icon: string; name: string; description: string; href?: string }[] = [
   { icon: '🏗️', name: 'WIP Report', description: 'Track all work in progress across active projects' },
   { icon: '📈', name: 'Project Profitability', description: 'Monitor margin and profitability per project' },
   { icon: '📋', name: 'PM Scorecards', description: 'Evaluate project manager performance metrics' },
@@ -70,7 +70,6 @@ const REPORTS: { icon: string; name: string; description: string; href?: string;
     name: 'Precon Pipeline',
     description: 'Every active project across sales, design, permitting, and bid',
     href: '/command-center/operations/precon',
-    liveForRole: 'ai_specialist',
   },
 ]
 
@@ -718,25 +717,8 @@ function FloatingOperationsAI() {
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function OperationsDepartmentPage() {
-  // Current user's role, used ONLY to decide which report cards are unlocked.
-  // Starts empty so every card renders as "Coming Soon" until the role resolves
-  // (fails closed — no card ever flashes as Live for the wrong role).
-  const [role, setRole] = useState('')
-
-  useEffect(() => {
-    async function loadRole() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data: publicUser } = await supabase
-        .from('users')
-        .select('role')
-        .eq('email', user?.email ?? '')
-        .maybeSingle()
-      setRole(publicUser?.role ?? '')
-    }
-    loadRole()
-  }, [])
-
+  // No role lookup: which cards are LIVE now depends only on whether the report has
+  // a built page (see REPORTS above). Page-level access is enforced by middleware.
   return (
     <>
       <TopBar title="Operations" subtitle="Operations Manager · Weekly">
@@ -827,7 +809,7 @@ export default function OperationsDepartmentPage() {
           <SectionHeader title="Reports" subtitle="10 reports · unlock by connecting BuilderTrend" />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
             {REPORTS.map((r) => {
-              const live = !!r.liveForRole && role === r.liveForRole
+              const live = !!r.href
               return (
                 <ReportCard
                   key={r.name}
