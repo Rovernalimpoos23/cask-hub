@@ -1297,7 +1297,19 @@ export default function DashboardPage() {
         // never written back to the DB.
         const flattened = (data ?? []).flatMap(
           (m: { title: string; date: string; action_items: ActionItem[] | null }) =>
-            (m.action_items ?? []).map(a => ({ ...a, meeting_title: m.title, meeting_date: m.date }))
+            (m.action_items ?? []).map(a => ({
+              ...a,
+              // Normalize `owner` at the fetch boundary. The extraction prompt (see
+              // /api/extract-meeting + the Fireflies webhook) tells Claude to emit
+              // `owner: null` when a task has no named owner, and the meetings
+              // .action_items JSONB column stores that verbatim — but the render path
+              // calls owner.toLowerCase()/.trim() unconditionally, so a null here
+              // crashed the whole dashboard. typeof (not ?? ) because this is
+              // model-generated JSON: a non-string value would break the same way.
+              owner: typeof a.owner === 'string' ? a.owner : '',
+              meeting_title: m.title,
+              meeting_date: m.date,
+            }))
         )
         setActionItems(flattened as ActionItemX[])
         setActionItemsLoading(false)
