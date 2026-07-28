@@ -20,6 +20,18 @@ type ActionItemX = ActionItem & {
   meeting_date?: string
 }
 
+// Compare a raw JSONB item's owner against an owner held in page state.
+// Raw rows can carry `owner: null` (the extraction prompt emits null for unowned
+// tasks) or, being model-generated JSON, some other non-string value — while state
+// holds '' for those after the fetch-boundary normalization in the effect below.
+// A plain `===` therefore never matches for unowned items, which silently dropped
+// their toggle/priority writes. Both sides go through the same rule here.
+// Comparison ONLY: the write-back paths still spread the untouched raw item, so a
+// null owner stays null in meetings.action_items — this never rewrites owner data.
+function ownerMatches(rawOwner: unknown, stateOwner: string): boolean {
+  return (typeof rawOwner === 'string' ? rawOwner : '') === stateOwner
+}
+
 // Small gray meta shown beneath each action item: the source meeting (title +
 // date, so same-titled meetings stay distinguishable) and, once completed, the
 // completion timestamp converted to Eastern Time.
@@ -562,6 +574,14 @@ export default function ActionsPage() {
         const flattened = rows.flatMap(m =>
           (m.action_items ?? []).map((a, i) => ({
             ...a,
+            // Normalize `owner` at the fetch boundary. The extraction prompt (see
+            // /api/extract-meeting + the Fireflies webhook) tells Claude to emit
+            // `owner: null` when a task has no named owner, and the meetings
+            // .action_items JSONB column stores that verbatim — but this page's
+            // filters call owner.toLowerCase()/.trim() unconditionally, so a null
+            // here crashed the page. typeof (not ??) because this is
+            // model-generated JSON: a non-string value would break the same way.
+            owner: typeof a.owner === 'string' ? a.owner : '',
             id: `${m.id}:${i}`,
             meeting_id: m.id,
             meeting_title: m.title,
@@ -650,9 +670,12 @@ export default function ActionsPage() {
     const current = (data?.action_items ?? []) as ActionItemX[]
 
     // Flip the matching item's done field (matched by task + owner), set or clear
-    // completed_at to match, then save back.
+    // completed_at to match, then save back. `current` is raw JSONB while
+    // `target.owner` comes from normalized state, so the owner side of the match
+    // goes through ownerMatches — a raw null owner matches the '' in state. The
+    // spread below preserves the raw owner verbatim, so nothing is rewritten.
     const updated = current.map(a => {
-      if (a.task !== target.task || a.owner !== target.owner) return a
+      if (a.task !== target.task || !ownerMatches(a.owner, target.owner)) return a
       const next = { ...a, done }
       if (done) next.completed_at = completedAt
       else delete next.completed_at
@@ -684,8 +707,9 @@ export default function ActionsPage() {
     const current = (data?.action_items ?? []) as ActionItem[]
 
     // Set the matching item's priority field (matched by task + owner), then save back.
+    // Same raw-vs-normalized owner comparison as handleToggle — see ownerMatches.
     const updated = current.map(a =>
-      a.task === target.task && a.owner === target.owner ? { ...a, priority } : a
+      a.task === target.task && ownerMatches(a.owner, target.owner) ? { ...a, priority } : a
     )
     const { error } = await supabase
       .from('meetings')
