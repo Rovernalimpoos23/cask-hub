@@ -27,6 +27,8 @@ export async function GET(_req: NextRequest) {
       'Mail.Read',
       'Mail.ReadWrite',
       'Mail.Send',
+      'Files.Read.All',
+      'Sites.Read.All',
       'offline_access',
     ].join(' ')
 
