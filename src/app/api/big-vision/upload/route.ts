@@ -19,6 +19,7 @@ import { createClient as createServerSupabase } from '@/lib/supabase-server'
 import { createClient as createServiceSupabase } from '@supabase/supabase-js'
 import mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
+import { generateEmbeddings } from '@/lib/embeddings'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -132,30 +133,10 @@ async function extractContent(file: File): Promise<string | null> {
   }
 }
 
-// Generate a Voyage AI embedding for the extracted content. Best-effort: any
-// failure (network, non-2xx, malformed body) is swallowed and returns null so the
-// upload is never blocked. Input is truncated to Voyage's per-request char budget.
-async function generateEmbedding(text: string): Promise<number[] | null> {
-  try {
-    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
-      },
-      body: JSON.stringify({
-        input: [text.slice(0, 32000)],
-        model: 'voyage-3',
-        input_type: 'document',
-      }),
-    })
-    const data = await res.json()
-    return data.data?.[0]?.embedding ?? null
-  } catch (err) {
-    console.error('[upload] embedding error:', err)
-    return null
-  }
-}
+// Embeddings come from the shared client in @/lib/embeddings — it batches the
+// request, owns the VOYAGE_API_KEY guard (this file used to leave that to the
+// caller), checks res.ok, and logs Voyage HTTP failures instead of silently
+// returning null. Same best-effort contract: a null embedding never blocks the upload.
 
 export async function POST(req: Request) {
   try {
@@ -258,15 +239,11 @@ export async function POST(req: Request) {
     const extractedText = await extractContent(file)
     console.log('[upload] step: text extracted')
 
-    // ── 6b. Voyage AI embedding availability (best-effort enhancement) ──
-    // The embeddings themselves are generated per chunk in the insert loop below. Never
-    // blocks the upload: a missing key or a failed request just leaves embedding = null
-    // so the row is still written without a vector. Checked once here so a missing key
-    // logs one warning rather than one per chunk.
-    const hasVoyageKey = !!process.env.VOYAGE_API_KEY
-    if (!hasVoyageKey) {
-      console.warn('[upload] VOYAGE_API_KEY not set — skipping embedding')
-    }
+    // ── 6b. (removed) Voyage API-key pre-check ───────────────────────
+    // The shared embeddings client owns the VOYAGE_API_KEY guard now and emits one
+    // warning per call, so the caller-side check that used to live here would only
+    // duplicate it. Embeddings are still best-effort: a missing key or a failed
+    // request just leaves embedding = null and the row is written without a vector.
 
     // ── 7. Upload the file to the 'hub-memory' bucket ────────────────
     // Path is namespaced by the first category. Timestamp keeps names unique so
@@ -303,13 +280,21 @@ export async function POST(req: Request) {
     let firstRowId: string | null = null
     let chunksSaved = 0
 
+    // All chunks are embedded up front in one batched call (previously one sequential
+    // Voyage request per chunk inside the loop below). Files with no extractable text
+    // arrive here as [null] — mapped to '' so the shared client skips them and returns
+    // null for that slot. Result is index-aligned with `chunks`.
+    const embeddings = await generateEmbeddings(
+      chunks.map(chunk => chunk ?? ''),
+      'document',
+    )
+
     for (let idx = 0; idx < chunks.length; idx++) {
       const chunkContent = chunks[idx]
 
-      // Per-chunk embedding. The VOYAGE_API_KEY guard is the caller's job in this file —
-      // unlike the other two routes, generateEmbedding here doesn't check it itself.
-      const embedding =
-        hasVoyageKey && chunkContent ? await generateEmbedding(chunkContent) : null
+      // Best-effort: a null embedding never blocks the insert. Unlike before, the
+      // reason is now logged by the shared client rather than swallowed.
+      const embedding = embeddings[idx] ?? null
 
       const { data: insertedRow, error: insertError } = await supabaseService
         .from('hub_memory')

@@ -70,6 +70,7 @@
 import { NextResponse } from 'next/server'
 import { createClient as createServerSupabase } from '@/lib/supabase-server'
 import { createClient as createServiceSupabase } from '@supabase/supabase-js'
+import { generateEmbeddings } from '@/lib/embeddings'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -157,34 +158,11 @@ interface MemoryFile {
 const MEMORY_SELECT =
   'id, title, content, summary, source_type, layer, categories, leader, source_ref, chunk_index, chunk_total'
 
-// Generate a Voyage AI embedding for a QUESTION. Note input_type: 'query' (documents
-// are embedded with input_type: 'document' on upload) — using the matching input_type
-// is important for Voyage AI retrieval accuracy. Best-effort: a missing VOYAGE_API_KEY
-// or any failure returns null so the caller can fall back to layer/recency ordering.
-async function generateQueryEmbedding(text: string): Promise<number[] | null> {
-  try {
-    if (!process.env.VOYAGE_API_KEY) {
-      return null
-    }
-    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
-      },
-      body: JSON.stringify({
-        input: [text.slice(0, 32000)],
-        model: 'voyage-3',
-        input_type: 'query',
-      }),
-    })
-    const data = await res.json()
-    return data.data?.[0]?.embedding ?? null
-  } catch (err) {
-    console.error('[chat] embedding error:', err)
-    return null
-  }
-}
+// Question embeddings come from the shared client in @/lib/embeddings, called with
+// input_type: 'query' (documents are stored with 'document') — using the matching
+// input_type is important for Voyage AI retrieval accuracy. Best-effort: a missing
+// VOYAGE_API_KEY or any failure returns null so the caller can fall back to
+// layer/recency ordering, but the reason is now logged rather than swallowed.
 
 export async function POST(req: Request) {
   try {
@@ -306,7 +284,7 @@ export async function POST(req: Request) {
       return [...rows, ...siblings.filter((c) => !rows.find((f) => f.id === c.id))]
     }
 
-    const queryEmbedding = await generateQueryEmbedding(question)
+    const [queryEmbedding] = await generateEmbeddings([question], 'query')
 
     if (queryEmbedding !== null) {
       // ── Step A: vector similarity search via Supabase RPC ──

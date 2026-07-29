@@ -2,39 +2,17 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { AGENDAS, type AgendaContent, type AgendaItem } from '@/app/(app)/customers/_agendaData'
+import { generateEmbeddings } from '@/lib/embeddings'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// Generate a Voyage AI embedding for the given text. Best-effort: a missing
-// VOYAGE_API_KEY, a non-2xx response, or any thrown error all resolve to null so
-// the caller can still insert its row with embedding: null.
-async function generateEmbedding(text: string): Promise<number[] | null> {
-  try {
-    if (!process.env.VOYAGE_API_KEY) {
-      return null
-    }
-    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
-      },
-      body: JSON.stringify({
-        input: [text.slice(0, 32000)],
-        model: 'voyage-3',
-        input_type: 'document',
-      }),
-    })
-    const data = await res.json()
-    return data.data?.[0]?.embedding ?? null
-  } catch (err) {
-    console.error('[embedding] error:', err)
-    return null
-  }
-}
+// Embeddings come from the shared client in @/lib/embeddings — it batches the
+// request, checks res.ok, and logs Voyage HTTP failures instead of silently
+// returning null. Same best-effort contract as before: a null embedding never
+// blocks the insert.
 
 // Long transcripts are stored as multiple hub_memory rows instead of being truncated.
 // Each chunk carries its own embedding so RAG can match the specific passage, and all
@@ -916,12 +894,18 @@ Return ONLY the email body HTML. No subject line in the body.`
         const chunkTotal = chunks.length
         let chunksSaved = 0
 
+        // All chunks are embedded up front in one batched call (previously one
+        // sequential Voyage request per chunk inside the loop below — 18 chunks meant
+        // 18 round-trips, which is what was tripping rate limits on long transcripts).
+        // Result is index-aligned with `chunks`; any entry may be null.
+        const embeddings = await generateEmbeddings(chunks, 'document')
+
         for (let idx = 0; idx < chunks.length; idx++) {
           const chunkContent = chunks[idx]
 
-          // Per-chunk embedding — each row gets a vector for its own text. Best-effort:
-          // null on failure/missing key never blocks the insert.
-          const embedding = chunkContent ? await generateEmbedding(chunkContent) : null
+          // Best-effort: a null embedding never blocks the insert. Unlike before, the
+          // reason is now logged by the shared client rather than swallowed.
+          const embedding = embeddings[idx] ?? null
 
           const { error: hubErr } = await supabase.from('hub_memory').insert({
             title: chunkTotal > 1 ? `${baseTitle} (part ${idx + 1} of ${chunkTotal})` : baseTitle,
