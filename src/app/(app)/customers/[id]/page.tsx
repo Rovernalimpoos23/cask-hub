@@ -254,7 +254,9 @@ const JOURNEY_PHASES: JourneyPhaseDef[] = [
   },
 ]
 
-const TOTAL_MEETINGS = JOURNEY_PHASES.reduce((sum, p) => sum + p.meetings.length, 0)
+// NOTE: the legacy `TOTAL_MEETINGS` count (55, derived from JOURNEY_PHASES) was
+// removed — every remaining reader of journey progress uses TOTAL_WORKFLOW_STEPS (33).
+// JOURNEY_PHASES itself is still used for recap labels and sent-email titles.
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -384,20 +386,20 @@ function BackLink() {
   )
 }
 
-function buildGreeting(client: ClientData, journeyRows: Map<string, ClientMeetingRow>): string {
-  const completedCount = Array.from(journeyRows.values()).filter(r => r.completed).length
-  for (const phase of JOURNEY_PHASES) {
-    const allDone = phase.meetings.every(m => journeyRows.get(m.code)?.completed)
-    if (!allDone) {
-      return `Hey! I have full context on ${client.name}. They're in Phase ${phase.number} — ${phase.label}, ${completedCount} of ${TOTAL_MEETINGS} meetings completed. How can I help?`
-    }
+// Takes the already-computed 33-step journey state (see getJourneyState) rather
+// than journeyRows — the legacy phase/meeting-code lookup it used before always
+// reported Phase 1 / the first legacy meeting no matter how far along the client was.
+function buildGreeting(client: ClientData, journey: JourneyState): string {
+  const { completedCount, currentStep, totalSteps } = journey
+  if (!currentStep) {
+    return `Hey! I have full context on ${client.name}. All ${totalSteps} steps completed — journey finished! How can I help?`
   }
-  return `Hey! I have full context on ${client.name}. All ${TOTAL_MEETINGS} meetings completed — journey finished! How can I help?`
+  return `Hey! I have full context on ${client.name}. They're on step ${currentStep.step} of ${totalSteps} — ${currentStep.title}, ${completedCount} of ${totalSteps} steps completed. How can I help?`
 }
 
-function FloatingClientAI({ client, journeyRows, messages, onSend, onClear, open, onOpenChange }: {
+function FloatingClientAI({ client, journey, messages, onSend, onClear, open, onOpenChange }: {
   client: ClientData
-  journeyRows: Map<string, ClientMeetingRow>
+  journey: JourneyState
   messages: { role: 'user' | 'assistant'; content: string }[]
   onSend: (msg: string) => void
   onClear: () => void
@@ -409,7 +411,7 @@ function FloatingClientAI({ client, journeyRows, messages, onSend, onClear, open
   const [btnHover, setBtnHover] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const messagesRef = useRef<HTMLDivElement>(null)
-  const greeting = buildGreeting(client, journeyRows)
+  const greeting = buildGreeting(client, journey)
   const firstName = client.name.split(' ')[0]
 
   // Keep the latest message in view by scrolling the chat's OWN container only.
@@ -992,6 +994,36 @@ const WORKFLOW_STEPS: WorkflowStepDef[] = [
 ]
 
 const TOTAL_WORKFLOW_STEPS = WORKFLOW_STEPS.length
+
+// ── Journey position — the ONE place "where is this client" is computed ────────
+// The authoritative source is `workflow_step_completions` (loaded into the
+// `stepCompletions` Set<number>), NOT client_meetings / journeyRows.
+//
+// journeyRows is keyed by client_meetings.meeting_id, which mixes retired
+// JOURNEY_PHASES codes ('PR1m') with step codes ('step_04'). Nothing writes the
+// retired codes from this page any more, so every `journeyRows.get(m.code)` lookup
+// missed, read as "not completed", and pinned the Next Step banner + AI context to
+// the first legacy meeting (PR1m — Internal Sales to Pre-Con Pass-Off) forever,
+// regardless of real progress. The Meeting Journey section always used the correct
+// source; this helper is that same logic, shared so the banner, the AI context
+// string and the AI greeting can no longer drift from it.
+interface JourneyState {
+  completedCount: number
+  currentStepNumber: number | null
+  currentStep: WorkflowStepDef | null
+  totalSteps: number
+}
+
+function getJourneyState(stepCompletions: Set<number>): JourneyState {
+  const completedCount = WORKFLOW_STEPS.filter(s => stepCompletions.has(s.step)).length
+  // Current step = first step that is not yet completed; null once all 33 are done.
+  const currentStepNumber = WORKFLOW_STEPS.find(s => !stepCompletions.has(s.step))?.step ?? null
+  const currentStep =
+    currentStepNumber != null
+      ? WORKFLOW_STEPS.find(s => s.step === currentStepNumber) ?? null
+      : null
+  return { completedCount, currentStepNumber, currentStep, totalSteps: TOTAL_WORKFLOW_STEPS }
+}
 
 // ── Workflow step card (replaces PhaseCard) ───────────────────────────────────
 
@@ -2978,12 +3010,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           const tb = b[1].completed_at ? new Date(b[1].completed_at).getTime() : 0
           return tb - ta
         })
-      const completedCount = completedEntries.length
-
-      const completedList = completedEntries.map(([code, r]) => {
-        const def = allMeetingDefs.find(m => m.code === code)
-        return `  ${code} — ${r.title || def?.title || code}${r.completed_at ? ` (completed ${new Date(r.completed_at).toLocaleDateString()})` : ''}`
-      })
+      // Completed steps come from workflow_step_completions, not from journeyRows —
+      // a journeyRows row only proves a recap was ingested, not that the team marked
+      // the step complete, and its meeting_id may still carry a retired code.
+      const completedStepList = WORKFLOW_STEPS
+        .filter(s => stepCompletions.has(s.step))
+        .map(s => `  Step ${s.step} — ${s.title}`)
 
       // Recaps from completed meetings, most recent first, up to 5
       const recapLines = completedEntries
@@ -3001,19 +3033,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         return `- ${e.email_code} sent on ${sentDate}: ${e.subject}\n  Preview: ${preview}`
       })
 
-      // Current phase = first phase not fully complete
-      let currentPhaseNum = 0
-      let currentPhaseLabel = 'All phases complete'
-      for (const phase of JOURNEY_PHASES) {
-        if (!phase.meetings.every(m => journeyRows.get(m.code)?.completed)) {
-          currentPhaseNum = phase.number
-          currentPhaseLabel = phase.label
-          break
-        }
-      }
-
-      // Next incomplete meeting
-      const nextMeeting = allMeetingDefs.find(m => !journeyRows.get(m.code)?.completed)
+      // Where the client actually is in the journey — same source as the Meeting
+      // Journey section on this page (workflow_step_completions). See getJourneyState.
+      const journey = getJourneyState(stepCompletions)
+      const currentStepLine = journey.currentStep
+        ? `Step ${journey.currentStep.step} of ${journey.totalSteps} — ${journey.currentStep.title} (${STEP_TYPE_CONFIG[journey.currentStep.type].label})`
+        : `All ${journey.totalSteps} steps complete`
 
       const happinessLabel = client.happiness === 'green' ? 'Happy' : client.happiness === 'yellow' ? 'At Risk' : 'Needs Attention'
       const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
@@ -3039,20 +3064,23 @@ PERSONALITY & COMMUNICATION:
 KEY PRIORITIES:
 ${client.priorities.map(p => `- ${p.text}: ${p.status}`).join('\n') || '- None added'}
 
-MEETING JOURNEY:
-- Progress: ${completedCount} of ${TOTAL_MEETINGS} meetings completed
-- Current Phase: ${currentPhaseNum > 0 ? `Phase ${currentPhaseNum} — ${currentPhaseLabel}` : currentPhaseLabel}
-- Next Incomplete Meeting: ${nextMeeting ? `${nextMeeting.code} — ${nextMeeting.title}` : 'All meetings complete'}
-${completedList.length ? `- Completed Meetings:\n${completedList.join('\n')}` : '- Completed Meetings: None yet'}
+MEETING JOURNEY (33-step CASK Customer Journey — the authoritative source for where this client is):
+- Progress: ${journey.completedCount} of ${journey.totalSteps} steps completed
+- Current / Next Step: ${currentStepLine}
+${completedStepList.length ? `- Completed Steps:\n${completedStepList.join('\n')}` : '- Completed Steps: None yet'}
 
 ${recapLines.length ? `MEETING RECAPS (most recent first):\n${recapLines.join('\n\n')}` : 'MEETING RECAPS: No recaps recorded yet.'}
 
 ${sentEmailLines.length ? `EMAILS SENT TO CLIENT:\n${sentEmailLines.join('\n')}` : 'EMAILS SENT TO CLIENT: No emails sent yet.'}
 
+Only the MEETING JOURNEY section above states where this client is. Recap titles below may
+still contain retired meeting codes (e.g. "PR1m") from an older numbering system — never
+present one of those as the client's current or next step.
+
 Use this context to answer questions about this client.
 Help Calin and the team understand:
 - How to communicate with this client based on their personality
-- What phase they are in and what comes next
+- Which of the 33 steps they are on and what comes next
 - What was discussed in recent meetings
 - What action items may be pending based on recaps
 - How the client is feeling about the project
@@ -3122,30 +3150,22 @@ Today's date is ${today}.
   const happiness = HAPPINESS[client.happiness]
   const sentEmailCount = sentEmails.length
 
-  // ── 33-step workflow progress (drives the Meeting Journey section) ──────────
-  const stepsCompletedCount = WORKFLOW_STEPS.filter(s => stepCompletions.has(s.step)).length
+  // ── 33-step workflow progress ──────────────────────────────────────────────
+  // Drives the Meeting Journey section, the Next Step banner and the AI surfaces —
+  // all from the one shared helper so they cannot disagree.
+  const journey = getJourneyState(stepCompletions)
+  const stepsCompletedCount = journey.completedCount
   const stepsPct = Math.round((stepsCompletedCount / TOTAL_WORKFLOW_STEPS) * 100)
-  // Current step = first step that is not yet completed.
-  const currentStepNumber = WORKFLOW_STEPS.find(s => !stepCompletions.has(s.step))?.step ?? null
+  const currentStepNumber = journey.currentStepNumber
+  const currentStepDef = journey.currentStep
 
   // ── Derived values for the Fable redesign ──────────────────────────────────
   const allMeetingDefs = JOURNEY_PHASES.flatMap(p => p.meetings)
 
-  // Current phase = first phase not fully complete (mirrors the AI-context logic)
-  let currentPhaseNumber = 0
-  for (const p of JOURNEY_PHASES) {
-    if (!p.meetings.every(m => journeyRows.get(m.code)?.completed)) {
-      currentPhaseNumber = p.number
-      break
-    }
-  }
-  const currentPhase = JOURNEY_PHASES.find(p => p.number === currentPhaseNumber) ?? null
-
-  // First incomplete meeting in the current phase (falls back to global next)
-  const nextMeetingDef =
-    currentPhase?.meetings.find(m => !journeyRows.get(m.code)?.completed) ??
-    allMeetingDefs.find(m => !journeyRows.get(m.code)?.completed) ??
-    null
+  // The Next Step banner's title/eyebrow now come from currentStepDef above. The
+  // legacy phase + meeting-code lookup that used to feed them is gone: it read
+  // journeyRows by JOURNEY_PHASES code, which nothing writes any more, so it always
+  // resolved to Phase 1 / the first legacy meeting.
 
   // Most recent completed meeting — drives next-step context + the "updated" date
   const completedRows = Array.from(journeyRows.values())
@@ -3172,10 +3192,13 @@ Today's date is ${today}.
   }
   const sentiment = sentimentLabel[client.happiness]
 
+  // Primary branch (the most recent recap) is source-independent and already correct,
+  // so it is unchanged. Only the no-recap-yet fallback was rewritten — it used to
+  // describe the legacy phase; it now describes 33-step position.
   const nextStepDesc = lastCompleted?.recap
     ? summarize(lastCompleted.recap, 180)
-    : currentPhase
-    ? `Continue the ${currentPhase.label} phase — ${currentPhase.meetings.filter(m => journeyRows.get(m.code)?.completed).length} of ${currentPhase.meetings.length} steps complete.`
+    : currentStepDef
+    ? `Continue step ${currentStepDef.step} of ${TOTAL_WORKFLOW_STEPS} — ${stepsCompletedCount} of ${TOTAL_WORKFLOW_STEPS} steps complete.`
     : ''
 
   // ROOT CAUSE FIX: nextStepDesc above is truncated to 180 chars at the data layer
@@ -4053,7 +4076,7 @@ Today's date is ${today}.
         </section>
 
         {/* ── Next step (computed from the journey) ─────────────────────── */}
-        {nextMeetingDef && (
+        {currentStepDef && (
           <section
             className="rounded-[10px]"
             style={{
@@ -4072,12 +4095,12 @@ Today's date is ${today}.
                 className="uppercase"
                 style={{ fontSize: 10.5, letterSpacing: '0.12em', color: 'var(--text3)', fontWeight: 700 }}
               >
-                Next step{currentPhase ? ` · ${currentPhase.label}` : ''}
+                Next step · Step {currentStepDef.step} of {TOTAL_WORKFLOW_STEPS}
               </div>
               <div
                 style={{ fontFamily: 'var(--font-fraunces), Georgia, serif', fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em', marginTop: 4, color: 'var(--text)' }}
               >
-                {nextMeetingDef.title}
+                {currentStepDef.title}
               </div>
               {nextStepDesc && (
                 <div>
@@ -4645,7 +4668,7 @@ Today's date is ${today}.
       {/* ── CASK Intelligence (floating) ──────────────────────────────── */}
       <FloatingClientAI
         client={client}
-        journeyRows={journeyRows}
+        journey={journey}
         messages={chatMessages}
         onSend={handleChatSend}
         onClear={clearHistory}
