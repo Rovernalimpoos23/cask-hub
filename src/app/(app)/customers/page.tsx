@@ -8,22 +8,31 @@ import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 type Happiness = 'green' | 'yellow' | 'red'
 
+// Only `name` is required at client creation, so every other column can legitimately
+// come back null on a real row — /customers/new writes `project_value: null` and
+// `location: null` for blank inputs. These fields are typed nullable on purpose so the
+// compiler keeps pointing at the render-time guards below.
 interface Client {
   id: string
   name: string
-  project_type: string
-  project_value: number
-  location: string
-  happiness: Happiness
-  meetings_completed: number
-  total_meetings: number
-  owner: string
+  project_type: string | null
+  project_value: number | null
+  location: string | null
+  happiness: Happiness | null
+  meetings_completed: number | null
+  total_meetings: number | null
+  owner: string | null
   meetingsCompleted: number
   emailsSent: number
 }
 
+interface HappinessConfig {
+  pill: { background: string; color: string }
+  label: string
+  accent: string
+}
 
-const HAPPINESS_CONFIG = {
+const HAPPINESS_CONFIG: Record<Happiness, HappinessConfig> = {
   green: {
     pill: { background: 'var(--green-bg)', color: '#166534' },
     label: 'Happy',
@@ -41,19 +50,50 @@ const HAPPINESS_CONFIG = {
   },
 }
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(' ')
+// Rows whose `happiness` is null or an unrecognised value fall back to this neutral
+// entry rather than to green — defaulting to "Happy" would misreport sentiment.
+const UNKNOWN_HAPPINESS: HappinessConfig = {
+  pill: { background: 'var(--border, #e5e7eb)', color: 'var(--muted, #6b7280)' },
+  label: 'Not set',
+  accent: 'var(--border, #d1d5db)',
+}
+
+function getHappinessConfig(happiness: unknown): HappinessConfig {
+  return typeof happiness === 'string' && happiness in HAPPINESS_CONFIG
+    ? HAPPINESS_CONFIG[happiness as Happiness]
+    : UNKNOWN_HAPPINESS
+}
+
+// `typeof x === 'string'` rather than `?? fallback`: a bad row could hold a non-null,
+// non-string value that `??` would pass straight through to a string method.
+function safeText(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() !== '' ? value : fallback
+}
+
+function getInitials(name: unknown): string {
+  if (typeof name !== 'string') return '?'
+  const parts = name.trim().split(' ').filter(Boolean)
+  if (parts.length === 0) return '?'
   if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
   return parts[0].slice(0, 2).toUpperCase()
 }
 
-function formatCurrency(value: number): string {
-  return '$' + value.toLocaleString('en-US')
+function formatCurrency(value: unknown): string {
+  // Postgres numerics arrive as JSON numbers, but the column is nullable and a bad row
+  // could hold anything — anything non-finite renders as an em dash instead of throwing.
+  const n =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value)
+        : NaN
+  if (!Number.isFinite(n)) return '—'
+  return '$' + n.toLocaleString('en-US')
 }
 
 function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDelete: (client: Client) => void }) {
   const [hovered, setHovered] = useState(false)
-  const config = HAPPINESS_CONFIG[client.happiness]
+  const config = getHappinessConfig(client.happiness)
   const pct = Math.round((client.meetingsCompleted / 33) * 100)
 
   return (
@@ -108,7 +148,7 @@ function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDele
             textOverflow: 'ellipsis',
           }}
         >
-          {client.name}
+          {safeText(client.name, 'Unnamed client')}
         </div>
         <div
           style={{
@@ -120,7 +160,11 @@ function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDele
             textOverflow: 'ellipsis',
           }}
         >
-          {client.project_type} · {client.location}
+          {/* Either half can be null; join only the parts that exist so the row never
+              renders a bare separator (" · ") or the literal word "null". */}
+          {[safeText(client.project_type, ''), safeText(client.location, '')]
+            .filter(Boolean)
+            .join(' · ') || '—'}
         </div>
       </div>
 
@@ -187,7 +231,7 @@ function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDele
       <span
         role="button"
         tabIndex={0}
-        title={`Delete ${client.name}`}
+        title={`Delete ${safeText(client.name, 'client')}`}
         onClick={(e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -895,7 +939,9 @@ export default function ActiveClientsPage() {
             </div>
             <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, marginBottom: 24 }}>
               Are you sure you want to delete{' '}
-              <span style={{ fontWeight: 600, color: 'var(--text)' }}>{pendingDelete.name}</span>? This
+              <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+                {safeText(pendingDelete.name, 'this client')}
+              </span>? This
               cannot be undone. All client data including meeting recaps, emails, agenda, and journey
               steps will be permanently deleted.
             </div>
