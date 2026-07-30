@@ -700,6 +700,9 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   const quickPills = [...UNIVERSAL_PILLS, ...(AGENT_PILLS[agentSlug] ?? [])]
 
   // ── Live hub_memory file list + upload state ───────────────────────
+  // One entry per DOCUMENT, not per hub_memory row: /api/big-vision/files groups chunk
+  // rows by `source_ref ?? id` before returning them. Each entry carries `chunk_count`
+  // (how many rows it was assembled from) and `chunk_ids` (those row ids).
   const [files, setFiles] = useState<any[]>([]) // eslint-disable-line @typescript-eslint/no-explicit-any
   const [filesLoading, setFilesLoading] = useState(true)
   const [uploadingFile, setUploadingFile] = useState(false)
@@ -768,6 +771,11 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   // Files whose title matches the in-progress @mention (max 50). Empty when no
   // mention is being typed. Deliberately searches the FULL `files` array, not the
   // left panel's filtered view — the panel search must not narrow @mentions.
+  // One option per DOCUMENT: `files` is grouped by the API and its titles have the
+  // "(part N of M)" suffix stripped, so a chunked file no longer appears once per part.
+  // The id sent on send is the document's head row; api/big-vision/chat expands it to
+  // every sibling chunk, and its title matching is substring-based, so the stripped
+  // title still resolves the whole document.
   const mentionResults =
     mentionQuery !== null
       ? files
@@ -993,7 +1001,10 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     inputRef.current?.focus()
   }
 
-  // Soft-delete a file, then drop it from local state on success.
+  // Soft-delete a document, then drop the whole group from local state on success.
+  // A chunked file is several hub_memory rows; /api/big-vision/delete resolves the
+  // document from the single id it is sent and reports every row it deleted in
+  // `deletedIds`, so that response — not the id we sent — decides what to remove here.
   async function handleDelete(id: string, _fileTitle: string) {
     setDeletingId(id)
     setConfirmDeleteId(null)
@@ -1005,8 +1016,23 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
         body: JSON.stringify({ id }),
       })
 
+      const data = await res.json().catch(() => null)
+
       if (res.ok) {
-        setFiles((prev) => prev.filter((f) => f.id !== id))
+        // Fall back to the id we sent if the response shape is unexpected.
+        const removed = new Set<string>([
+          id,
+          ...(Array.isArray(data?.deletedIds)
+            ? data.deletedIds.filter((d: unknown): d is string => typeof d === 'string')
+            : []),
+        ])
+        // Match on the card's own id OR any of its chunk row ids — never on title.
+        const isRemoved = (f: { id: string; chunk_ids?: string[] }) =>
+          removed.has(f.id) || (f.chunk_ids ?? []).some((c) => removed.has(c))
+
+        setFiles((prev) => prev.filter((f) => !isRemoved(f)))
+        // Drop any @mention pill pointing at the document that just went away.
+        setSelectedMentions((prev) => prev.filter((m) => !removed.has(m.id)))
       } else {
         console.error('Delete failed')
       }
@@ -1142,6 +1168,8 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
             >
               <div className="p-head">
                 <h2>Files in memory</h2>
+                {/* Document count — `files` is already grouped by the API, so a chunked
+                    file counts once here instead of once per part. */}
                 <span className="count">{filesLoading ? '—' : filteredFiles.length}</span>
                 <button
                   className="ghost"
@@ -1182,7 +1210,7 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
               {uploadError && <div className="note err">{uploadError}</div>}
               {uploadSuccess && <div className="note ok">{uploadSuccess}</div>}
 
-              {/* File list — live hub_memory rows */}
+              {/* File list — one card per grouped document (not per hub_memory chunk row) */}
               {filesLoading ? (
                 <div className="list">
                   {[0, 1, 2].map((i) => (
@@ -1219,6 +1247,10 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                     ].filter(Boolean)
                     const shownTags = allTags.slice(0, 3)
                     const extraTags = allTags.length - shownTags.length
+                    // Chunked documents used to render as one card per part. They are now
+                    // one card; this says how many rows back it, counted from the rows the
+                    // API actually returned (not the unreliable chunk_total column).
+                    const chunkCount = typeof f.chunk_count === 'number' ? f.chunk_count : 1
 
                     if (confirmDeleteId === f.id) {
                       return (
@@ -1264,6 +1296,7 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                             <TagPill key={`${t}-${ti}`} tag={t} />
                           ))}
                           {extraTags > 0 && <span className="tag more">+{extraTags}</span>}
+                          {chunkCount > 1 && <span className="tag more">{chunkCount} parts</span>}
                           {dateIso && <span className="d">{fmtShort(dateIso)}</span>}
                         </div>
                       </div>
