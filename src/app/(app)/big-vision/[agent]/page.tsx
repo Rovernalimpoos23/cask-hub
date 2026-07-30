@@ -931,6 +931,31 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
     setChatLoading(true)
 
+    // Undo everything the optimistic send above did, for any failure path.
+    //
+    // The message rollback is the load-bearing part: a failed turn used to leave the user
+    // message in `messages` with no assistant reply after it. Since `messages` is what the
+    // next send posts as conversationHistory — and the API route then appends the new
+    // question as another user turn — one failure could put two consecutive user messages in
+    // the request, and each subsequent failure adds another. Removing it keeps the
+    // transcript strictly alternating no matter what fails (400, timeout, network drop).
+    //
+    // Matches on role + content and only ever touches the tail, so it cannot remove an
+    // unrelated message; `chatLoading` already blocks a concurrent send from interleaving.
+    // The input text and mention pills are restored alongside it so the error's "Try again"
+    // is actionable — rolling back the message while leaving the composer empty would
+    // discard what the user typed.
+    const rollbackOptimisticSend = () => {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        if (last && last.role === 'user' && last.content === userMessage) return prev.slice(0, -1)
+        return prev
+      })
+      setChatInput(userMessage)
+      // `selectedMentions` here is the pre-clear value captured by this render's closure.
+      setSelectedMentions(selectedMentions)
+    }
+
     try {
       const res = await fetch('/api/big-vision/chat', {
         method: 'POST',
@@ -963,9 +988,11 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
           }),
         }).catch((e) => console.error('[history] save error:', e))
       } else {
+        rollbackOptimisticSend()
         setChatError('Failed to get response. Try again.')
       }
     } catch {
+      rollbackOptimisticSend()
       setChatError('Connection error. Try again.')
     } finally {
       setChatLoading(false)

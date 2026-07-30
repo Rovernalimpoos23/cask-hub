@@ -639,19 +639,40 @@ REMINDER: every name, figure, quote and date in your answer must be traceable to
           // Raised from 6000: on Opus 5 this budget covers thinking tokens as
           // well as the response text.
           max_tokens: 8000,
-          // Grounded retrieval, not creative writing: this answers strictly from the file
-          // content in the system prompt. Was previously unset, which meant the API default
-          // of 1.0 — the least-constrained sampling setting for the task in this codebase
-          // least tolerant of invention.
-          temperature: 0.2,
+          // Do NOT add temperature / top_p / top_k here. claude-opus-5 removed all three:
+          // sending any of them returns 400 invalid_request_error on EVERY request, whatever
+          // the content. A `temperature: 0.2` added here for grounding did exactly that.
+          // Grounding is a prompt concern on this model — see GROUNDING_RULES.
           system: systemPrompt,
           messages: [...conversationHistory, { role: 'user', content: question }],
         }),
       })
 
       if (!response.ok) {
-        // Log status only — never the key or full response body.
-        console.error('[big-vision-chat] Anthropic API error status:', response.status)
+        // Read Anthropic's error body — it names the exact rejection (an unsupported
+        // parameter, a malformed message sequence, a too-long prompt) where a bare status
+        // code names nothing. This previously logged the status alone, which is how a 400
+        // firing on every single request stayed undiagnosable from the logs.
+        //
+        // Safe to log: this is Anthropic's own error envelope, on the RESPONSE. It contains
+        // neither the API key (sent as a request header) nor any request content. Bounded to
+        // 500 chars so a gateway HTML error page can't flood the log.
+        let detail: string
+        try {
+          const raw = await response.text()
+          try {
+            const parsed = JSON.parse(raw) as { error?: { type?: string; message?: string } }
+            detail = `${parsed.error?.type ?? 'unknown_type'}: ${parsed.error?.message ?? raw.slice(0, 500)}`
+          } catch {
+            // Non-JSON body (proxy / gateway error page) — log a bounded slice verbatim.
+            detail = raw.slice(0, 500)
+          }
+        } catch {
+          // Body already consumed or the connection dropped mid-read — non-fatal.
+          detail = '<error body unreadable>'
+        }
+
+        console.error('[big-vision-chat] Anthropic API error:', response.status, detail)
         return NextResponse.json({ error: 'ai_error' }, { status: 502 })
       }
 
