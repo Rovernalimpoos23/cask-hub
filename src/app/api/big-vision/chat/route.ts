@@ -12,6 +12,18 @@
 // a system-prompt context block. Every failure path returns JSON { error: '<reason>' }
 // — never an unhandled throw. The Anthropic API key is never logged.
 //
+// ── Grounding contract (added after a fabrication incident) ──────────────────
+// An agent invented personnel names, financial figures and quotes and presented them to
+// the President as sourced fact. Four things in this file are now load-bearing for
+// accuracy — treat them as a set, and do not weaken one without the others:
+//  1. GROUNDING_RULES leads every system prompt, ahead of the per-agent instructions
+//     (which all demand confident, specific findings and are therefore gap-fill pressure).
+//  2. temperature is pinned low on the Anthropic call — this is a grounded-retrieval task.
+//  3. Documents dropped for size are NAMED in the prompt, and only when some were actually
+//     dropped. The model must never be told a gap exists without being told what it is.
+//  4. The @mention note is reconciled against the dropped set: never instruct the model to
+//     answer from a file whose content is not in the prompt.
+//
 // ── RAG (Voyage AI similarity search) ────────────────────────────────────────
 // File retrieval uses pgvector similarity search via the match_hub_memory RPC. The
 // question is embedded (input_type: 'query') and the RPC returns the top matches by
@@ -92,7 +104,32 @@ const AGENT_CATEGORY: Record<string, string> = {
   kaitlyn: 'kaitlyn',
 }
 
+// ── Anti-fabrication rules — prepended to EVERY agent's system prompt ─────────
+// Held in one constant rather than pasted into all nine AGENT_INSTRUCTIONS strings below,
+// so the rules cannot drift between agents or be missed when an agent is added.
+//
+// Placed FIRST in the assembled prompt — ahead of the leader agents' "IMPORTANT: You are
+// briefing CALIN NOONAN" pronoun-etiquette blocks — because accuracy outranks tone, and
+// because every per-agent instruction below asks for confident, specific output ("flag
+// risks", "be specific", "actionable intelligence"). Those are exactly the instructions
+// that turn a missing file into an invented answer, so the override has to be explicit.
+const GROUNDING_RULES = `IMPORTANT — ABSOLUTE RULES. These override every other instruction in this prompt, including any instruction to be specific, to flag risks, or to be decisive:
+
+1. NEVER invent, guess, infer or estimate a person's name, a financial figure, a date, a quote, a metric or an event. If it is not written in the FILES IN MEMORY content below, it does not exist for you and you must not state it.
+2. Cite and quote ONLY what is literally present in that content. Never reconstruct a quote from memory and never present a paraphrase as a quote.
+3. If the files do not answer the question, SAY SO PLAINLY — "That is not in my files" — and answer only the part you can support, or nothing. An acknowledged gap is a correct answer. A plausible-sounding gap-filler is a serious failure, worse than no answer at all.
+4. Never present an inference as sourced fact. If you reason beyond what a file states, label it as your inference and name the file it came from.
+5. Never compensate for missing files by producing something that merely looks complete. When documents could not be loaded this turn you will be told exactly which ones — name them to the user instead of answering around them.
+
+You are briefing the President of the company about real colleagues and real money. An invented name or figure causes real harm and has happened before. Under-answering is always safer than fabricating.`
+
+// The suffix all three hub_memory writers add to chunk titles. Shared by the @mention
+// note and the skipped-document list so both report the same document title.
+const CHUNK_SUFFIX_RE = /\s*\(part \d+ of \d+\)$/i
+
 // Per-agent system instruction. Keyed by the same slug as AGENT_CATEGORY.
+// GROUNDING_RULES above is prepended to each of these at prompt-assembly time (step 6) —
+// these strings intentionally do NOT repeat the rules.
 const AGENT_INSTRUCTIONS: Record<string, string> = {
   pit:
     "You are the PIT (Process Improvement) agent for CASK Construction, a custom home builder in St. Petersburg, Florida. Answer ONLY from the files in memory below. Focus on each department's PIT direction, last-reviewed date, and how it compares to the company-level PIT focus (the AI Hub rollout). Flag anything not reviewed this quarter. Be concise and direct — Calin needs actionable intelligence, not lengthy summaries. When citing information, mention which file it came from.",
@@ -424,25 +461,29 @@ export async function POST(req: Request) {
       }
     }
 
-    // Titles of the @mentioned files that made it into context — returned to the
-    // frontend so it can indicate which files were pulled in by @mention.
-    // One entry per DOCUMENT, not per chunk row: chunk titles carry a "(part N of M)"
-    // suffix, so strip it and de-dupe by source_ref before reporting.
-    const mentionedFileTitles: string[] =
-      rawMentions.length > 0
-        ? Array.from(
-            new Map<string, string>(
-              files
-                .filter((f) =>
-                  rawMentions.some((m) => (f.title ?? '').toLowerCase().includes(m)),
-                )
-                .map((f) => [
-                  f.source_ref ?? f.id,
-                  (f.title ?? '').replace(/\s*\(part \d+ of \d+\)$/i, ''),
-                ]),
-            ).values(),
-          ).filter((t) => t.length > 0)
-        : []
+    // Titles of the @mentioned files, keyed by DOCUMENT key (`source_ref ?? id`) — not one
+    // entry per chunk row, since chunk titles carry a "(part N of M)" suffix that is
+    // stripped here. Returned to the frontend so it can indicate which files were pulled
+    // in by @mention.
+    //
+    // The KEY is retained (this used to collapse straight to a string[]) so step 6 can
+    // reconcile these against the documents that did not fit the context budget. Without
+    // the key there is no way to tell "mentioned and included" from "mentioned and
+    // dropped", and the prompt ends up instructing the model to answer from a file whose
+    // content it was never given.
+    const mentionedTitleByKey = new Map<string, string>()
+    if (rawMentions.length > 0) {
+      for (const f of files) {
+        if (!rawMentions.some((m) => (f.title ?? '').toLowerCase().includes(m))) continue
+        const rawTitle = f.title ?? ''
+        const stripped = rawTitle.replace(CHUNK_SUFFIX_RE, '') || rawTitle
+        if (!stripped) continue
+        const docKey = f.source_ref ?? f.id
+        if (!mentionedTitleByKey.has(docKey)) mentionedTitleByKey.set(docKey, stripped)
+      }
+    }
+
+    const mentionedFileTitles: string[] = Array.from(mentionedTitleByKey.values())
 
     const allFiles: MemoryFile[] = [
       ...foundation,
@@ -510,20 +551,72 @@ export async function POST(req: Request) {
     )
 
     // ── 6. Assemble the system prompt ────────────────────────────────
-    // When the user @mentioned files, tell the model to prioritize them by name.
-    const mentionNote =
-      mentionedFileTitles.length > 0
-        ? `\n\nThe user specifically mentioned these files with @: ${mentionedFileTitles.join(', ')}. Prioritize answering from those files first. Mention them by name in your response.`
+    // Titles of the documents that did NOT fit, so the model can name them to the user
+    // instead of only knowing from arithmetic that something is missing. No extra query is
+    // needed: docGroups already holds every chunk row of every retrieved document, and the
+    // groups were sorted by chunk_index above, so group[0] is each document's head chunk.
+    // Same head-chunk + suffix-strip pattern the @mention titles use.
+    const skippedTitles = Array.from(skippedSourceRefs)
+      .map((docKey) => {
+        const head = (docGroups.get(docKey) ?? [])[0]
+        const rawTitle = head?.title ?? ''
+        return rawTitle.replace(CHUNK_SUFFIX_RE, '') || rawTitle
+      })
+      .filter((t) => t.length > 0)
+
+    // Only stated when documents were ACTUALLY dropped this turn. This used to be an
+    // unconditional clause in the header, which told the model on every turn that unseen
+    // content existed — while never revealing what it was. That is a standing invitation to
+    // invent it, and it was false whenever nothing had been skipped.
+    const skippedNote =
+      skippedTitles.length > 0
+        ? `\n\nNOT INCLUDED THIS TURN — ${skippedTitles.length} document(s) were too large to fit in this context, so NONE of their content is above: ${skippedTitles.join('; ')}. If the user's question touches any of them, say plainly that you could not load that file this turn. Do not guess at, summarize or characterise what it contains.`
         : ''
 
-    const systemPrompt = `${agentInstruction}
+    // Reconcile the @mentions against what actually fit. Telling the model to answer from a
+    // named file whose content was dropped is a direct instruction to fabricate — and it is
+    // reachable: allFiles puts foundation documents ahead of mentions, so foundation can
+    // consume the budget before an @mentioned document is reached.
+    const mentionedIncluded: string[] = []
+    const mentionedSkipped: string[] = []
+    for (const [docKey, title] of Array.from(mentionedTitleByKey.entries())) {
+      if (skippedSourceRefs.has(docKey)) mentionedSkipped.push(title)
+      else mentionedIncluded.push(title)
+    }
 
-FILES IN MEMORY (${distinctDocsUsed} of ${distinctDocsAvailable} total files loaded — some files were too large to include in this context):
+    // Only files whose content is genuinely present get the "answer from these" treatment.
+    const mentionNote =
+      mentionedIncluded.length > 0
+        ? `\n\nThe user specifically mentioned these files with @: ${mentionedIncluded.join(', ')}. Their content IS included above — prioritize answering from them and name them in your response.`
+        : ''
 
-${
-  memoryContext ||
-  'No files have been uploaded to this agent yet. Let the user know they need to upload files first using the Upload button on the left panel.'
-}${mentionNote}`
+    const oneSkipped = mentionedSkipped.length === 1
+    const mentionSkippedNote =
+      mentionedSkipped.length > 0
+        ? `\n\nThe user @mentioned ${mentionedSkipped.join(', ')}, but ${oneSkipped ? 'that file was' : 'those files were'} too large to include this turn — you have NONE of ${oneSkipped ? 'its' : 'their'} content. Tell the user plainly that you could not load ${oneSkipped ? 'it' : 'them'} this turn and that you therefore cannot answer from ${oneSkipped ? 'it' : 'them'}. Do NOT describe, summarize or quote ${oneSkipped ? 'it' : 'them'}.`
+        : ''
+
+    // Two different reasons the context can be empty, and they need opposite answers. The
+    // second used to be the only message: an agent whose documents were ALL dropped for
+    // size was told "no files have been uploaded", which is simply untrue.
+    const emptyContextNote =
+      distinctDocsAvailable > 0
+        ? 'NONE of the documents retrieved for this question fit in this context, so you have no file content at all this turn. Say that plainly — do not answer from memory or from earlier turns in this conversation.'
+        : 'No files have been uploaded to this agent yet. Let the user know they need to upload files first using the Upload button on the left panel.'
+
+    // The count is honestly labelled as what it measures: documents retrieved for THIS
+    // question. It is not the agent's library size, and it legitimately changes from turn to
+    // turn as retrieval changes — which previously read as the agent contradicting itself.
+    const systemPrompt = `${GROUNDING_RULES}
+
+${agentInstruction}
+
+FILES IN MEMORY — ${distinctDocsUsed} of ${distinctDocsAvailable} document(s) retrieved for THIS question are included in full below.
+This count is NOT the number of files in the agent's memory: it counts only what this turn's search returned, and it legitimately differs from one question to the next. Never describe it as a total or library file count, and never compare it against a count you gave in an earlier turn.
+
+${memoryContext || emptyContextNote}${skippedNote}${mentionNote}${mentionSkippedNote}
+
+REMINDER: every name, figure, quote and date in your answer must be traceable to the file content above. If it is not there, say it is not in your files.`
 
     // ── 7. Call the Anthropic API (Claude Opus 4.8) ──────────────────
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -546,6 +639,11 @@ ${
           // Raised from 6000: on Opus 5 this budget covers thinking tokens as
           // well as the response text.
           max_tokens: 8000,
+          // Grounded retrieval, not creative writing: this answers strictly from the file
+          // content in the system prompt. Was previously unset, which meant the API default
+          // of 1.0 — the least-constrained sampling setting for the task in this codebase
+          // least tolerant of invention.
+          temperature: 0.2,
           system: systemPrompt,
           messages: [...conversationHistory, { role: 'user', content: question }],
         }),
