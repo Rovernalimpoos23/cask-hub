@@ -43,6 +43,14 @@ import { createClient } from '@/lib/supabase'
 import { WORKFLOW_STEPS } from '@/lib/workflow-steps'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
 import { useTheme } from '@/lib/theme-context'
+// Type-only import — erased at compile time, so no server code is pulled into
+// this client bundle. Keeps the payload shape in one place.
+import type {
+  ExcelDataPayload,
+  NpsPayload,
+  PitPayload,
+  CompPayload,
+} from '@/app/api/okr-dashboard-v2/excel-data/route'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Scoped stylesheet — port of the mockup's <style>, minus its sidebar/topbar
@@ -193,6 +201,17 @@ const OKR2_CSS = `
 .okr2-root .fold>summary .ft{font-family:var(--fd);font-weight:500;color:var(--tx)}
 .okr2-root .fold>summary .fm{margin-left:auto;font-size:11px;color:var(--tx3)}
 .okr2-root .foldbody{padding:0 15px 15px}
+
+/* ---------- nps tree ---------- */
+.okr2-root .tree tbody tr.lv1 td:first-child{padding-left:12px;font-weight:500;color:var(--tx)}
+.okr2-root .tree tbody tr.lv2 td:first-child{padding-left:34px;color:var(--tx2)}
+.okr2-root .tree tbody tr.lv3 td:first-child{padding-left:56px;color:var(--tx3);font-size:11.5px}
+.okr2-root .tree tbody tr.lv3 td{padding-top:6px;padding-bottom:6px;font-size:11.5px}
+.okr2-root .tw{background:none;border:0;color:inherit;font:inherit;cursor:pointer;display:flex;align-items:center;gap:7px;padding:0}
+.okr2-root .tw .cv{font-size:9px;color:var(--tx3);transition:transform .15s;width:9px}
+.okr2-root .tw[aria-expanded="true"] .cv{transform:rotate(90deg)}
+.okr2-root .spark{display:inline-flex;align-items:flex-end;gap:2px;height:14px;vertical-align:-2px}
+.okr2-root .spark i{display:block;width:3px;background:var(--slate);border-radius:1px}
 
 /* ---------- calendar ---------- */
 .okr2-root .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--bd);border-radius:var(--rc);overflow:hidden}
@@ -401,6 +420,37 @@ export default function OKRDashboardV2Page() {
       console.error('[okr-dashboard-v2] load error:', err)
       setLoading(false)
     })
+  }, [])
+
+  // ── Live Excel tracker data (Microsoft Graph, read-only) ─────────────────
+  // Separate effect so a slow or failing Graph read never blocks the Supabase
+  // sections. The route always answers 200 — on failure it returns nulls plus
+  // `errors`, and each section below falls back to its own placeholder.
+  const [excel, setExcel] = useState<ExcelDataPayload | null>(null)
+  const [excelLoading, setExcelLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadExcel() {
+      try {
+        const res = await fetch('/api/okr-dashboard-v2/excel-data')
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const json = (await res.json()) as ExcelDataPayload
+        if (!cancelled) setExcel(json)
+      } catch (err) {
+        console.error('[okr-dashboard-v2] tracker read failed:', err)
+        if (!cancelled) {
+          setExcel({
+            ok: false, source: null, nps: null, pit: null, selections: null, bid: null,
+            errors: ['Could not reach the tracker read endpoint.'],
+          })
+        }
+      } finally {
+        if (!cancelled) setExcelLoading(false)
+      }
+    }
+    loadExcel()
+    return () => { cancelled = true }
   }, [])
 
   // ── Current ET month ─────────────────────────────────────────────────────
@@ -704,10 +754,25 @@ Answer questions about client OKR status, PM assignments and monthly targets. Be
                 Design, permit and contract across{' '}
                 <b>{computed.length} active client{computed.length === 1 ? '' : 's'}</b> and {numPMs} PM
                 {numPMs === 1 ? '' : 's'}.{' '}
-                {/* The mockup said "Synced from the Excel tracker · 6 min ago". There is
-                    no Excel connection on this page yet, so the source is stated honestly
-                    instead — the same mistake the Precon Pipeline badge already makes. */}
-                <span className="dim">Live from workflow records · Excel tracker sync not connected yet</span>
+                {/* Source stated precisely rather than the mockup's blanket "Synced from
+                    the Excel tracker". The OKR figures come from workflow records; only
+                    NPS, PIT, Selections and Bid come from the tracker. Quarterly targets,
+                    avg design days and the monthly summary are still unconnected. */}
+                <span className="dim">
+                  OKR figures live from workflow records
+                  {excelLoading
+                    ? ' · reading the Excel tracker…'
+                    : excel?.ok
+                      ? ` · NPS, PIT, Selections and Bid live from ${excel.source?.fileName ?? 'the Excel tracker'}${
+                          excel.source?.lastModified
+                            ? `, last edited ${new Date(excel.source.lastModified).toLocaleString('en-US', {
+                                timeZone: 'America/New_York', month: 'short', day: 'numeric',
+                                hour: 'numeric', minute: '2-digit',
+                              })} ET`
+                            : ''
+                        }`
+                      : ' · Excel tracker unreachable, those sections show placeholders'}
+                </span>
               </p>
 
               <div className="tabs" role="tablist" aria-label="Dashboard views">
@@ -761,18 +826,21 @@ Answer questions about client OKR status, PM assignments and monthly targets. Be
                     </div>
                   </div>
 
-                  {/* PLACEHOLDER — Phase 2. Same empty-card pattern the mockup uses
-                      for "Avg design days" with no data. */}
-                  <div className="kpi">
-                    <div className="k">Selections completed</div>
-                    <div className="v empty-v">—</div>
-                    <div className="foot">Not connected yet · Phase 2</div>
-                  </div>
-                  <div className="kpi">
-                    <div className="k">Bid completed</div>
-                    <div className="v empty-v">—</div>
-                    <div className="foot">Not connected yet · Phase 2</div>
-                  </div>
+                  {/* LIVE from the Excel tracker (SelectionsComp / BidComp tables).
+                      Falls back to the em-dash empty-card state when the read
+                      fails — same pattern the mockup uses for a card with no data. */}
+                  <TrackerCountCard
+                    label="Selections completed"
+                    data={excel?.selections ?? null}
+                    loading={excelLoading}
+                    monthShort={monthShort}
+                  />
+                  <TrackerCountCard
+                    label="Bid completed"
+                    data={excel?.bid ?? null}
+                    loading={excelLoading}
+                    monthShort={monthShort}
+                  />
                 </div>
 
                 <div className={behindPhases.length ? 'pacebar warn' : 'pacebar'}>
@@ -887,22 +955,46 @@ Answer questions about client OKR status, PM assignments and monthly targets. Be
                 <Fold title="Quarterly targets" meta={quarterLabel} metaRight="not connected yet">
                   <QuarterlyTargetsPlaceholder />
                 </Fold>
-                <Fold title="PIT goals KPI" meta={quarterLabel} metaRight="not connected yet">
-                  <PitGoalsPlaceholder />
+                <Fold
+                  title="PIT goals KPI"
+                  meta={excel?.pit ? `${excel.pit.itemCount} items${excel.pit.quarters.length ? ` · ${excel.pit.quarters.join(', ')}` : ''}` : quarterLabel}
+                  metaRight={foldMeta(excelLoading, !!excel?.pit)}
+                >
+                  <PitGoalsSection data={excel?.pit ?? null} loading={excelLoading} errors={excel?.errors ?? []} />
                 </Fold>
-                <Fold title="NPS history" meta="all time" metaRight="not connected yet">
-                  <NpsHistoryPlaceholder />
+                <Fold
+                  title="NPS history"
+                  meta={excel?.nps ? `${excel.nps.total} responses all time` : 'all time'}
+                  metaRight={excel?.nps?.avgAll != null ? `avg ${excel.nps.avgAll.toFixed(1)}` : foldMeta(excelLoading, !!excel?.nps)}
+                >
+                  <NpsHistorySection data={excel?.nps ?? null} loading={excelLoading} errors={excel?.errors ?? []} />
                 </Fold>
-                <Fold title="Selections completed" meta={monthLabel} metaRight="not connected yet">
-                  <SimplePlaceholder
-                    what="Selections completed"
-                    detail="Selections is not modelled as an OKR phase in workflow records yet, so there is nothing to count. It stays a placeholder here, exactly as on the current dashboard."
+                <Fold
+                  title="Selections completed"
+                  meta={excel?.selections ? `${excel.selections.total} all time` : monthLabel}
+                  metaRight={foldMeta(excelLoading, !!excel?.selections)}
+                >
+                  <CompletionsSection
+                    what="Selections"
+                    data={excel?.selections ?? null}
+                    loading={excelLoading}
+                    errors={excel?.errors ?? []}
+                    monthLabel={monthLabel}
+                    fallbackDetail="Selections is not modelled as an OKR phase in workflow records, so this comes from the tracker's SelectionsComp table instead."
                   />
                 </Fold>
-                <Fold title="Bid completed" meta={monthLabel} metaRight="new · not connected yet">
-                  <SimplePlaceholder
-                    what="Bid completed"
-                    detail="New section — it does not exist on the current dashboard at all. No source is wired up, so no number is shown."
+                <Fold
+                  title="Bid completed"
+                  meta={excel?.bid ? `${excel.bid.total} all time` : monthLabel}
+                  metaRight={foldMeta(excelLoading, !!excel?.bid)}
+                >
+                  <CompletionsSection
+                    what="Bid"
+                    data={excel?.bid ?? null}
+                    loading={excelLoading}
+                    errors={excel?.errors ?? []}
+                    monthLabel={monthLabel}
+                    fallbackDetail="New section — it does not exist on the current dashboard at all. It reads the tracker's BidComp table."
                   />
                 </Fold>
                 <Fold
@@ -1091,13 +1183,47 @@ Answer questions about client OKR status, PM assignments and monthly targets. Be
 
               {/* ══════════════ HISTORY ══════════════ */}
               <section className="panel" id="okr2-p-hist" role="tabpanel" aria-labelledby="okr2-t-hist" hidden={tab !== 'hist'}>
-                <div className="slab"><h2>NPS history</h2><span className="hint">Phase 2</span></div>
-                <NpsHistoryPlaceholder />
+                <div className="slab">
+                  <h2>NPS history</h2>
+                  <span className="hint">
+                    {excel?.nps
+                      ? `${excel.nps.total} responses · click a year to expand`
+                      : foldMeta(excelLoading, false)}
+                  </span>
+                </div>
+                <NpsHistorySection data={excel?.nps ?? null} loading={excelLoading} errors={excel?.errors ?? []} />
 
-                <div className="slab"><h2>PIT goals KPI</h2><span className="hint">{quarterLabel} · Phase 2</span></div>
-                <PitGoalsPlaceholder />
+                <div className="slab">
+                  <h2>PIT goals KPI</h2>
+                  <span className="hint">
+                    {excel?.pit
+                      ? `${excel.pit.itemCount} items${excel.pit.quarters.length ? ` · ${excel.pit.quarters.join(', ')}` : ''}`
+                      : foldMeta(excelLoading, false)}
+                  </span>
+                </div>
+                <PitGoalsSection data={excel?.pit ?? null} loading={excelLoading} errors={excel?.errors ?? []} />
 
-                <div className="slab"><h2>Quarterly targets</h2><span className="hint">{quarterLabel} · Phase 2</span></div>
+                <div className="slab"><h2>Selections completed</h2><span className="hint">from the tracker</span></div>
+                <CompletionsSection
+                  what="Selections"
+                  data={excel?.selections ?? null}
+                  loading={excelLoading}
+                  errors={excel?.errors ?? []}
+                  monthLabel={monthLabel}
+                  fallbackDetail="Selections is not modelled as an OKR phase in workflow records, so this comes from the tracker's SelectionsComp table instead."
+                />
+
+                <div className="slab"><h2>Bid completed</h2><span className="hint">from the tracker</span></div>
+                <CompletionsSection
+                  what="Bid"
+                  data={excel?.bid ?? null}
+                  loading={excelLoading}
+                  errors={excel?.errors ?? []}
+                  monthLabel={monthLabel}
+                  fallbackDetail="New section — it does not exist on the current dashboard at all. It reads the tracker's BidComp table."
+                />
+
+                <div className="slab"><h2>Quarterly targets</h2><span className="hint">{quarterLabel} · Phase 2b</span></div>
                 <QuarterlyTargetsPlaceholder />
 
                 <div className="slab"><h2>Completions calendar</h2><span className="hint">{monthLabel}</span></div>
@@ -1410,51 +1536,122 @@ function QuarterlyTargetsPlaceholder() {
   )
 }
 
-function PitGoalsPlaceholder() {
-  // Column names follow the mockup, which renamed the source tab's two
-  // identically-labelled "Department Team" columns. That rename is still
-  // unconfirmed — see the flag.
-  const cols = ['PIT submitted', 'PS submitted', 'Dept team trained', 'Dept team certified', 'SOP created']
+// ═══════════════════════════════════════════════════════════════════════════
+// LIVE TRACKER SECTIONS — read from the Precon KPI Tracker via
+// /api/okr-dashboard-v2/excel-data (Graph, read-only).
+//
+// Each one degrades to the mockup's em-dash shell when the read fails, so a
+// Graph outage costs you the numbers, not the page.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Right-hand meta text on a fold summary.
+function foldMeta(loading: boolean, hasData: boolean): string {
+  if (loading) return 'reading tracker…'
+  return hasData ? 'live from tracker' : 'tracker unavailable'
+}
+
+// Shown in place of a section's table when the tracker read failed.
+function TrackerUnavailable({ what, detail, errors }: { what: string; detail: string; errors: string[] }) {
   return (
-    <div>
-      <div className="tbox">
-        <div className="tscroll">
-          <table>
-            <thead>
-              <tr>
-                <th style={{ minWidth: 130 }}>Name</th>
-                {cols.map(c => <th className="num" key={c}>{c}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="dim">—</td>
-                {cols.map(c => <td className="num dim" key={c}>—</td>)}
-              </tr>
-            </tbody>
-            <tfoot>
-              <tr>
-                <td className="dim">Quarter target</td>
-                {cols.map(c => <td className="num dim" key={c}>—</td>)}
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+    <Flag>
+      <b>{what} unavailable.</b> {detail} The dashboard could not read the tracker just now, so no figures are
+      shown rather than stale ones.
+      {errors.length > 0 && (
+        <span className="dim" style={{ display: 'block', marginTop: 5, fontSize: 11 }}>
+          {errors.slice(0, 3).join(' · ')}
+        </span>
+      )}
+    </Flag>
+  )
+}
+
+function SectionSkeleton() {
+  return <div className="skel shimmer" style={{ height: 120 }} />
+}
+
+// ── Selections / Bid KPI card ──────────────────────────────────────────────
+function TrackerCountCard({
+  label, data, loading, monthShort,
+}: {
+  label: string
+  data: CompPayload | null
+  loading: boolean
+  monthShort: string
+}) {
+  if (loading) {
+    return (
+      <div className="kpi">
+        <div className="k">{label}</div>
+        <div className="v empty-v">·</div>
+        <div className="foot">Reading tracker…</div>
       </div>
-      <PlaceholderRowsNote>
-        No PIT source is connected yet. When it is: two columns shared the header &ldquo;Department Team&rdquo; on the
-        source tab, renamed here to trained and certified — confirm which is which before this goes live.
-      </PlaceholderRowsNote>
+    )
+  }
+  if (!data) {
+    return (
+      <div className="kpi">
+        <div className="k">{label}</div>
+        <div className="v empty-v">—</div>
+        <div className="foot">Tracker unavailable</div>
+      </div>
+    )
+  }
+  // "This month" against the tracker's own completion dates. There is no target
+  // for these two in the source, so no track bar and no pace marker.
+  return (
+    <div className="kpi">
+      <div className="k">{label}</div>
+      <div className={data.thisMonth === 0 ? 'v empty-v' : 'v'}>
+        {data.thisMonth}
+        <small> in {monthShort}</small>
+      </div>
+      <div className="foot">{data.total} all time · from tracker</div>
     </div>
   )
 }
 
-function NpsHistoryPlaceholder() {
+// ── NPS history (year → quarter → month drill-down) ────────────────────────
+function Spark({ counts }: { counts: number[] }) {
+  const max = Math.max(...counts, 1)
+  return (
+    <span className="spark" aria-hidden="true">
+      {counts.map((v, i) => (
+        <i key={i} style={{ height: `${Math.max(1, (v / max) * 14)}px`, opacity: v ? 1 : 0.25 }} />
+      ))}
+    </span>
+  )
+}
+
+function NpsHistorySection({
+  data, loading, errors,
+}: {
+  data: NpsPayload | null
+  loading: boolean
+  errors: string[]
+}) {
+  // Newest year open by default; everything else collapsed.
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const firstYear = data?.years[0]?.year
+  const isOpen = (id: string, dflt = false) => open[id] ?? dflt
+
+  if (loading) return <SectionSkeleton />
+  if (!data) {
+    return (
+      <TrackerUnavailable
+        what="NPS history"
+        detail="It reads the tracker's NewNPS table."
+        errors={errors}
+      />
+    )
+  }
+
+  const fmt = (n: number | null) => (n === null ? '—' : n.toFixed(1))
+
   return (
     <div>
       <div className="tbox">
         <div className="tscroll">
-          <table>
+          <table className="tree">
             <thead>
               <tr>
                 <th style={{ minWidth: 190 }}>Period</th>
@@ -1464,34 +1661,193 @@ function NpsHistoryPlaceholder() {
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td className="dim">—</td>
-                <td className="num dim">—</td>
-                <td className="num dim">—</td>
-                <td className="num dim">—</td>
-              </tr>
+              {data.years.length === 0 ? (
+                <tr><td colSpan={4} className="dim">No dated responses in the tracker.</td></tr>
+              ) : (
+                data.years.map(y => {
+                  const yId = `y${y.year}`
+                  const yOpen = isOpen(yId, y.year === firstYear)
+                  return (
+                    <Fragment key={yId}>
+                      <tr className="lv1">
+                        <td>
+                          <button
+                            className="tw"
+                            aria-expanded={yOpen}
+                            onClick={() => setOpen(o => ({ ...o, [yId]: !yOpen }))}
+                          >
+                            <span className="cv" aria-hidden="true">▶</span>{y.year}
+                          </button>
+                        </td>
+                        <td className="num">{y.count}</td>
+                        <td className="num">{fmt(y.avg)}</td>
+                        <td className="num"><Spark counts={y.spark} /></td>
+                      </tr>
+                      {yOpen && y.quarters.map(q => {
+                        const qId = `${yId}-${q.label}`
+                        const qOpen = isOpen(qId, true)
+                        return (
+                          <Fragment key={qId}>
+                            <tr className="lv2">
+                              <td>
+                                <button
+                                  className="tw"
+                                  aria-expanded={qOpen}
+                                  onClick={() => setOpen(o => ({ ...o, [qId]: !qOpen }))}
+                                >
+                                  <span className="cv" aria-hidden="true">▶</span>{q.label}
+                                </button>
+                              </td>
+                              <td className={q.count ? 'num' : 'num dim'}>{q.count}</td>
+                              <td className={q.avg !== null ? 'num' : 'num dim'}>{fmt(q.avg)}</td>
+                              <td />
+                            </tr>
+                            {qOpen && q.months.map(m => (
+                              <tr className="lv3" key={`${qId}-${m.label}`}>
+                                <td>{m.label}</td>
+                                <td className={m.count ? 'num' : 'num dim'}>{m.count || '—'}</td>
+                                <td className={m.avg !== null ? 'num' : 'num dim'}>{fmt(m.avg)}</td>
+                                <td />
+                              </tr>
+                            ))}
+                          </Fragment>
+                        )
+                      })}
+                    </Fragment>
+                  )
+                })
+              )}
             </tbody>
             <tfoot>
               <tr>
-                <td className="dim">All time</td>
-                <td className="num dim">—</td>
-                <td className="num dim">—</td>
+                <td>All time</td>
+                <td className="num">{data.total}</td>
+                <td className="num">{fmt(data.avgAll)}</td>
                 <td />
               </tr>
             </tfoot>
           </table>
         </div>
+        {data.byPm.length > 0 && (
+          <div className="legend">
+            {data.byPm.map(p => (
+              <span key={p.pm}>
+                <i className="dot go" />{p.pm} · {p.count} · avg {fmt(p.avg)}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      <PlaceholderRowsNote>
-        NPS responses are not connected yet, so the year → quarter → month drill-down has nothing to expand. The
-        historical figures shown on the current dashboard are hand-copied from the tracker and are not carried over
-        here on purpose. Phase 2.
-      </PlaceholderRowsNote>
+      <Flag>
+        <b>Live from the tracker.</b> Read from the <span className="mono">NewNPS</span> table, scored on
+        &ldquo;how satisfied are you with your experience so far?&rdquo; (1&ndash;10) and bucketed by Date Submitted.
+        {data.scored < data.total && ` ${data.total - data.scored} of ${data.total} responses carry no score and are counted but not averaged.`}
+        {' '}The older <span className="mono">NPS</span> tab asks a different question (likelihood to refer) and is
+        not merged in — the two are not the same metric.
+      </Flag>
     </div>
   )
 }
 
-function SimplePlaceholder({ what, detail }: { what: string; detail: string }) {
+// ── PIT goals KPI (per person × stage) ─────────────────────────────────────
+function PitGoalsSection({
+  data, loading, errors,
+}: {
+  data: PitPayload | null
+  loading: boolean
+  errors: string[]
+}) {
+  if (loading) return <SectionSkeleton />
+  if (!data) {
+    return (
+      <TrackerUnavailable
+        what="PIT goals KPI"
+        detail="It reads the tracker's PITprecon table."
+        errors={errors}
+      />
+    )
+  }
+
+  return (
+    <div>
+      <div className="tbox">
+        <div className="tscroll">
+          <table>
+            <thead>
+              {/* Same column shape as the current dashboard: Name + the five
+                  stages. No Total column — the funnel makes the first stage
+                  column equal to the person's item count already. */}
+              <tr>
+                <th style={{ minWidth: 150 }}>Name</th>
+                {data.stages.map(s => <th className="num" key={s}>{s}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {data.people.length === 0 ? (
+                <tr><td colSpan={data.stages.length + 1} className="dim">No PIT items in the tracker.</td></tr>
+              ) : (
+                data.people.map(p => (
+                  <tr key={p.name}>
+                    <td>
+                      <span className="nm">{p.name}</span>
+                      {p.email && <div className="sub">{p.email}</div>}
+                    </td>
+                    {p.counts.map((c, i) => (
+                      <td className={c ? 'num' : 'num dim'} key={i}>{c}</td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Actual</td>
+                {data.totals.map((t, i) => <td className="num" key={i}>{t}</td>)}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      <Flag>
+        <b>Live from the tracker.</b> Read from the <span className="mono">PITprecon</span> table, where{' '}
+        <span className="mono">Status</span> records the furthest stage an item has reached. The columns are therefore
+        a <b>cumulative funnel</b>: an item at &ldquo;SOP Created&rdquo; is counted under every earlier stage too, so
+        each column reads &ldquo;how many have got at least this far&rdquo; and the numbers step down left to right.
+        <span style={{ display: 'block', marginTop: 6 }}>
+          This also settles the old ambiguity: the two columns that both read &ldquo;Department Team&rdquo; on the
+          current dashboard are <b>Review</b> and <b>Approval</b> — not &ldquo;trained / certified&rdquo;, which the
+          redesign mockup had guessed. Running this funnel against the live table reproduces the current
+          dashboard&apos;s hand-maintained figures exactly for Kelly, Matteo and Tim; Chad reads one higher because
+          he has logged an item since those numbers were typed in.
+        </span>
+        {data.notes.length > 0 && (
+          <span className="dim" style={{ display: 'block', marginTop: 6, fontSize: 11 }}>
+            {data.notes.join(' · ')}
+          </span>
+        )}
+      </Flag>
+    </div>
+  )
+}
+
+// ── Selections / Bid completed ─────────────────────────────────────────────
+function CompletionsSection({
+  what, data, loading, errors, monthLabel, fallbackDetail,
+}: {
+  what: string
+  data: CompPayload | null
+  loading: boolean
+  errors: string[]
+  monthLabel: string
+  fallbackDetail: string
+}) {
+  if (loading) return <SectionSkeleton />
+  if (!data) {
+    return <TrackerUnavailable what={`${what} completed`} detail={fallbackDetail} errors={errors} />
+  }
+
+  const tableName = what === 'Bid' ? 'BidComp' : 'SelectionsComp'
+
   return (
     <div>
       <div className="tbox">
@@ -1499,24 +1855,62 @@ function SimplePlaceholder({ what, detail }: { what: string; detail: string }) {
           <table>
             <thead>
               <tr>
-                <th style={{ minWidth: 190 }}>{what}</th>
-                <th className="num">Target</th>
-                <th className="num">Done</th>
-                <th className="num">Gap</th>
+                <th style={{ minWidth: 170 }}>Customer</th>
+                <th>PM</th>
+                <th>Type</th>
+                <th className="num">{data.dateColumn}</th>
+                <th className="num">Days</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td className="dim">—</td>
-                <td className="num dim">—</td>
-                <td className="num dim">—</td>
-                <td className="num dim">—</td>
-              </tr>
+              {data.recent.length === 0 ? (
+                <tr><td colSpan={5} className="dim">No completed rows in the tracker.</td></tr>
+              ) : (
+                data.recent.map((r, i) => (
+                  <tr key={`${r.customer}-${i}`}>
+                    <td className="nm">{r.customer || '—'}</td>
+                    <td className="dim">{r.pm || '—'}</td>
+                    <td className="dim">{r.projectType || '—'}</td>
+                    <td className={r.date ? 'num' : 'num dim'}>{r.date ?? '—'}</td>
+                    <td className={r.days !== null ? 'num' : 'num dim'}>{r.days ?? '—'}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
+            <tfoot>
+              <tr>
+                <td>{data.total} completed all time</td>
+                <td colSpan={2} className="dim">
+                  {data.byPm.map(p => `${p.pm} ${p.count}`).join(' · ')}
+                </td>
+                <td className="num">{data.thisMonth} in {monthLabel.split(' ')[0]}</td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         </div>
+        {data.recent.length > 0 && data.total > data.recent.length && (
+          <div className="legend">
+            <span className="dim">
+              Showing the {data.recent.length} most recent of {data.total} — newest first
+            </span>
+          </div>
+        )}
       </div>
-      <PlaceholderRowsNote>{detail}</PlaceholderRowsNote>
+      <Flag>
+        <b>Live from the tracker.</b> Read from the <span className="mono">{tableName}</span> table. That table has
+        no &ldquo;date completed&rdquo; column, so <span className="mono">{data.dateColumn}</span> is used as the
+        completion date — it is the column whose difference from <span className="mono">Date Permit Routed</span>
+        {' '}matches the sheet&apos;s own <span className="mono">#&nbsp;Days</span> figure.
+        {data.dated < data.total && ` ${data.total - data.dated} row(s) have no readable date and are excluded from the monthly count.`}
+        {data.anomalies > 0 && (
+          <span style={{ display: 'block', marginTop: 6 }}>
+            <b>{data.anomalies} row{data.anomalies === 1 ? '' : 's'} disagree with {data.dateColumn === 'Date Contract Signed' ? 'their own' : 'the'} day count</b>
+            {' '}— the two dates and <span className="mono">#&nbsp;Days</span> do not reconcile, so at least one of
+            the three is wrong at source. Worth a look before reporting off these dates.
+          </span>
+        )}
+      </Flag>
     </div>
   )
 }
