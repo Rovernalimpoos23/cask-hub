@@ -22,13 +22,27 @@
 //   • Active Projects — Overall Journey, phase bars, KPI tasks per client
 //   • Completions Calendar
 //
-// ── What is PLACEHOLDER, real data lands in Phase 2 ─────────────────────────
-//   • Quarterly Targets       • PIT Goals KPI        • NPS History
-//   • Selections Completed    • Bid Completed
-//   These render the mockup's real component shells with em-dashes and a `.flag`
-//   note. Deliberately NOT carried over: the hardcoded Excel numbers that the
-//   live dashboard still shows for these sections. Shipping stale figures under a
-//   new design would read as "connected" when it is not.
+// ── REMOVED ─────────────────────────────────────────────────────────────────
+//   • Quarterly Targets — removed outright, not hidden. The source has an
+//     unresolved inconsistency: the Q3 tab carries three independent copies of
+//     the quarterly-target table (one per month block) and they disagree — the
+//     July block reads Design 4/4/3 with a quarter total of 11, while the August
+//     and September blocks both read 3/3/3 totalling 9. Nothing accurate can be
+//     shown until someone decides which copy is authoritative, so the section is
+//     gone rather than sitting here as an empty shell.
+//
+// ── LIVE from the Excel tracker via /api/okr-dashboard-v2/excel-data ────────
+//   • NPS History (NewNPS)            • PIT Goals KPI (PITprecon)
+//   • Selections Completed (SelectionsComp)  • Bid Completed (BidComp)
+//   Connected in Phase 2a. Each degrades to an em-dash shell plus a `.flag` when
+//   the Graph read fails, so an outage costs the numbers, not the page. These
+//   figures are also fed into the CASK Intelligence system context so it can
+//   answer about them instead of calling them unconnected.
+//
+// ── Still NOT connected ─────────────────────────────────────────────────────
+//   • Avg Design Days — shown from workflow records; the tracker's own version is
+//     =AVERAGE(DesignOng[# Days in Design]), i.e. on-going not completed designs.
+//   • Monthly Summary — the tracker block is not read at all (Phase 2b).
 //
 // Explicitly excluded per spec: Weekly Goal notes, MI5 daily task checklists.
 //
@@ -677,6 +691,102 @@ export default function OKRDashboardV2Page() {
 
   // ── AI context (same shape the live dashboard sends) ─────────────────────
   const pct = (done: number, total: number) => (total > 0 ? Math.round((done / total) * 100) : 0)
+
+  // ── Live tracker figures for the AI context ──────────────────────────────
+  // NPS, PIT Goals, Selections and Bid became live in Phase 2a. Saying so in the
+  // prompt is not enough on its own: the closing instruction tells the model to
+  // ground every answer in this context and never invent numbers, so the actual
+  // figures have to be here. Otherwise "this data is connected" just licenses it
+  // to make numbers up.
+  //
+  // Reads only the already-fetched `excel` state — no new query, no new maths.
+  // All three states are covered honestly: still reading, unreachable, or live.
+  const trackerContext = ((): string => {
+    const head = 'LIVE EXCEL TRACKER (NPS History, PIT Goals KPI, Selections Completed, Bid Completed)'
+
+    if (excelLoading) {
+      return `${head}:
+These four sections ARE connected, but the tracker read for this page load has not finished.
+If asked, say the figures are still loading rather than quoting any number.`
+    }
+    if (!excel?.ok) {
+      return `${head}:
+These four sections ARE connected in the product, but the tracker could not be read on this
+page load, so no figures are available to you. If asked, say the tracker is unreachable right
+now. Do NOT guess, and do NOT quote numbers from memory.`
+    }
+
+    const L: string[] = [`${head} — CONNECTED AND ANSWERABLE. Figures below are live.`]
+    if (excel.source) {
+      L.push(
+        `Source file: ${excel.source.fileName}` +
+        (excel.source.lastModified ? `, last edited ${excel.source.lastModified}` : ''),
+      )
+    }
+
+    const n = excel.nps
+    if (n) {
+      L.push(
+        '',
+        'NPS HISTORY (NewNPS table):',
+        `- ${n.total} responses all time; ${n.scored} carry a 1-10 score; average ${n.avgAll ?? 'n/a'}`,
+        ...n.years.map(y => `- ${y.year}: ${y.count} responses, avg ${y.avg ?? 'n/a'}` +
+          (y.quarters.length ? ` (${y.quarters.map(q => `${q.label} ${q.count}${q.avg !== null ? ` avg ${q.avg}` : ''}`).join(', ')})` : '')),
+        ...(n.byPm.length ? [`- By PM: ${n.byPm.map(p => `${p.pm} ${p.count} avg ${p.avg ?? 'n/a'}`).join('; ')}`] : []),
+        '- The score is "how satisfied are you with your experience so far?" (1-10). The older',
+        '  NPS tab asks likelihood-to-refer instead and is deliberately NOT merged in — if asked',
+        '  about referral-based NPS, say that is a different metric and is not on this dashboard.',
+      )
+    } else {
+      L.push('', 'NPS HISTORY: connected, but this read returned nothing — say so if asked.')
+    }
+
+    const p = excel.pit
+    if (p) {
+      L.push(
+        '',
+        `PIT GOALS KPI (PITprecon table) — ${p.itemCount} items` +
+        (p.quarters.length ? `, quarters ${p.quarters.join(', ')}` : ''),
+        '- The stage columns are a CUMULATIVE FUNNEL: each counts items that reached AT LEAST',
+        '  that stage, so the numbers step down from left to right. An item at "SOP Created" is',
+        '  also counted under every earlier stage. Explain it that way if asked.',
+        `- Stages, in order: ${p.stages.join(' | ')}`,
+        ...p.people.map(person => `- ${person.name}: ${person.counts.join(', ')}`),
+        `- Team totals: ${p.totals.join(', ')}`,
+        '- The two columns the old dashboard labelled "Department Team" are Review and Approval.',
+      )
+      if (p.notes.length) L.push(`- Source caveats: ${p.notes.join('; ')}`)
+    } else {
+      L.push('', 'PIT GOALS KPI: connected, but this read returned nothing — say so if asked.')
+    }
+
+    const comp: [string, string, typeof excel.selections][] = [
+      ['SELECTIONS COMPLETED', 'SelectionsComp', excel.selections],
+      ['BID COMPLETED', 'BidComp', excel.bid],
+    ]
+    for (const [label, table, d] of comp) {
+      if (!d) {
+        L.push('', `${label}: connected, but this read returned nothing — say so if asked.`)
+        continue
+      }
+      L.push(
+        '',
+        `${label} (${table} table):`,
+        `- ${d.total} completed all time; ${d.thisMonth} in ${monthLabel}`,
+        ...(d.byPm.length ? [`- By PM: ${d.byPm.map(x => `${x.pm} ${x.count}`).join('; ')}`] : []),
+        `- That table has no "date completed" column, so "${d.dateColumn}" is used as the`,
+        "  completion date — it is the column that reconciles with the sheet's own # Days figure.",
+      )
+      if (d.anomalies > 0) {
+        L.push(`- ${d.anomalies} row(s) where the two dates disagree with # Days — flag this if the dates come up.`)
+      }
+      if (d.dated < d.total) {
+        L.push(`- ${d.total - d.dated} row(s) have no readable date and are excluded from the monthly count.`)
+      }
+    }
+
+    return L.join('\n')
+  })()
   const okrAIContext = `You are CASK Intelligence on the Pre-Con OKR Dashboard for CASK Construction.
 Today: ${now.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })}
 
@@ -694,10 +804,18 @@ ${computed.map(client => {
 MONTHLY TARGETS (${monthLabel}):
 ${PHASE_KEYS.map(k => `- ${PHASE_META[k].label}: Target ${monthlyTeamTarget} | Obtained ${obtainedThisMonth(k)} | In flight ${inFlight(k)}`).join('\n')}
 
-NOT YET CONNECTED (do not answer questions about these — say the data is not wired up yet):
-Quarterly Targets, PIT Goals KPI, NPS History, Selections Completed, Bid Completed.
+${trackerContext}
 
-Answer questions about client OKR status, PM assignments and monthly targets. Be specific and ground every answer in the data above — never invent clients or numbers not present here.`
+NOT CONNECTED (do not answer from these — say the data is not wired up yet):
+Avg Design Days on this dashboard is derived from workflow records, not the tracker. The
+tracker's Monthly Summary block is not read at all.
+
+There is no Quarterly Targets section on this dashboard. If asked about quarterly targets,
+say the section was removed because the source tracker holds three conflicting copies of it.
+
+Answer questions about client OKR status, PM assignments, monthly targets, and the live
+tracker figures above (NPS, PIT Goals, Selections, Bid). Be specific and ground every answer
+in the data above — never invent clients or numbers not present here.`
 
   // ═══════════════════════════════════════════════════════════════════════
   return (
@@ -756,8 +874,8 @@ Answer questions about client OKR status, PM assignments and monthly targets. Be
                 {numPMs === 1 ? '' : 's'}.{' '}
                 {/* Source stated precisely rather than the mockup's blanket "Synced from
                     the Excel tracker". The OKR figures come from workflow records; only
-                    NPS, PIT, Selections and Bid come from the tracker. Quarterly targets,
-                    avg design days and the monthly summary are still unconnected. */}
+                    NPS, PIT, Selections and Bid come from the tracker. Avg design days
+                    and the monthly summary are still unconnected. */}
                 <span className="dim">
                   OKR figures live from workflow records
                   {excelLoading
@@ -952,9 +1070,6 @@ Answer questions about client OKR status, PM assignments and monthly targets. Be
 
                 <div className="slab"><h2>Reference</h2><span className="hint">expand when you need it</span></div>
 
-                <Fold title="Quarterly targets" meta={quarterLabel} metaRight="not connected yet">
-                  <QuarterlyTargetsPlaceholder />
-                </Fold>
                 <Fold
                   title="PIT goals KPI"
                   meta={excel?.pit ? `${excel.pit.itemCount} items${excel.pit.quarters.length ? ` · ${excel.pit.quarters.join(', ')}` : ''}` : quarterLabel}
@@ -1223,9 +1338,6 @@ Answer questions about client OKR status, PM assignments and monthly targets. Be
                   fallbackDetail="New section — it does not exist on the current dashboard at all. It reads the tracker's BidComp table."
                 />
 
-                <div className="slab"><h2>Quarterly targets</h2><span className="hint">{quarterLabel} · Phase 2b</span></div>
-                <QuarterlyTargetsPlaceholder />
-
                 <div className="slab"><h2>Completions calendar</h2><span className="hint">{monthLabel}</span></div>
                 <CompletionsCalendar
                   year={calYear}
@@ -1482,56 +1594,6 @@ function CompletionsCalendar({
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// PLACEHOLDERS — Phase 2 sections.
-//
-// These render the mockup's real table shells so the layout is final, but every
-// value is an em-dash. The hardcoded Excel figures the live dashboard still
-// shows for these sections are deliberately NOT carried over: under a fresh
-// design they would read as connected data.
-// ═══════════════════════════════════════════════════════════════════════════
-function PlaceholderRowsNote({ children }: { children: React.ReactNode }) {
-  return <Flag><b>Placeholder.</b> {children}</Flag>
-}
-
-function QuarterlyTargetsPlaceholder() {
-  const cols = ['Design', 'Permit', 'Contract', 'Done']
-  return (
-    <div>
-      <div className="tbox">
-        <div className="tscroll">
-          <table>
-            <thead>
-              <tr>
-                <th style={{ minWidth: 130 }}>Month</th>
-                {cols.map(c => <th className="num" key={c}>{c}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {['Month 1', 'Month 2', 'Month 3'].map(m => (
-                <tr key={m}>
-                  <td className="nm dim">{m}</td>
-                  {cols.map(c => <td className="num dim" key={c}>—</td>)}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td className="dim">Quarter total</td>
-                {cols.map(c => <td className="num dim" key={c}>—</td>)}
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-      <PlaceholderRowsNote>
-        Quarterly targets are not wired to a source yet. There is also an unresolved conflict to settle first — the
-        tracker footnote says 9 per PM per quarter while the quarterly tab totals 9 for the whole team. Phase 2.
-      </PlaceholderRowsNote>
     </div>
   )
 }
@@ -1925,7 +1987,7 @@ function CompletionsSection({
 // ═══════════════════════════════════════════════════════════════════════════
 const OKR2_PAGE_CONTEXT = '/customers/okr-dashboard-v2'
 const OKR2_AI_GREETING =
-  "CASK Intelligence online. I have live context on every active client's OKR status — Design, Permit and Contract progress, PM assignments and this month's targets. Quarterly targets, PIT goals, NPS and the Selections/Bid metrics are not connected yet, so I'll say so rather than guess."
+  "CASK Intelligence online. I have live context on every active client's OKR status — Design, Permit and Contract progress, PM assignments and this month's targets — plus live figures from the Precon KPI Tracker for NPS, PIT goals, and Selections/Bid completions. Ask who's behind, how NPS is trending, or where a PIT item sits."
 const OKR2_QUICK_PROMPTS = [
   'Why has nothing moved past design this month?',
   'Which PM is closest to hitting target?',
