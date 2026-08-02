@@ -1,21 +1,24 @@
 'use client'
-// src/app/(app)/customers/okr-dashboard-v2/page.tsx
+// src/app/(app)/customers/okr-dashboard/page.tsx
 //
-// Pre-Con OKR Dashboard — REDESIGN, Phase 1 (visual structure only).
+// Pre-Con OKR Dashboard — THE live dashboard, the one the whole team uses.
 //
-// This is a NEW route built alongside the live dashboard at
-// /customers/okr-dashboard. That page is untouched and still serves production;
-// nothing here modifies it. When this replaces it, the old route can be retired
-// in a separate, deliberate change.
+// This version was built and reviewed at /customers/okr-dashboard-v2, then
+// promoted here by replacing this file's contents wholesale. The version it
+// replaced is kept verbatim beside it as `page.tsx.backup` — the rollback copy,
+// and not a route (`.backup` is not a Next page extension, so the router and
+// tsc both skip it). The v2 route still exists and still serves this same page;
+// retiring it is a separate, deliberate change.
 //
 // ── Visual language ─────────────────────────────────────────────────────────
-// This page wears the SAME look as the live dashboard at /customers/okr-dashboard:
-// the Hub's own tokens (--surface / --border / --text* / --green / --amber / --red),
-// 12px cards, uppercase letterspaced section headers, the `font-serif` h1, and the
+// The look is the one leadership already knows: the design this page carried
+// before the swap, preserved in `page.tsx.backup`. That means the Hub's own
+// tokens (--surface / --border / --text* / --green / --amber / --red), 12px
+// cards, uppercase letterspaced section headers, the `font-serif` h1, and the
 // same table / badge / progress-bar vocabulary. Styling convention follows that
-// page exactly — inline styles keyed to CSS variables, with Tailwind only for the
-// layout utilities it uses (`flex-1 overflow-y-auto p-7 animate-page-in`,
-// `font-serif`, `shimmer`).
+// earlier version exactly — inline styles keyed to CSS variables, with Tailwind
+// only for the layout utilities it used (`flex-1 overflow-y-auto p-7
+// animate-page-in`, `font-serif`, `shimmer`).
 //
 // The earlier redesign styling — a scoped `.okr2-root` stylesheet porting the
 // mockup's palette, plus Space Grotesk / IBM Plex Mono web fonts — was removed
@@ -25,10 +28,10 @@
 //
 // The one <style> block left carries the four rules that cannot be expressed
 // inline (a keyframe, the <summary> marker reset, and the caveat notes' <b>) —
-// the live dashboard injects its own keyframe the same way.
+// the pre-swap version injected its own keyframe the same way.
 //
-// ── What is REAL data on this page (same Supabase queries + calculations as the
-//    live dashboard, restyled only) ───────────────────────────────────────────
+// ── What is REAL data on this page (same Supabase queries + calculations as
+//    before the swap, restyled only) ─────────────────────────────────────────
 //   • Top stat cards — Design / Permit / Contract completed this month, Avg design days
 //   • Per PM breakdown — Target / Obtain / Gap per stage per PM
 //   • Active Projects — Overall Journey, phase bars, KPI tasks per client
@@ -65,9 +68,10 @@
 //
 // Explicitly excluded per spec: Weekly Goal notes, MI5 daily task checklists.
 //
-// NO Microsoft Graph / SharePoint / Excel calls in this phase. NO Supabase
-// schema or write logic is touched — the four reads below are the same reads the
-// live dashboard already performs.
+// Every Microsoft Graph / SharePoint read happens server-side in the API route
+// named above and is READ-ONLY; nothing here writes to the workbook. NO Supabase
+// schema or write logic is touched either — the four reads below are the same
+// reads this page has always performed.
 
 import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
@@ -848,7 +852,7 @@ in the data above — never invent clients or numbers not present here.`
   // ═══════════════════════════════════════════════════════════════════════
   return (
     <>
-      <TopBar title="Pre-Con OKR Dashboard" subtitle={`${monthLabel} · redesign preview`}>
+      <TopBar title="Pre-Con OKR Dashboard" subtitle={monthLabel}>
         {/* "Viewing as of" scrubber. Already drawn with the Hub's own tokens, so
             it carries over from the previous pass unchanged apart from the
             accent, which now matches the Design phase colour. */}
@@ -2573,15 +2577,17 @@ function CompletionsSection({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Floating CASK Intelligence — same behaviour as the live dashboard's panel
-// (POSTs to /api/chat/client, persists to chat_history scoped by user_email +
-// page_context), and now the same look too: the CASK-red FAB, the charcoal
-// drawer header and the red speaker labels.
+// Floating CASK Intelligence — POSTs to /api/chat/client and persists to
+// chat_history scoped by user_email + page_context, behind the CASK-red FAB,
+// the charcoal drawer header and the red speaker labels.
 //
-// page_context is '/customers/okr-dashboard-v2' so this preview's history stays
-// separate from the live dashboard's thread.
+// page_context is '/customers/okr-dashboard' — this page's own route — so the
+// team keeps reading and writing the thread it has always had here. (While it
+// was a preview it wrote to a separate '/customers/okr-dashboard-v2' thread;
+// anything said there still sits in chat_history under that key and simply no
+// longer surfaces on this page.)
 // ═══════════════════════════════════════════════════════════════════════════
-const OKR2_PAGE_CONTEXT = '/customers/okr-dashboard-v2'
+const OKR2_PAGE_CONTEXT = '/customers/okr-dashboard'
 const OKR2_AI_ACCENT = '#c8311a' // CASK red — the live dashboard's panel accent
 const OKR2_AI_D = {
   bg: 'var(--surface)',
