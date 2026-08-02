@@ -103,6 +103,28 @@ function str(v: unknown): string {
   return String(v).trim()
 }
 
+// ── "# Days" sanity check ───────────────────────────────────────────────────
+// `# Days in Selections` / `# Days in BID` are meant to be a plain day count,
+// but the sheet's formula sometimes emits a raw Excel date serial instead: the
+// "Lavesque" row in SelectionsComp reads 46083, which is the serial for
+// 2026-03-02, not 126 years spent in selections. Same class of source-data
+// defect as the Tracy Dillon row. There is no safe way to recover what the
+// number was supposed to be, so an implausible value is reported as "no value"
+// and the UI renders it as "—" rather than printing nonsense.
+//
+// The ceiling is deliberately generous — 10 years is far longer than any real
+// precon phase, and far below the 32000 floor serialToISODate uses to recognise
+// a date serial, so a leaked serial can never sneak under it while a genuine
+// long-running project always clears it. Negatives fail too: a phase cannot
+// take less than no time, so a negative means reversed or missing dates.
+const MAX_PLAUSIBLE_DAYS = 3650
+
+function plausibleDays(v: number | null): number | null {
+  if (v === null) return null
+  if (v < 0 || v > MAX_PLAUSIBLE_DAYS) return null
+  return v
+}
+
 // ── Row helper ──────────────────────────────────────────────────────────────
 // Wraps a table's header row + data body so columns are addressed by name.
 // Lookup is exact-first, then case-insensitive, then prefix — the NewNPS headers
@@ -585,7 +607,8 @@ export async function GET() {
       for (const r of t.rows) {
         const iso = serialToISODate(t.cell(r, DATE_COL))
         const startIso = serialToISODate(t.cell(r, startCol))
-        const days = num(t.cell(r, daysHeader))
+        const rawDays = num(t.cell(r, daysHeader))
+        const days = plausibleDays(rawDays)
         const pm = str(t.cell(r, 'PM Assigned'))
 
         if (iso) {
@@ -595,7 +618,12 @@ export async function GET() {
         if (pm) pmCounts.set(pm, (pmCounts.get(pm) ?? 0) + 1)
 
         // Cross-check the sheet against itself: does # Days match the two dates?
-        if (iso && startIso && days !== null) {
+        // A value we had to suppress counts as an anomaly in its own right —
+        // otherwise blanking it would quietly shrink the anomaly count and the
+        // bad row would disappear from the page's warning instead of driving it.
+        if (rawDays !== null && days === null) {
+          anomalies += 1
+        } else if (iso && startIso && days !== null) {
           const delta = (Date.parse(iso) - Date.parse(startIso)) / 86_400_000
           if (Math.abs(delta - days) > 1) anomalies += 1
         }
