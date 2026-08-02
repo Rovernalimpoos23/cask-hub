@@ -8,12 +8,24 @@
 // nothing here modifies it. When this replaces it, the old route can be retired
 // in a separate, deliberate change.
 //
-// Visual design is a port of the mockup at
-//   C:\Users\comte\Downloads\precon-okr-redesign.html
-// The mockup's own CSS custom properties (--s0..--s4, --tx, --bd, --green, …)
-// collide with globals.css, so — exactly like `.bv-root` on the Big Vision page —
-// every selector below is scoped under `.okr2-root` and the variables are
-// redefined on that element. Nothing leaks to the rest of the Hub.
+// ── Visual language ─────────────────────────────────────────────────────────
+// This page wears the SAME look as the live dashboard at /customers/okr-dashboard:
+// the Hub's own tokens (--surface / --border / --text* / --green / --amber / --red),
+// 12px cards, uppercase letterspaced section headers, the `font-serif` h1, and the
+// same table / badge / progress-bar vocabulary. Styling convention follows that
+// page exactly — inline styles keyed to CSS variables, with Tailwind only for the
+// layout utilities it uses (`flex-1 overflow-y-auto p-7 animate-page-in`,
+// `font-serif`, `shimmer`).
+//
+// The earlier redesign styling — a scoped `.okr2-root` stylesheet porting the
+// mockup's palette, plus Space Grotesk / IBM Plex Mono web fonts — was removed
+// wholesale. That pass changed presentation only: same tabs, same tracker reads,
+// same Completed/Ongoing toggle, same view-all expansion, same plausibleDays()
+// anomaly handling, same AI context. Familiar page, newer functionality under it.
+//
+// The one <style> block left carries the four rules that cannot be expressed
+// inline (a keyframe, the <summary> marker reset, and the caveat notes' <b>) —
+// the live dashboard injects its own keyframe the same way.
 //
 // ── What is REAL data on this page (same Supabase queries + calculations as the
 //    live dashboard, restyled only) ───────────────────────────────────────────
@@ -33,11 +45,18 @@
 //
 // ── LIVE from the Excel tracker via /api/okr-dashboard-v2/excel-data ────────
 //   • NPS History (NewNPS)            • PIT Goals KPI (PITprecon)
-//   • Selections Completed (SelectionsComp)  • Bid Completed (BidComp)
+//   • Selections — Completed (SelectionsComp) / Ongoing (SelectionsOng)
+//   • Bid        — Completed (BidComp)        / Ongoing (BidOng)
 //   Connected in Phase 2a. Each degrades to an em-dash shell plus a `.flag` when
 //   the Graph read fails, so an outage costs the numbers, not the page. These
 //   figures are also fed into the CASK Intelligence system context so it can
 //   answer about them instead of calling them unconnected.
+//
+//   The Completed | Ongoing toggle exists on the Selections and Bid cards ONLY.
+//   Design, Permitting and Contract keep one ongoing view — Active Projects
+//   Progress, from Supabase — so the page never carries two differently-sourced
+//   answers to the same question. The toggle also only renders when its Ongoing
+//   read actually succeeded; a failed SelectionsOng leaves no dead tab behind.
 //
 // ── Still NOT connected ─────────────────────────────────────────────────────
 //   • Avg Design Days — shown from workflow records; the tracker's own version is
@@ -56,7 +75,6 @@ import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 import { WORKFLOW_STEPS } from '@/lib/workflow-steps'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
-import { useTheme } from '@/lib/theme-context'
 // Type-only import — erased at compile time, so no server code is pulled into
 // this client bundle. Keeps the payload shape in one place.
 import type {
@@ -64,200 +82,165 @@ import type {
   NpsPayload,
   PitPayload,
   CompPayload,
+  OngPayload,
 } from '@/app/api/okr-dashboard-v2/excel-data/route'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Scoped stylesheet — port of the mockup's <style>, minus its sidebar/topbar
-// (the Hub shell already provides both).
+// Shared visual tokens — the live dashboard's, verbatim where they exist there.
 //
-// Space Grotesk and IBM Plex Mono are not in the project, so they come from
-// Google the same way the Big Vision page pulls its CDN fonts. Inter and
-// Fraunces ARE self-hosted by next/font in src/app/layout.tsx, so they are
-// referenced via --font-inter / --font-fraunces rather than re-fetched.
+// /customers/okr-dashboard styles with inline objects keyed to the Hub's CSS
+// variables rather than a stylesheet, so the same tokens are declared here and
+// reused across this page's tables, cards and badges. Anything below that the
+// live page also defines (CARD, TH_*, TD_*) is copied from it unchanged so the
+// two pages line up pixel for pixel.
 // ═══════════════════════════════════════════════════════════════════════════
-const OKR2_CSS = `
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap");
 
-.okr2-root{
-  --s0:#0d0f11; --s1:#15181b; --s2:#1d2125; --s3:#262b30; --s4:#31373d;
-  --tx:#e9ebed; --tx2:#a0a8b0; --tx3:#6e767e;
-  --bd:rgba(255,255,255,.08); --bd2:rgba(255,255,255,.14); --bd3:rgba(255,255,255,.22);
-  --slate:#7f8d9c; --blue:#5b8cba; --teal:#4f9d8b; --ochre:#b8934f; --green:#709b5d;
-  --slate-bg:rgba(127,141,156,.14); --blue-bg:rgba(91,140,186,.14); --teal-bg:rgba(79,157,139,.14);
-  --ochre-bg:rgba(184,147,79,.14); --green-bg:rgba(112,155,93,.14);
-  --risk:#c1655f; --risk-bg:rgba(193,101,95,.14);
-  --r:8px; --rc:12px;
-  --fd:'Space Grotesk',system-ui,sans-serif;
-  --fb:var(--font-inter),system-ui,sans-serif;
-  --fm:'IBM Plex Mono',ui-monospace,monospace;
-  --fs:var(--font-fraunces),Georgia,serif;
-  background:var(--s0);
-  color:var(--tx);
-  font-family:var(--fb);
-  font-size:14px;
-  line-height:1.5;
-  -webkit-font-smoothing:antialiased;
+// Card chrome — identical to the live dashboard's `cardStyle`.
+const CARD: React.CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 12,
+  padding: 20,
 }
-.okr2-root[data-theme="light"]{
-  --s0:#f4f5f6; --s1:#ffffff; --s2:#fafbfb; --s3:#f0f1f2; --s4:#e6e8ea;
-  --tx:#1a1d20; --tx2:#5b646d; --tx3:#8a939c;
-  --bd:rgba(0,0,0,.09); --bd2:rgba(0,0,0,.15); --bd3:rgba(0,0,0,.24);
-  --slate:#5e6b78; --blue:#3d6f9e; --teal:#2f7d6b; --ochre:#8f6f2f; --green:#4f7a3d;
-  --slate-bg:rgba(94,107,120,.10); --blue-bg:rgba(61,111,158,.10); --teal-bg:rgba(47,125,107,.10);
-  --ochre-bg:rgba(143,111,47,.10); --green-bg:rgba(79,122,61,.10);
-  --risk:#a8443e; --risk-bg:rgba(168,68,62,.10);
+// Same card with the padding removed, for tables that run edge to edge.
+const CARD_FLUSH: React.CSSProperties = { ...CARD, padding: 0, overflowX: 'auto' }
+
+const TH_BASE: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  color: 'var(--text3)',
+  borderBottom: '0.5px solid var(--border)',
 }
-.okr2-root *{box-sizing:border-box;margin:0;padding:0}
-.okr2-root .mono{font-family:var(--fm);font-variant-numeric:tabular-nums}
-.okr2-root :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:4px}
-@media (prefers-reduced-motion:reduce){.okr2-root *{transition:none!important;animation:none!important}}
-
-.okr2-root .page{padding:24px 28px 96px;max-width:1220px}
-.okr2-root h1{font-family:var(--fs);font-size:27px;font-weight:400;letter-spacing:-.01em}
-.okr2-root .lede{font-size:13px;color:var(--tx2);margin-top:5px}
-.okr2-root .lede b{color:var(--tx);font-weight:500}
-
-/* ---------- tabs ---------- */
-.okr2-root .tabs{display:flex;gap:2px;border-bottom:.5px solid var(--bd);margin:20px 0 22px}
-.okr2-root .tab{background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:9px 14px;font-family:var(--fd);font-size:13px;font-weight:500;color:var(--tx3);cursor:pointer;display:flex;align-items:center;gap:7px;transition:color .12s}
-.okr2-root .tab:hover{color:var(--tx2)}
-.okr2-root .tab[aria-selected="true"]{color:var(--tx);border-bottom-color:var(--tx)}
-.okr2-root .tab .cnt{font-family:var(--fm);font-size:10.5px;color:var(--tx3);background:var(--s2);border-radius:9px;padding:1px 6px}
-.okr2-root .panel[hidden]{display:none}
-
-/* ---------- section labels ---------- */
-.okr2-root .slab{display:flex;align-items:baseline;gap:9px;margin:30px 0 10px}
-.okr2-root .slab h2{font-family:var(--fd);font-size:13px;font-weight:500;letter-spacing:.01em}
-.okr2-root .slab .hint{font-size:11.5px;color:var(--tx3)}
-.okr2-root .slab .more{margin-left:auto;font-size:11.5px;color:var(--tx3);background:none;border:0;cursor:pointer;font-family:inherit}
-.okr2-root .slab .more:hover{color:var(--tx2)}
-
-/* ---------- metric cards ---------- */
-.okr2-root .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:10px}
-.okr2-root .kpi{background:var(--s1);border-radius:var(--rc);padding:14px 15px}
-.okr2-root .kpi .k{font-size:11px;color:var(--tx3);letter-spacing:.02em}
-.okr2-root .kpi .v{font-family:var(--fm);font-size:26px;font-weight:500;margin-top:8px;line-height:1}
-.okr2-root .kpi .v small{font-size:12px;color:var(--tx3);font-weight:400}
-.okr2-root .kpi .foot{font-size:11px;color:var(--tx3);margin-top:9px}
-.okr2-root .track{height:4px;border-radius:2px;background:var(--bd);margin-top:11px;overflow:hidden;position:relative}
-.okr2-root .track i{display:block;height:4px;border-radius:2px;background:var(--blue);min-width:3px}
-.okr2-root .track .pace{position:absolute;top:-2px;width:1px;height:8px;background:var(--tx3)}
-.okr2-root .empty-v{color:var(--tx3)}
-
-/* ---------- pace banner ---------- */
-.okr2-root .pacebar{display:flex;align-items:center;gap:11px;background:var(--s1);padding:11px 15px;margin-top:12px;font-size:12.5px;color:var(--tx2);border-left:2px solid var(--slate);border-radius:0 var(--rc) var(--rc) 0}
-.okr2-root .pacebar.warn{border-left-color:var(--risk)}
-.okr2-root .pacebar b{color:var(--tx);font-weight:500}
-
-/* ---------- tables ---------- */
-.okr2-root .tbox{background:var(--s1);border-radius:var(--rc);overflow:hidden}
-.okr2-root .tscroll{overflow-x:auto}
-.okr2-root table{width:100%;border-collapse:collapse;font-size:12.5px}
-.okr2-root th,.okr2-root td{text-align:left;padding:9px 12px;white-space:nowrap}
-.okr2-root thead th{font-size:10.5px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--tx3)}
-.okr2-root tbody tr{border-top:.5px solid var(--bd)}
-.okr2-root tbody tr:hover{background:var(--s2)}
-.okr2-root th.grp,.okr2-root td.grp{background:var(--s2)}
-.okr2-root .ghead{text-align:center;font-family:var(--fd);font-size:11px;font-weight:500;letter-spacing:.02em;text-transform:none;padding-top:9px;padding-bottom:7px}
-.okr2-root .num{text-align:right;font-family:var(--fm)}
-.okr2-root .ctr{text-align:center}
-.okr2-root .nm{font-weight:500;color:var(--tx)}
-.okr2-root .sub{font-size:10.5px;color:var(--tx3);font-weight:400}
-.okr2-root tfoot td{border-top:.5px solid var(--bd2);background:var(--s2);font-weight:500}
-.okr2-root .dim{color:var(--tx3)}
-
-/* ---------- status ---------- */
-.okr2-root .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--tx3)}
-.okr2-root .dot.go{background:var(--blue)}
-.okr2-root .dot.done{background:var(--green)}
-.okr2-root .dot.risk{background:var(--risk)}
-.okr2-root .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:2px 9px;border-radius:11px;background:var(--slate-bg);color:var(--slate);white-space:nowrap}
-.okr2-root .pill.blue{background:var(--blue-bg);color:var(--blue)}
-.okr2-root .pill.teal{background:var(--teal-bg);color:var(--teal)}
-.okr2-root .pill.ochre{background:var(--ochre-bg);color:var(--ochre)}
-.okr2-root .pill.green{background:var(--green-bg);color:var(--green)}
-.okr2-root .pill.risk{background:var(--risk-bg);color:var(--risk)}
-.okr2-root .legend{display:flex;gap:16px;flex-wrap:wrap;padding:9px 12px;border-top:.5px solid var(--bd);font-size:11px;color:var(--tx3);align-items:center}
-.okr2-root .legend span{display:flex;align-items:center;gap:6px}
-
-/* ---------- project cards ---------- */
-.okr2-root .pcard{background:var(--s1);border-radius:var(--rc);padding:14px 16px;margin-bottom:9px}
-.okr2-root .phead{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px}
-.okr2-root .phead .who2{font-family:var(--fd);font-size:14px;font-weight:500;color:var(--tx);text-decoration:none}
-.okr2-root .phead a.who2:hover{text-decoration:underline}
-.okr2-root .chip{font-size:10.5px;color:var(--tx2);background:var(--s3);padding:2px 8px;border-radius:var(--r)}
-.okr2-root .ptype{font-size:11.5px;color:var(--tx3)}
-.okr2-root .prow{display:grid;grid-template-columns:104px 1fr 62px;gap:11px;align-items:center;padding:3.5px 0}
-.okr2-root .prow .pl{font-size:11.5px;color:var(--tx2)}
-.okr2-root .prow .pl.off{color:var(--tx3)}
-.okr2-root .prow .pv{font-family:var(--fm);font-size:11px;color:var(--tx2);text-align:right}
-.okr2-root .prow .pv.off{color:var(--tx3)}
-/* KPI-tasks sub-row, nested under its phase row. Subordinate by indent, size and
-   weight only — no new colour, so the card keeps v2's existing design language. */
-.okr2-root .prow.kpirow{padding:0 0 6px}
-.okr2-root .prow.kpirow .pl{padding-left:11px;font-size:10.5px;color:var(--tx3);letter-spacing:.02em}
-.okr2-root .prow.kpirow .pv{font-size:10.5px;color:var(--tx3)}
-.okr2-root .prow.kpirow .track{height:3px}
-.okr2-root .prow.kpirow .track i{height:3px;opacity:.6}
-.okr2-root .prow.kpirow .none{font-size:10.5px;color:var(--tx3);font-style:italic;grid-column:2 / span 2}
-.okr2-root .overall{display:flex;align-items:center;gap:11px;padding-bottom:11px;margin-bottom:9px;border-bottom:.5px solid var(--bd)}
-.okr2-root .overall .ol{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--tx3);flex:0 0 104px}
-.okr2-root .overall .pv{font-family:var(--fm);font-size:11px;color:var(--tx2);text-align:right;flex:0 0 62px}
-
-/* ---------- collapsibles ---------- */
-.okr2-root .fold{background:var(--s1);border-radius:var(--rc);margin-bottom:7px;overflow:hidden}
-.okr2-root .fold>summary{list-style:none;cursor:pointer;padding:12px 15px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--tx2)}
-.okr2-root .fold>summary::-webkit-details-marker{display:none}
-.okr2-root .fold>summary:hover{background:var(--s2);color:var(--tx)}
-.okr2-root .fold>summary .cv{transition:transform .15s;color:var(--tx3);font-size:10px}
-.okr2-root .fold[open]>summary .cv{transform:rotate(90deg)}
-.okr2-root .fold>summary .ft{font-family:var(--fd);font-weight:500;color:var(--tx)}
-.okr2-root .fold>summary .fm{margin-left:auto;font-size:11px;color:var(--tx3)}
-.okr2-root .foldbody{padding:0 15px 15px}
-
-/* ---------- nps tree ---------- */
-.okr2-root .tree tbody tr.lv1 td:first-child{padding-left:12px;font-weight:500;color:var(--tx)}
-.okr2-root .tree tbody tr.lv2 td:first-child{padding-left:34px;color:var(--tx2)}
-.okr2-root .tree tbody tr.lv3 td:first-child{padding-left:56px;color:var(--tx3);font-size:11.5px}
-.okr2-root .tree tbody tr.lv3 td{padding-top:6px;padding-bottom:6px;font-size:11.5px}
-.okr2-root .tw{background:none;border:0;color:inherit;font:inherit;cursor:pointer;display:flex;align-items:center;gap:7px;padding:0}
-.okr2-root .tw .cv{font-size:9px;color:var(--tx3);transition:transform .15s;width:9px}
-.okr2-root .tw[aria-expanded="true"] .cv{transform:rotate(90deg)}
-.okr2-root .spark{display:inline-flex;align-items:flex-end;gap:2px;height:14px;vertical-align:-2px}
-.okr2-root .spark i{display:block;width:3px;background:var(--slate);border-radius:1px}
-
-/* ---------- calendar ---------- */
-.okr2-root .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--bd);border-radius:var(--rc);overflow:hidden}
-.okr2-root .cal .dow{background:var(--s2);padding:6px;text-align:center;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--tx3)}
-.okr2-root .cal .cell{background:var(--s1);min-height:52px;padding:5px 7px;font-family:var(--fm);font-size:10.5px;color:var(--tx3);display:flex;flex-direction:column;gap:4px}
-.okr2-root .cal .cell.pad{background:var(--s0)}
-.okr2-root .cal .cell.today{background:var(--s2);color:var(--tx)}
-.okr2-root .cal .cdots{display:flex;gap:3px;flex-wrap:wrap}
-.okr2-root .cal .cdot{width:8px;height:8px;border-radius:50%;display:grid;place-items:center;font-size:7px;font-weight:600;line-height:1;color:#fff}
-.okr2-root .cal .cdot.multi{width:14px;height:14px;font-size:8px}
-.okr2-root .calempty{background:var(--s1);border-radius:var(--rc);padding:22px;text-align:center}
-.okr2-root .calempty p{font-size:12.5px;color:var(--tx2)}
-.okr2-root .calempty small{font-size:11.5px;color:var(--tx3);display:block;margin-top:4px}
-.okr2-root .calempty button{margin-top:12px;font-family:inherit;font-size:12px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:var(--r);padding:6px 13px;cursor:pointer}
-.okr2-root .calempty button:hover{background:var(--s4)}
-
-/* ---------- flag note ---------- */
-.okr2-root .flag{display:flex;gap:9px;align-items:flex-start;background:var(--ochre-bg);border-left:2px solid var(--ochre);padding:10px 14px;margin-top:10px;font-size:12px;color:var(--tx2);border-radius:0 var(--r) var(--r) 0}
-.okr2-root .flag b{color:var(--ochre);font-weight:500}
-
-/* ---------- loading ---------- */
-.okr2-root .skel{background:var(--s1);border-radius:var(--rc);height:90px}
-
-/* ---------- FAB / AI panel ---------- */
-.okr2-root .fab{position:fixed;bottom:22px;right:22px;z-index:60;display:flex;align-items:center;gap:8px;background:var(--s2);border:.5px solid var(--bd2);color:var(--tx);border-radius:22px;padding:10px 17px;font-family:var(--fd);font-size:12.5px;font-weight:500;cursor:pointer;box-shadow:0 1px 0 var(--bd) inset}
-.okr2-root .fab:hover{background:var(--s3);border-color:var(--bd3)}
-.okr2-root .fab .sp{color:var(--ochre);font-size:13px}
-
-@media (max-width:900px){
-  .okr2-root .page{padding:18px 16px 96px}
-  .okr2-root .prow{grid-template-columns:88px 1fr 56px}
+const TH_LEFT: React.CSSProperties = { ...TH_BASE, textAlign: 'left', padding: '10px 12px' }
+const TH_NUM: React.CSSProperties = { ...TH_BASE, textAlign: 'center', padding: '10px 12px' }
+const TD_LEFT: React.CSSProperties = { textAlign: 'left', padding: '10px 12px', color: 'var(--text)' }
+const TD_NUM: React.CSSProperties = {
+  textAlign: 'center',
+  padding: '10px 12px',
+  color: 'var(--text)',
+  fontVariantNumeric: 'tabular-nums',
 }
+const TD_MUTED: React.CSSProperties = { ...TD_LEFT, color: 'var(--text3)' }
+const TR_LINE: React.CSSProperties = { borderBottom: '0.5px solid var(--border)' }
+// Footer row — the live dashboard's "Actual" / total rows read this way.
+const TFOOT_TD: React.CSSProperties = {
+  padding: '10px 12px',
+  borderTop: '1px solid var(--border2)',
+  background: 'var(--surface2)',
+  fontWeight: 700,
+  color: 'var(--text)',
+}
+// Alternating column band on the grouped Per-PM tables (was the mockup's `.grp`).
+// Uses the same --surface2 wash the live dashboard uses for its zebra rows.
+const BAND: React.CSSProperties = { background: 'var(--surface2)' }
+const TABLE: React.CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }
+
+// ── Metric card — the live dashboard's StatCard, split into reusable parts ──
+const KPI_CARD: React.CSSProperties = { ...CARD, padding: '16px 18px' }
+const KPI_LABEL: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: '1px',
+  textTransform: 'uppercase',
+  color: 'var(--text3)',
+  fontWeight: 600,
+}
+const KPI_VALUE_ROW: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 9,
+  marginTop: 8,
+  fontVariantNumeric: 'tabular-nums',
+}
+const KPI_VALUE: React.CSSProperties = {
+  fontSize: 26,
+  fontWeight: 650,
+  letterSpacing: '-0.5px',
+  lineHeight: 1,
+  color: 'var(--text)',
+}
+const KPI_DELTA: React.CSSProperties = { fontSize: 11.5, fontWeight: 550, color: 'var(--text3)' }
+const KPI_FOOT: React.CSSProperties = { fontSize: 11, marginTop: 9, color: 'var(--text3)' }
+
+// Legend / footnote strip under a table — the live dashboard's calendar legend.
+const LEGEND: React.CSSProperties = {
+  display: 'flex',
+  gap: 16,
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  padding: '9px 12px',
+  borderTop: '0.5px solid var(--border)',
+  fontSize: 11,
+  color: 'var(--text3)',
+}
+// Inline table / column names inside the caveat notes. The mockup set these in
+// IBM Plex Mono; that font is gone with the rest of the redesign styling, so they
+// are marked the way the live dashboard marks anything set apart — a --surface2
+// chip — and stay in the page's own typeface.
+const MONO: React.CSSProperties = {
+  background: 'var(--surface2)',
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  padding: '0 4px',
+  color: 'var(--text2)',
+  whiteSpace: 'nowrap',
+}
+
+// Text-only button ("Open full view →", "View all N →"). Borderless, inherits the
+// page font, hover handled inline the way the live dashboard does its buttons.
+const LINK_BTN: React.CSSProperties = {
+  background: 'none',
+  border: 0,
+  padding: 0,
+  fontFamily: 'inherit',
+  fontSize: 11.5,
+  color: 'var(--text2)',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+
+// ── Tone pairs for pills / badges ───────────────────────────────────────────
+// The live dashboard writes these as literal hexes (#166534 green, #92400e amber,
+// #991b1b red). In light mode those ARE the theme tokens — var(--green) is
+// #166534 and var(--amber) is #92400e — so the tokens are used instead: identical
+// where leadership reads the page, and still legible in dark mode, where the
+// literals would sit dark-on-dark. Blue has no token in globals.css, so the live
+// dashboard's own pair is kept verbatim.
+const TONE: Record<string, { bg: string; fg: string }> = {
+  green:   { bg: 'var(--green-bg)', fg: 'var(--green)' },
+  amber:   { bg: 'var(--amber-bg)', fg: 'var(--amber)' },
+  red:     { bg: 'var(--red-soft)', fg: 'var(--red)' },
+  blue:    { bg: 'rgba(59, 130, 246, 0.13)', fg: '#1e40af' },
+  neutral: { bg: 'var(--surface2)', fg: 'var(--text2)' },
+}
+
+// Badge shape — the live dashboard's StatusBadge / CurrentPhaseBadge.
+function badgeStyle(tone: keyof typeof TONE | string): React.CSSProperties {
+  const t = TONE[tone] ?? TONE.neutral
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    fontSize: 10.5,
+    fontWeight: 700,
+    padding: '2px 8px',
+    borderRadius: 99,
+    background: t.bg,
+    color: t.fg,
+    whiteSpace: 'nowrap',
+  }
+}
+
+// The few rules that cannot be written inline. The live dashboard injects its
+// own keyframe block exactly this way; the two <summary> rules only strip the
+// native disclosure triangle so the rotating ▸ can stand in for it, and the last
+// one puts the caveat notes' <b> in amber without touching every call site.
+const OKR2_MIN_CSS = `
+@keyframes okrAISlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+details.okr2-fold > summary { list-style: none; }
+details.okr2-fold > summary::-webkit-details-marker { display: none; }
+.okr2-flagbody b { color: var(--amber); font-weight: 700; }
 `
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -278,9 +261,12 @@ const PHASE_META: Record<
   PhaseKey,
   { label: string; short: string; accent: string; steps: number[]; startStep: number; finalStep: number }
 > = {
-  design:   { label: 'Design completed',  short: 'Design',   accent: 'var(--blue)',  steps: range(6, 13),  startStep: 6,  finalStep: 13 },
-  permit:   { label: 'Permit received',   short: 'Permit',   accent: 'var(--ochre)', steps: range(14, 15), startStep: 14, finalStep: 15 },
-  contract: { label: 'Contract executed', short: 'Contract', accent: 'var(--green)', steps: range(16, 21), startStep: 16, finalStep: 21 },
+  // `accent` is the only field that moved: the three phase colours are now the
+  // live dashboard's exact hexes (blue / amber / green), not the mockup palette's.
+  // Labels, short names and step ranges are untouched — they feed the AI context.
+  design:   { label: 'Design completed',  short: 'Design',   accent: '#3b82f6', steps: range(6, 13),  startStep: 6,  finalStep: 13 },
+  permit:   { label: 'Permit received',   short: 'Permit',   accent: '#f59e0b', steps: range(14, 15), startStep: 14, finalStep: 15 },
+  contract: { label: 'Contract executed', short: 'Contract', accent: '#22c55e', steps: range(16, 21), startStep: 16, finalStep: 21 },
 }
 
 const MONTHLY_TARGET_PER_PM = 3 // each OKR: 3 per PM per month
@@ -377,8 +363,15 @@ const PACE_LABEL: Record<PaceState, string> = {
   ok: 'Not started',
   risk: 'Behind pace',
 }
-const PACE_DOT: Record<PaceState, string> = { done: 'done', go: 'go', ok: '', risk: 'risk' }
-const PACE_PILL: Record<PaceState, string> = { done: 'green', go: 'blue', ok: '', risk: 'risk' }
+// Dot colour and badge tone per state. Same four states as before — only the
+// values changed, from the mockup's scoped variables to the Hub's palette.
+const PACE_DOT: Record<PaceState, string> = {
+  done: 'var(--green)',
+  go: '#3b82f6',
+  ok: 'var(--text3)',
+  risk: 'var(--red)',
+}
+const PACE_PILL: Record<PaceState, string> = { done: 'green', go: 'blue', ok: 'neutral', risk: 'red' }
 
 function makePace(asOfDay: number, daysInMonth: number) {
   const expected = (target: number) => target * (asOfDay / daysInMonth)
@@ -405,8 +398,8 @@ function gapText(done: number, target: number): string {
 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function OKRDashboardV2Page() {
-  const { theme } = useTheme()
-
+  // No theme hook any more: with the scoped stylesheet gone, light/dark comes
+  // from the Hub's own tokens exactly as it does on the live dashboard.
   const [clients, setClients] = useState<ClientRowDB[]>([])
   const [completions, setCompletions] = useState<CompletionRowDB[]>([])
   const [starts, setStarts] = useState<StepStartRowDB[]>([])
@@ -456,6 +449,7 @@ export default function OKRDashboardV2Page() {
         if (!cancelled) {
           setExcel({
             ok: false, source: null, nps: null, pit: null, selections: null, bid: null,
+            selectionsOngoing: null, bidOngoing: null,
             errors: ['Could not reach the tracker read endpoint.'],
           })
         }
@@ -702,7 +696,7 @@ export default function OKRDashboardV2Page() {
   // Reads only the already-fetched `excel` state — no new query, no new maths.
   // All three states are covered honestly: still reading, unreachable, or live.
   const trackerContext = ((): string => {
-    const head = 'LIVE EXCEL TRACKER (NPS History, PIT Goals KPI, Selections Completed, Bid Completed)'
+    const head = 'LIVE EXCEL TRACKER (NPS History, PIT Goals KPI, Selections and Bid — Completed and Ongoing)'
 
     if (excelLoading) {
       return `${head}:
@@ -785,6 +779,40 @@ now. Do NOT guess, and do NOT quote numbers from memory.`
       }
     }
 
+    // Ongoing is the second half of the same two cards, so it belongs in the same
+    // context — otherwise the model would call a table the user can see on screen
+    // "not connected".
+    const ong: [string, string, typeof excel.selectionsOngoing][] = [
+      ['SELECTIONS ONGOING', 'SelectionsOng', excel.selectionsOngoing],
+      ['BID ONGOING', 'BidOng', excel.bidOngoing],
+    ]
+    for (const [label, table, d] of ong) {
+      if (!d) {
+        L.push('', `${label}: connected, but this read returned nothing — say so if asked.`)
+        continue
+      }
+      L.push(
+        '',
+        `${label} (${table} table) — rows still in the stage, NOT completed:`,
+        `- ${d.total} in progress right now`,
+        ...(d.byPm.length ? [`- By PM: ${d.byPm.map(x => `${x.pm} ${x.count}`).join('; ')}`] : []),
+        ...(d.daysColumn
+          ? [`- "${d.daysColumn}" here is days elapsed SO FAR as the workbook last calculated it — it is`,
+             '  not a finished duration, and it can lag if the sheet has not recalculated recently.']
+          : ['- This table carries no day-count column, so there are no day figures to quote.']),
+      )
+      if (d.anomalies > 0) {
+        L.push(`- ${d.anomalies} row(s) carry an unusable day count and are shown blank — say so if day counts come up.`)
+      }
+      if (d.notes.length) L.push(`- Source caveats: ${d.notes.join('; ')}`)
+    }
+    L.push(
+      '',
+      'Ongoing is read from the tracker for Selections and Bid ONLY. Design, Permitting and',
+      'Contract in-progress status comes from Active Projects Progress (Supabase) instead — do',
+      'not mix the two sources or quote tracker ongoing figures for those three stages.',
+    )
+
     return L.join('\n')
   })()
   const okrAIContext = `You are CASK Intelligence on the Pre-Con OKR Dashboard for CASK Construction.
@@ -821,8 +849,9 @@ in the data above — never invent clients or numbers not present here.`
   return (
     <>
       <TopBar title="Pre-Con OKR Dashboard" subtitle={`${monthLabel} · redesign preview`}>
-        {/* "Viewing as of" scrubber. Lives in the Hub top bar rather than inside
-            the scoped root, so it is styled with the Hub's own tokens. */}
+        {/* "Viewing as of" scrubber. Already drawn with the Hub's own tokens, so
+            it carries over from the previous pass unchanged apart from the
+            accent, which now matches the Design phase colour. */}
         {!loading && (
           <div
             style={{
@@ -842,7 +871,7 @@ in the data above — never invent clients or numbers not present here.`
               step={1}
               value={asOfDay}
               onChange={e => setAsOfDay(Number(e.target.value))}
-              style={{ width: 96, accentColor: '#5b8cba' }}
+              style={{ width: 96, accentColor: PHASE_META.design.accent }}
             />
             <output
               htmlFor="okr2-day"
@@ -854,29 +883,39 @@ in the data above — never invent clients or numbers not present here.`
         )}
       </TopBar>
 
-      {/* `.okr2-root` carries the scoped tokens. `animate-page-in` goes on the
-          inner div only — its transform would otherwise become the containing
-          block for the position:fixed FAB. */}
-      <div className="okr2-root flex-1 overflow-y-auto" data-theme={theme}>
-        <style dangerouslySetInnerHTML={{ __html: OKR2_CSS }} />
+      <style dangerouslySetInnerHTML={{ __html: OKR2_MIN_CSS }} />
 
-        <div className="page animate-page-in">
-          {loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[0, 1, 2].map(i => <div key={i} className="skel shimmer" />)}
-            </div>
-          ) : (
-            <>
-              <h1>Pre-con OKR dashboard</h1>
-              <p className="lede">
+      {/* Same shell as the live dashboard. The floating AI stays OUTSIDE this
+          div: `animate-page-in` transforms it, which would otherwise make it the
+          containing block for a position:fixed child. */}
+      <div className="flex-1 overflow-y-auto p-7 animate-page-in">
+        {loading ? (
+          <div className="flex flex-col gap-3">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="shimmer" style={{ height: 90, borderRadius: 12, border: '1px solid var(--border)' }} />
+            ))}
+          </div>
+        ) : (
+          <>
+            {/* Page heading */}
+            <div style={{ marginBottom: 20 }}>
+              <h1
+                className="font-serif"
+                style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.5px', color: 'var(--text)', lineHeight: 1.1 }}
+              >
+                Pre-con OKR dashboard
+              </h1>
+              <p style={{ fontSize: 13, marginTop: 6, color: 'var(--text3)' }}>
                 Design, permit and contract across{' '}
-                <b>{computed.length} active client{computed.length === 1 ? '' : 's'}</b> and {numPMs} PM
-                {numPMs === 1 ? '' : 's'}.{' '}
+                <b style={{ color: 'var(--text)', fontWeight: 600 }}>
+                  {computed.length} active client{computed.length === 1 ? '' : 's'}
+                </b>{' '}
+                and {numPMs} PM{numPMs === 1 ? '' : 's'}.{' '}
                 {/* Source stated precisely rather than the mockup's blanket "Synced from
                     the Excel tracker". The OKR figures come from workflow records; only
                     NPS, PIT, Selections and Bid come from the tracker. Avg design days
                     and the monthly summary are still unconnected. */}
-                <span className="dim">
+                <span>
                   OKR figures live from workflow records
                   {excelLoading
                     ? ' · reading the Excel tracker…'
@@ -892,184 +931,238 @@ in the data above — never invent clients or numbers not present here.`
                       : ' · Excel tracker unreachable, those sections show placeholders'}
                 </span>
               </p>
+            </div>
 
-              <div className="tabs" role="tablist" aria-label="Dashboard views">
-                <TabBtn id="over" cur={tab} set={setTab}>Overview</TabBtn>
-                <TabBtn id="pm" cur={tab} set={setTab} count={numPMs}>Per PM</TabBtn>
-                <TabBtn id="proj" cur={tab} set={setTab} count={computed.length}>Projects</TabBtn>
-                <TabBtn id="hist" cur={tab} set={setTab}>History</TabBtn>
+            {/* Tabs — the live dashboard has none, so these follow its own idiom:
+                an underline in --charcoal (the colour it uses for the overall
+                journey bar) against uppercase-free 12.5px labels. */}
+            <div
+              role="tablist"
+              aria-label="Dashboard views"
+              style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 24 }}
+            >
+              <TabBtn id="over" cur={tab} set={setTab}>Overview</TabBtn>
+              <TabBtn id="pm" cur={tab} set={setTab} count={numPMs}>Per PM</TabBtn>
+              <TabBtn id="proj" cur={tab} set={setTab} count={computed.length}>Projects</TabBtn>
+              <TabBtn id="hist" cur={tab} set={setTab}>History</TabBtn>
+            </div>
+
+            {/* ══════════════ OVERVIEW ══════════════ */}
+            <section id="okr2-p-over" role="tabpanel" aria-labelledby="okr2-t-over" hidden={tab !== 'over'}>
+              {/* The live dashboard fixes this row at four columns; six cards ride
+                  here, so it wraps on the same 12px gutter instead. */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+                {PHASE_KEYS.map(k => {
+                  const done = obtainedThisMonth(k)
+                  const flight = inFlight(k)
+                  const st = pace.state(monthlyTeamTarget, done, flight)
+                  const exp = Math.round(pace.expected(monthlyTeamTarget))
+                  const foot =
+                    st === 'risk' ? `${Math.max(0, exp - done)} behind pace · ${exp} expected by ${monthShort} ${asOfDay}`
+                    : st === 'done' ? 'Target met'
+                    : flight > 0 ? `${flight} in flight · on pace as of ${monthShort} ${asOfDay}`
+                    : `On pace · ${exp} expected by ${monthShort} ${asOfDay}`
+                  return (
+                    <div style={KPI_CARD} key={k}>
+                      <div style={KPI_LABEL}>{PHASE_META[k].label}</div>
+                      <div style={KPI_VALUE_ROW}>
+                        <span style={KPI_VALUE}>{done}</span>
+                        <span style={KPI_DELTA}>of {monthlyTeamTarget} target</span>
+                      </div>
+                      {/* Progress bar with the pace marker sitting on top of it —
+                          same 4px bar the live dashboard uses everywhere. */}
+                      <div style={{ position: 'relative', marginTop: 11 }}>
+                        <ProgressBar
+                          value={done}
+                          total={monthlyTeamTarget}
+                          color={st === 'risk' ? 'var(--red)' : PHASE_META[k].accent}
+                        />
+                        <span
+                          title={`Expected pace at ${monthShort} ${asOfDay}`}
+                          style={{
+                            position: 'absolute',
+                            top: -3,
+                            left: `${Math.min(100, (asOfDay / daysInMonth) * 100)}%`,
+                            width: 1,
+                            height: 10,
+                            background: 'var(--text3)',
+                          }}
+                        />
+                      </div>
+                      <div style={{ ...KPI_FOOT, color: st === 'risk' ? 'var(--red)' : 'var(--text3)' }}>{foot}</div>
+                    </div>
+                  )
+                })}
+
+                {/* Avg design days — real, from step 6 start → step 13 completion */}
+                <div style={KPI_CARD}>
+                  <div style={KPI_LABEL}>Avg design days</div>
+                  <div style={KPI_VALUE_ROW}>
+                    <span style={{ ...KPI_VALUE, color: avgDesignDays === null ? 'var(--text3)' : 'var(--text)' }}>
+                      {avgDesignDays ?? '—'}
+                    </span>
+                  </div>
+                  <div style={KPI_FOOT}>
+                    {designDaysList.length
+                      ? `across ${designDaysList.length} completed design${designDaysList.length === 1 ? '' : 's'}`
+                      : 'No completions to measure yet'}
+                  </div>
+                </div>
+
+                {/* LIVE from the Excel tracker (SelectionsComp / BidComp tables).
+                    Falls back to an em-dash card when the read fails. */}
+                <TrackerCountCard
+                  label="Selections completed"
+                  data={excel?.selections ?? null}
+                  loading={excelLoading}
+                  monthShort={monthShort}
+                />
+                <TrackerCountCard
+                  label="Bid completed"
+                  data={excel?.bid ?? null}
+                  loading={excelLoading}
+                  monthShort={monthShort}
+                />
               </div>
 
-              {/* ══════════════ OVERVIEW ══════════════ */}
-              <section className="panel" id="okr2-p-over" role="tabpanel" aria-labelledby="okr2-t-over" hidden={tab !== 'over'}>
-                <div className="kpis">
-                  {PHASE_KEYS.map(k => {
-                    const done = obtainedThisMonth(k)
-                    const flight = inFlight(k)
-                    const st = pace.state(monthlyTeamTarget, done, flight)
-                    const exp = Math.round(pace.expected(monthlyTeamTarget))
-                    const foot =
-                      st === 'risk' ? `${Math.max(0, exp - done)} behind pace · ${exp} expected by ${monthShort} ${asOfDay}`
-                      : st === 'done' ? 'Target met'
-                      : flight > 0 ? `${flight} in flight · on pace as of ${monthShort} ${asOfDay}`
-                      : `On pace · ${exp} expected by ${monthShort} ${asOfDay}`
-                    return (
-                      <div className="kpi" key={k}>
-                        <div className="k">{PHASE_META[k].label}</div>
-                        <div className="v">
-                          {done}<small> / {monthlyTeamTarget}</small>
-                        </div>
-                        <div className="track">
-                          <i
-                            style={{
-                              width: monthlyTeamTarget > 0 ? `${Math.min(100, (done / monthlyTeamTarget) * 100)}%` : '0%',
-                              background: st === 'risk' ? 'var(--risk)' : 'var(--blue)',
-                            }}
-                          />
-                          <span className="pace" style={{ left: `${Math.min(100, (asOfDay / daysInMonth) * 100)}%` }} />
-                        </div>
-                        <div className="foot" style={{ color: st === 'risk' ? 'var(--risk)' : undefined }}>{foot}</div>
-                      </div>
-                    )
-                  })}
+              {/* Pace banner — the live dashboard's alert language: a soft red
+                  wash when something is behind, plain card chrome otherwise. */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 11,
+                  marginTop: 12,
+                  padding: '12px 16px',
+                  borderRadius: 12,
+                  fontSize: 12.5,
+                  color: 'var(--text2)',
+                  background: behindPhases.length ? 'var(--red-soft)' : 'var(--surface)',
+                  border: `1px solid ${behindPhases.length ? 'var(--red-border)' : 'var(--border)'}`,
+                }}
+              >
+                <Dot color={behindPhases.length ? 'var(--red)' : totalInFlight > 0 ? PACE_DOT.go : 'var(--text3)'} />
+                <span>
+                  {behindPhases.length ? (
+                    <>
+                      <b style={{ color: 'var(--text)', fontWeight: 600 }}>
+                        {elapsedPct}% of {monthName} elapsed, {totalDone} of {totalTarget} completed.
+                      </b>{' '}
+                      {behindPhases.length} of {PHASE_KEYS.length} OKRs {behindPhases.length === 1 ? 'is' : 'are'} behind
+                      pace ({behindPhases.map(k => PHASE_META[k].short.toLowerCase()).join(', ')}).{' '}
+                      {totalInFlight > 0
+                        ? `${totalInFlight} package${totalInFlight === 1 ? '' : 's'} in flight.`
+                        : 'Nothing is in flight.'}
+                    </>
+                  ) : (
+                    <>
+                      <b style={{ color: 'var(--text)', fontWeight: 600 }}>{elapsedPct}% of {monthName} elapsed.</b>{' '}
+                      {totalDone} of {totalTarget} completed, {totalInFlight} in flight. Nothing is behind pace yet.
+                    </>
+                  )}
+                </span>
+              </div>
 
-                  {/* Avg design days — real, from step 6 start → step 13 completion */}
-                  <div className="kpi">
-                    <div className="k">Avg design days</div>
-                    <div className={avgDesignDays === null ? 'v empty-v' : 'v'}>{avgDesignDays ?? '—'}</div>
-                    <div className="foot">
-                      {designDaysList.length
-                        ? `across ${designDaysList.length} completed design${designDaysList.length === 1 ? '' : 's'}`
-                        : 'No completions to measure yet'}
-                    </div>
-                  </div>
-
-                  {/* LIVE from the Excel tracker (SelectionsComp / BidComp tables).
-                      Falls back to the em-dash empty-card state when the read
-                      fails — same pattern the mockup uses for a card with no data. */}
-                  <TrackerCountCard
-                    label="Selections completed"
-                    data={excel?.selections ?? null}
-                    loading={excelLoading}
-                    monthShort={monthShort}
-                  />
-                  <TrackerCountCard
-                    label="Bid completed"
-                    data={excel?.bid ?? null}
-                    loading={excelLoading}
-                    monthShort={monthShort}
-                  />
-                </div>
-
-                <div className={behindPhases.length ? 'pacebar warn' : 'pacebar'}>
-                  <span className={`dot ${behindPhases.length ? 'risk' : totalInFlight > 0 ? 'go' : ''}`} />
-                  <span>
-                    {behindPhases.length ? (
-                      <>
-                        <b>{elapsedPct}% of {monthName} elapsed, {totalDone} of {totalTarget} completed.</b>{' '}
-                        {behindPhases.length} of {PHASE_KEYS.length} OKRs {behindPhases.length === 1 ? 'is' : 'are'} behind
-                        pace ({behindPhases.map(k => PHASE_META[k].short.toLowerCase()).join(', ')}).{' '}
-                        {totalInFlight > 0
-                          ? `${totalInFlight} package${totalInFlight === 1 ? '' : 's'} in flight.`
-                          : 'Nothing is in flight.'}
-                      </>
+              <SectionLabel
+                title="Per PM"
+                hint={`monthly targets · ${MONTHLY_TARGET_PER_PM} each per OKR`}
+                action="Open full view →"
+                onAction={() => setTab('pm')}
+              />
+              <div style={CARD_FLUSH}>
+                <table style={{ ...TABLE, minWidth: 640 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...TH_LEFT, minWidth: 96 }} />
+                      {PHASE_KEYS.map(k => (
+                        <th
+                          key={k}
+                          colSpan={3}
+                          style={{
+                            ...TH_NUM,
+                            ...(k === 'permit' ? {} : BAND),
+                            color: PHASE_META[k].accent,
+                            fontSize: 11,
+                            letterSpacing: '0.02em',
+                            textTransform: 'none',
+                          }}
+                        >
+                          {PHASE_META[k].short}
+                        </th>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th style={TH_LEFT}>PM</th>
+                      {PHASE_KEYS.map(k => {
+                        const band = k === 'permit' ? {} : BAND
+                        return (
+                          <Fragment key={k}>
+                            <th style={{ ...TH_NUM, ...band }}>Tgt</th>
+                            <th style={{ ...TH_NUM, ...band }}>Done</th>
+                            <th style={{ ...TH_NUM, ...band }}>St</th>
+                          </Fragment>
+                        )
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pmRows.length === 0 ? (
+                      <tr><td colSpan={10} style={TD_MUTED}>No PMs found.</td></tr>
                     ) : (
-                      <>
-                        <b>{elapsedPct}% of {monthName} elapsed.</b> {totalDone} of {totalTarget} completed,{' '}
-                        {totalInFlight} in flight. Nothing is behind pace yet.
-                      </>
-                    )}
-                  </span>
-                </div>
-
-                <div className="slab">
-                  <h2>Per PM</h2>
-                  <span className="hint">monthly targets · {MONTHLY_TARGET_PER_PM} each per OKR</span>
-                  <button className="more" onClick={() => setTab('pm')}>Open full view →</button>
-                </div>
-                <div className="tbox">
-                  <div className="tscroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th style={{ minWidth: 96 }} />
-                          <th className="grp ghead" colSpan={3}>Design</th>
-                          <th className="ghead" colSpan={3}>Permit</th>
-                          <th className="grp ghead" colSpan={3}>Contract</th>
-                        </tr>
-                        <tr>
-                          <th>PM</th>
+                      pmRows.map(row => (
+                        <tr key={row.pm} style={TR_LINE}>
+                          <td style={{ ...TD_LEFT, fontWeight: 600, whiteSpace: 'nowrap' }}>{row.pm}</td>
                           {PHASE_KEYS.map(k => {
-                            const band = k === 'permit' ? '' : 'grp '
+                            const cell = row[k]
+                            const st = pace.state(cell.target, cell.obtained, cell.inFlight)
+                            const band = k === 'permit' ? {} : BAND
                             return (
                               <Fragment key={k}>
-                                <th className={`${band}num`}>Tgt</th>
-                                <th className={`${band}num`}>Done</th>
-                                <th className={`${band}ctr`}>St</th>
+                                <td style={{ ...TD_NUM, ...band, color: 'var(--text3)' }}>{cell.target}</td>
+                                <td style={{ ...TD_NUM, ...band, color: cell.obtained ? 'var(--text)' : 'var(--text3)' }}>
+                                  {cell.obtained}
+                                </td>
+                                <td style={{ ...TD_NUM, ...band }} title={PACE_LABEL[st]}>
+                                  <Dot color={PACE_DOT[st]} />
+                                </td>
                               </Fragment>
                             )
                           })}
                         </tr>
-                      </thead>
-                      <tbody>
-                        {pmRows.length === 0 ? (
-                          <tr><td colSpan={10} className="dim">No PMs found.</td></tr>
-                        ) : (
-                          pmRows.map(row => (
-                            <tr key={row.pm}>
-                              <td className="nm">{row.pm}</td>
-                              {PHASE_KEYS.map(k => {
-                                const cell = row[k]
-                                const st = pace.state(cell.target, cell.obtained, cell.inFlight)
-                                const band = k === 'permit' ? '' : 'grp '
-                                return (
-                                  <Fragment key={k}>
-                                    <td className={`${band}num dim`}>{cell.target}</td>
-                                    <td className={`${band}num${cell.obtained ? '' : ' dim'}`}>{cell.obtained}</td>
-                                    <td className={`${band}ctr`} title={PACE_LABEL[st]}>
-                                      <i className={`dot ${PACE_DOT[st]}`} />
-                                    </td>
-                                  </Fragment>
-                                )
-                              })}
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <PaceLegend note="Red appears only when actual trails the expected run-rate for the day" />
-                </div>
-
-                <div className="slab">
-                  <h2>Active projects</h2>
-                  <span className="hint">
-                    {computed.length} tracked{solePhase ? ` · all in ${solePhase.toLowerCase()}` : ''}
-                  </span>
-                  <button className="more" onClick={() => setTab('proj')}>Open full view →</button>
-                </div>
-                {projCards.length === 0 ? (
-                  <div className="pcard dim" style={{ fontSize: 12.5 }}>No active clients.</div>
-                ) : (
-                  <>
-                    {projCards.slice(0, 2).map(p => <ProjectCard key={p.id} p={p} />)}
-                    {projCards.length > 2 && (
-                      <details className="fold">
-                        <summary>
-                          <span className="cv">▶</span>
-                          {projCards.length - 2} more project{projCards.length - 2 === 1 ? '' : 's'}
-                          <span className="fm">{projCards.slice(2).map(p => p.name).join(', ')}</span>
-                        </summary>
-                        <div className="foldbody">
-                          {projCards.slice(2).map(p => <ProjectCard key={p.id} p={p} />)}
-                        </div>
-                      </details>
+                      ))
                     )}
-                  </>
-                )}
+                  </tbody>
+                </table>
+                <PaceLegend note="Red appears only when actual trails the expected run-rate for the day" />
+              </div>
 
-                <div className="slab"><h2>Reference</h2><span className="hint">expand when you need it</span></div>
+              <SectionLabel
+                title="Active projects"
+                hint={`${computed.length} tracked${solePhase ? ` · all in ${solePhase.toLowerCase()}` : ''}`}
+                action="Open full view →"
+                onAction={() => setTab('proj')}
+              />
+              {projCards.length === 0 ? (
+                <div style={{ ...CARD, fontSize: 13, color: 'var(--text3)' }}>No active clients.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {projCards.slice(0, 2).map(p => <ProjectCard key={p.id} p={p} />)}
+                  {projCards.length > 2 && (
+                    <Fold
+                      title={`${projCards.length - 2} more project${projCards.length - 2 === 1 ? '' : 's'}`}
+                      meta={projCards.slice(2).map(p => p.name).join(', ')}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {projCards.slice(2).map(p => <ProjectCard key={p.id} p={p} />)}
+                      </div>
+                    </Fold>
+                  )}
+                </div>
+              )}
 
+              <SectionLabel title="Reference" hint="expand when you need it" />
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <Fold
                   title="PIT goals KPI"
                   meta={excel?.pit ? `${excel.pit.itemCount} items${excel.pit.quarters.length ? ` · ${excel.pit.quarters.join(', ')}` : ''}` : quarterLabel}
@@ -1092,6 +1185,7 @@ in the data above — never invent clients or numbers not present here.`
                   <CompletionsSection
                     what="Selections"
                     data={excel?.selections ?? null}
+                    ongoing={excel?.selectionsOngoing ?? null}
                     loading={excelLoading}
                     errors={excel?.errors ?? []}
                     monthLabel={monthLabel}
@@ -1106,6 +1200,7 @@ in the data above — never invent clients or numbers not present here.`
                   <CompletionsSection
                     what="Bid"
                     data={excel?.bid ?? null}
+                    ongoing={excel?.bidOngoing ?? null}
                     loading={excelLoading}
                     errors={excel?.errors ?? []}
                     monthLabel={monthLabel}
@@ -1126,236 +1221,248 @@ in the data above — never invent clients or numbers not present here.`
                     dots={calendarDots}
                   />
                 </Fold>
-              </section>
+              </div>
+            </section>
 
-              {/* ══════════════ PER PM ══════════════ */}
-              <section className="panel" id="okr2-p-pm" role="tabpanel" aria-labelledby="okr2-t-pm" hidden={tab !== 'pm'}>
-                <div className="slab">
-                  <h2>Per PM breakdown</h2>
-                  <span className="hint">{monthLabel} · {MONTHLY_TARGET_PER_PM} per PM per OKR</span>
-                </div>
-                <div className="tbox">
-                  <div className="tscroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th style={{ minWidth: 110 }} />
-                          {PHASE_KEYS.map(k => (
-                            <th key={k} className={`${k === 'permit' ? '' : 'grp '}ghead`} colSpan={4}>
-                              {PHASE_META[k].label}
-                            </th>
-                          ))}
-                        </tr>
-                        <tr>
-                          <th>PM</th>
+            {/* ══════════════ PER PM ══════════════ */}
+            <section id="okr2-p-pm" role="tabpanel" aria-labelledby="okr2-t-pm" hidden={tab !== 'pm'}>
+              <SectionLabel
+                title="Per PM breakdown"
+                hint={`${monthLabel} · ${MONTHLY_TARGET_PER_PM} per PM per OKR`}
+              />
+              <div style={CARD_FLUSH}>
+                <table style={{ ...TABLE, minWidth: 920 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...TH_LEFT, minWidth: 110 }} />
+                      {PHASE_KEYS.map(k => (
+                        <th
+                          key={k}
+                          colSpan={4}
+                          style={{
+                            ...TH_NUM,
+                            ...(k === 'permit' ? {} : BAND),
+                            color: PHASE_META[k].accent,
+                            fontSize: 12,
+                            letterSpacing: '0.02em',
+                            textTransform: 'none',
+                          }}
+                        >
+                          {PHASE_META[k].label}
+                        </th>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th style={TH_LEFT}>PM</th>
+                      {PHASE_KEYS.map(k => {
+                        const band = k === 'permit' ? {} : BAND
+                        return (
+                          <Fragment key={k}>
+                            <th style={{ ...TH_NUM, ...band }}>Tgt</th>
+                            <th style={{ ...TH_NUM, ...band }}>Done</th>
+                            <th style={{ ...TH_NUM, ...band }}>Gap</th>
+                            <th style={{ ...TH_NUM, ...band }}>Status</th>
+                          </Fragment>
+                        )
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pmRows.length === 0 ? (
+                      <tr><td colSpan={13} style={TD_MUTED}>No PMs found.</td></tr>
+                    ) : (
+                      pmRows.map(row => (
+                        <tr key={row.pm} style={TR_LINE}>
+                          <td style={{ ...TD_LEFT, fontWeight: 600, whiteSpace: 'nowrap' }}>{row.pm}</td>
                           {PHASE_KEYS.map(k => {
-                            const band = k === 'permit' ? '' : 'grp '
+                            const cell = row[k]
+                            const st = pace.state(cell.target, cell.obtained, cell.inFlight)
+                            const band = k === 'permit' ? {} : BAND
+                            const g = cell.obtained - cell.target
                             return (
                               <Fragment key={k}>
-                                <th className={`${band}num`}>Tgt</th>
-                                <th className={`${band}num`}>Done</th>
-                                <th className={`${band}num`}>Gap</th>
-                                <th className={`${band}ctr`}>Status</th>
+                                <td style={{ ...TD_NUM, ...band, color: 'var(--text3)' }}>{cell.target}</td>
+                                <td style={{ ...TD_NUM, ...band, color: cell.obtained ? 'var(--text)' : 'var(--text3)' }}>
+                                  {cell.obtained}
+                                </td>
+                                <td
+                                  style={{
+                                    ...TD_NUM,
+                                    ...band,
+                                    color: g < 0 && st === 'risk' ? 'var(--red)' : 'var(--text3)',
+                                    fontWeight: g < 0 && st === 'risk' ? 600 : 400,
+                                  }}
+                                >
+                                  {gapText(cell.obtained, cell.target)}
+                                </td>
+                                <td style={{ ...TD_NUM, ...band }}>
+                                  <Pill tone={PACE_PILL[st]} dot={PACE_DOT[st]}>{PACE_LABEL[st]}</Pill>
+                                </td>
                               </Fragment>
                             )
                           })}
                         </tr>
-                      </thead>
-                      <tbody>
-                        {pmRows.length === 0 ? (
-                          <tr><td colSpan={13} className="dim">No PMs found.</td></tr>
-                        ) : (
-                          pmRows.map(row => (
-                            <tr key={row.pm}>
-                              <td className="nm">{row.pm}</td>
-                              {PHASE_KEYS.map(k => {
-                                const cell = row[k]
-                                const st = pace.state(cell.target, cell.obtained, cell.inFlight)
-                                const band = k === 'permit' ? '' : 'grp '
-                                const g = cell.obtained - cell.target
-                                return (
-                                  <Fragment key={k}>
-                                    <td className={`${band}num dim`}>{cell.target}</td>
-                                    <td className={`${band}num${cell.obtained ? '' : ' dim'}`}>{cell.obtained}</td>
-                                    <td
-                                      className={`${band}num`}
-                                      style={{ color: g < 0 && st === 'risk' ? 'var(--risk)' : 'var(--tx3)' }}
-                                    >
-                                      {gapText(cell.obtained, cell.target)}
-                                    </td>
-                                    <td className={`${band}ctr`}>
-                                      <span className={`pill ${PACE_PILL[st]}`}>
-                                        <i className={`dot ${PACE_DOT[st]}`} />{PACE_LABEL[st]}
-                                      </span>
-                                    </td>
-                                  </Fragment>
-                                )
-                              })}
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                      {pmRows.length > 0 && (
-                        <tfoot>
-                          <tr>
-                            <td>Team</td>
-                            {PHASE_KEYS.map(k => {
-                              const done = obtainedThisMonth(k)
-                              const st = pace.state(monthlyTeamTarget, done, inFlight(k))
-                              const band = k === 'permit' ? '' : 'grp '
-                              const g = done - monthlyTeamTarget
-                              return (
-                                <Fragment key={k}>
-                                  <td className={`${band}num`}>{monthlyTeamTarget}</td>
-                                  <td className={`${band}num`}>{done}</td>
-                                  <td className={`${band}num`} style={{ color: g < 0 && st === 'risk' ? 'var(--risk)' : 'var(--tx3)' }}>
-                                    {gapText(done, monthlyTeamTarget)}
-                                  </td>
-                                  <td className={`${band}ctr`}>
-                                    <span className={`pill ${PACE_PILL[st]}`}>
-                                      <i className={`dot ${PACE_DOT[st]}`} />{PACE_LABEL[st]}
-                                    </span>
-                                  </td>
-                                </Fragment>
-                              )
-                            })}
-                          </tr>
-                        </tfoot>
-                      )}
-                    </table>
-                  </div>
-                  <PaceLegend />
-                </div>
-
-                <div className="slab"><h2>Support teams</h2><span className="hint">not tracked in workflow data</span></div>
-                <div className="tbox">
-                  <div className="tscroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th style={{ minWidth: 150 }}>Team</th>
-                          <th className="num">Target</th>
-                          <th className="num">Done</th>
-                          <th className="num">Gap</th>
-                          <th>Status</th>
-                          <th>Scope</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {SUPPORT_TEAMS.map((t, i) => {
-                          const st = pace.state(t.target, t.obtained, 0)
+                      ))
+                    )}
+                  </tbody>
+                  {pmRows.length > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td style={TFOOT_TD}>Team</td>
+                        {PHASE_KEYS.map(k => {
+                          const done = obtainedThisMonth(k)
+                          const st = pace.state(monthlyTeamTarget, done, inFlight(k))
+                          const g = done - monthlyTeamTarget
                           return (
-                            <tr key={i}>
-                              <td>
-                                <span className="nm">{t.name}</span>
-                                <div className="sub">{t.team}</div>
+                            <Fragment key={k}>
+                              <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                                {monthlyTeamTarget}
                               </td>
-                              <td className="num">{t.target}</td>
-                              <td className={`num${t.obtained ? '' : ' dim'}`}>{t.obtained}</td>
-                              <td className="num">{gapText(t.obtained, t.target)}</td>
-                              <td>
-                                <span className={`pill ${PACE_PILL[st]}`}>
-                                  <i className={`dot ${PACE_DOT[st]}`} />{PACE_LABEL[st]}
-                                </span>
+                              <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                                {done}
                               </td>
-                              <td className="dim">{t.scope}</td>
-                            </tr>
+                              <td
+                                style={{
+                                  ...TFOOT_TD,
+                                  textAlign: 'center',
+                                  fontVariantNumeric: 'tabular-nums',
+                                  color: g < 0 && st === 'risk' ? 'var(--red)' : 'var(--text3)',
+                                }}
+                              >
+                                {gapText(done, monthlyTeamTarget)}
+                              </td>
+                              <td style={{ ...TFOOT_TD, textAlign: 'center' }}>
+                                <Pill tone={PACE_PILL[st]} dot={PACE_DOT[st]}>{PACE_LABEL[st]}</Pill>
+                              </td>
+                            </Fragment>
                           )
                         })}
-                      </tbody>
-                    </table>
-                  </div>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+                <PaceLegend />
+              </div>
+
+              <SectionLabel title="Support teams" hint="not tracked in workflow data" />
+              <div style={CARD_FLUSH}>
+                <table style={{ ...TABLE, minWidth: 660 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...TH_LEFT, minWidth: 150 }}>Team</th>
+                      <th style={TH_NUM}>Target</th>
+                      <th style={TH_NUM}>Done</th>
+                      <th style={TH_NUM}>Gap</th>
+                      <th style={TH_LEFT}>Status</th>
+                      <th style={TH_LEFT}>Scope</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {SUPPORT_TEAMS.map((t, i) => {
+                      const st = pace.state(t.target, t.obtained, 0)
+                      return (
+                        <tr key={i} style={TR_LINE}>
+                          <td style={TD_LEFT}>
+                            <span style={{ fontWeight: 600 }}>{t.name}</span>
+                            <div style={{ fontSize: 10.5, color: 'var(--text3)' }}>{t.team}</div>
+                          </td>
+                          <td style={TD_NUM}>{t.target}</td>
+                          <td style={{ ...TD_NUM, color: t.obtained ? 'var(--text)' : 'var(--text3)' }}>{t.obtained}</td>
+                          <td style={{ ...TD_NUM, color: 'var(--text3)' }}>{gapText(t.obtained, t.target)}</td>
+                          <td style={TD_LEFT}>
+                            <Pill tone={PACE_PILL[st]} dot={PACE_DOT[st]}>{PACE_LABEL[st]}</Pill>
+                          </td>
+                          <td style={TD_MUTED}>{t.scope}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <Flag>
+                <b>Data gap.</b> Support-team numbers are entered by hand on the Excel tab and don&apos;t flow from
+                project records, so they can&apos;t be cross-checked against the pipeline. The targets shown are
+                carried over from the current dashboard; the &ldquo;Done&rdquo; column has no source to read and stays 0.
+                Worth resolving before anyone reports off them.
+              </Flag>
+            </section>
+
+            {/* ══════════════ PROJECTS ══════════════ */}
+            <section id="okr2-p-proj" role="tabpanel" aria-labelledby="okr2-t-proj" hidden={tab !== 'proj'}>
+              <SectionLabel
+                title="Active projects"
+                hint={`${computed.length} client${computed.length === 1 ? '' : 's'}${solePhase ? ` · all in ${solePhase.toLowerCase()} stage` : ''}`}
+              />
+              {projCards.length === 0 ? (
+                <div style={{ ...CARD, fontSize: 13, color: 'var(--text3)' }}>No active clients.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {projCards.map(p => <ProjectCard key={p.id} p={p} />)}
                 </div>
+              )}
+              {allInOnePhase && solePhase === 'Design' && (
                 <Flag>
-                  <b>Data gap.</b> Support-team numbers are entered by hand on the Excel tab and don&apos;t flow from
-                  project records, so they can&apos;t be cross-checked against the pipeline. The targets shown are
-                  carried over from the current dashboard; the &ldquo;Done&rdquo; column has no source to read and stays 0.
-                  Worth resolving before anyone reports off them.
+                  <b>All {computed.length} sit in design.</b> Nothing has reached permit or contract, which is why
+                  every downstream OKR reads zero. The bottleneck is upstream of the metrics, not in them.
                 </Flag>
-              </section>
+              )}
+            </section>
 
-              {/* ══════════════ PROJECTS ══════════════ */}
-              <section className="panel" id="okr2-p-proj" role="tabpanel" aria-labelledby="okr2-t-proj" hidden={tab !== 'proj'}>
-                <div className="slab">
-                  <h2>Active projects</h2>
-                  <span className="hint">
-                    {computed.length} client{computed.length === 1 ? '' : 's'}
-                    {solePhase ? ` · all in ${solePhase.toLowerCase()} stage` : ''}
-                  </span>
-                </div>
-                {projCards.length === 0 ? (
-                  <div className="pcard dim" style={{ fontSize: 12.5 }}>No active clients.</div>
-                ) : (
-                  projCards.map(p => <ProjectCard key={p.id} p={p} />)
-                )}
-                {allInOnePhase && solePhase === 'Design' && (
-                  <Flag>
-                    <b>All {computed.length} sit in design.</b> Nothing has reached permit or contract, which is why
-                    every downstream OKR reads zero. The bottleneck is upstream of the metrics, not in them.
-                  </Flag>
-                )}
-              </section>
+            {/* ══════════════ HISTORY ══════════════ */}
+            <section id="okr2-p-hist" role="tabpanel" aria-labelledby="okr2-t-hist" hidden={tab !== 'hist'}>
+              <SectionLabel
+                title="NPS history"
+                hint={excel?.nps ? `${excel.nps.total} responses · click a year to expand` : foldMeta(excelLoading, false)}
+              />
+              <NpsHistorySection data={excel?.nps ?? null} loading={excelLoading} errors={excel?.errors ?? []} />
 
-              {/* ══════════════ HISTORY ══════════════ */}
-              <section className="panel" id="okr2-p-hist" role="tabpanel" aria-labelledby="okr2-t-hist" hidden={tab !== 'hist'}>
-                <div className="slab">
-                  <h2>NPS history</h2>
-                  <span className="hint">
-                    {excel?.nps
-                      ? `${excel.nps.total} responses · click a year to expand`
-                      : foldMeta(excelLoading, false)}
-                  </span>
-                </div>
-                <NpsHistorySection data={excel?.nps ?? null} loading={excelLoading} errors={excel?.errors ?? []} />
+              <SectionLabel
+                title="PIT goals KPI"
+                hint={excel?.pit
+                  ? `${excel.pit.itemCount} items${excel.pit.quarters.length ? ` · ${excel.pit.quarters.join(', ')}` : ''}`
+                  : foldMeta(excelLoading, false)}
+              />
+              <PitGoalsSection data={excel?.pit ?? null} loading={excelLoading} errors={excel?.errors ?? []} />
 
-                <div className="slab">
-                  <h2>PIT goals KPI</h2>
-                  <span className="hint">
-                    {excel?.pit
-                      ? `${excel.pit.itemCount} items${excel.pit.quarters.length ? ` · ${excel.pit.quarters.join(', ')}` : ''}`
-                      : foldMeta(excelLoading, false)}
-                  </span>
-                </div>
-                <PitGoalsSection data={excel?.pit ?? null} loading={excelLoading} errors={excel?.errors ?? []} />
+              <SectionLabel title="Selections completed" hint="from the tracker" />
+              <CompletionsSection
+                what="Selections"
+                data={excel?.selections ?? null}
+                ongoing={excel?.selectionsOngoing ?? null}
+                loading={excelLoading}
+                errors={excel?.errors ?? []}
+                monthLabel={monthLabel}
+                fallbackDetail="Selections is not modelled as an OKR phase in workflow records, so this comes from the tracker's SelectionsComp table instead."
+              />
 
-                <div className="slab"><h2>Selections completed</h2><span className="hint">from the tracker</span></div>
-                <CompletionsSection
-                  what="Selections"
-                  data={excel?.selections ?? null}
-                  loading={excelLoading}
-                  errors={excel?.errors ?? []}
-                  monthLabel={monthLabel}
-                  fallbackDetail="Selections is not modelled as an OKR phase in workflow records, so this comes from the tracker's SelectionsComp table instead."
-                />
+              <SectionLabel title="Bid completed" hint="from the tracker" />
+              <CompletionsSection
+                what="Bid"
+                data={excel?.bid ?? null}
+                ongoing={excel?.bidOngoing ?? null}
+                loading={excelLoading}
+                errors={excel?.errors ?? []}
+                monthLabel={monthLabel}
+                fallbackDetail="New section — it does not exist on the current dashboard at all. It reads the tracker's BidComp table."
+              />
 
-                <div className="slab"><h2>Bid completed</h2><span className="hint">from the tracker</span></div>
-                <CompletionsSection
-                  what="Bid"
-                  data={excel?.bid ?? null}
-                  loading={excelLoading}
-                  errors={excel?.errors ?? []}
-                  monthLabel={monthLabel}
-                  fallbackDetail="New section — it does not exist on the current dashboard at all. It reads the tracker's BidComp table."
-                />
-
-                <div className="slab"><h2>Completions calendar</h2><span className="hint">{monthLabel}</span></div>
-                <CompletionsCalendar
-                  year={calYear}
-                  monthIdx={calMonthIdx}
-                  daysInMonth={daysInMonth}
-                  todayDay={todayDay}
-                  monthName={monthName}
-                  dots={calendarDots}
-                />
-              </section>
-            </>
-          )}
-        </div>
-
-        {/* Rendered inside .okr2-root so the scoped tokens apply, but as a sibling
-            of the animated div so position:fixed stays anchored to the viewport. */}
-        {!loading && <FloatingOKRAI aiContext={okrAIContext} />}
+              <SectionLabel title="Completions calendar" hint={monthLabel} />
+              <CompletionsCalendar
+                year={calYear}
+                monthIdx={calMonthIdx}
+                daysInMonth={daysInMonth}
+                todayDay={todayDay}
+                monthName={monthName}
+                dots={calendarDots}
+              />
+            </section>
+          </>
+        )}
       </div>
+
+      {/* Sibling of the scrolling, animated container so position:fixed stays
+          anchored to the viewport — the live dashboard mounts its FAB the same way. */}
+      {!loading && <FloatingOKRAI aiContext={okrAIContext} />}
     </>
   )
 }
@@ -1373,38 +1480,162 @@ function TabBtn({
   count?: number
   children: React.ReactNode
 }) {
+  const sel = cur === id
   return (
     <button
-      className="tab"
       role="tab"
       id={`okr2-t-${id}`}
-      aria-selected={cur === id}
+      aria-selected={sel}
       aria-controls={`okr2-p-${id}`}
       onClick={() => set(id)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        background: 'none',
+        border: 0,
+        borderBottom: `2px solid ${sel ? 'var(--charcoal)' : 'transparent'}`,
+        marginBottom: -1,
+        padding: '9px 14px',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        fontSize: 12.5,
+        fontWeight: sel ? 700 : 600,
+        color: sel ? 'var(--text)' : 'var(--text3)',
+        transition: 'color 150ms ease',
+      }}
     >
       {children}
-      {count !== undefined && <span className="cnt">{count}</span>}
+      {count !== undefined && (
+        <span
+          style={{
+            fontSize: 10.5,
+            fontWeight: 600,
+            color: 'var(--text3)',
+            background: 'var(--surface2)',
+            border: '1px solid var(--border)',
+            borderRadius: 99,
+            padding: '1px 7px',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {count}
+        </span>
+      )}
     </button>
   )
 }
 
-function PaceLegend({ note }: { note?: string }) {
+// Section heading — the live dashboard's SectionHeader, plus the optional hint
+// and right-hand link this page's sections already used.
+function SectionLabel({
+  title, hint, action, onAction,
+}: {
+  title: string
+  hint?: string
+  action?: string
+  onAction?: () => void
+}) {
   return (
-    <div className="legend">
-      <span><i className="dot" />Not started</span>
-      <span><i className="dot go" />In progress</span>
-      <span><i className="dot risk" />Behind pace</span>
-      <span><i className="dot done" />Target met</span>
-      {note && <span className="dim" style={{ marginLeft: 'auto' }}>{note}</span>}
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '32px 0 12px' }}>
+      <h2
+        style={{
+          fontSize: 11,
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
+          color: 'var(--text3)',
+        }}
+      >
+        {title}
+      </h2>
+      {hint && <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>{hint}</span>}
+      {action && (
+        <button
+          onClick={onAction}
+          style={{ ...LINK_BTN, marginLeft: 'auto' }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text2)' }}
+        >
+          {action}
+        </button>
+      )}
     </div>
   )
 }
 
+// Status dot — the live dashboard's calendar-legend dot.
+function Dot({ color, size = 8 }: { color: string; size?: number }) {
+  return (
+    <span
+      style={{ display: 'inline-block', width: size, height: size, borderRadius: '50%', background: color, flexShrink: 0 }}
+    />
+  )
+}
+
+// Soft tinted badge — the live dashboard's StatusBadge / CurrentPhaseBadge shape.
+function Pill({ tone, dot, children }: { tone: string; dot?: string; children: React.ReactNode }) {
+  return (
+    <span style={badgeStyle(tone)}>
+      {dot && <Dot color={dot} size={6} />}
+      {children}
+    </span>
+  )
+}
+
+// 4px progress bar — copied from the live dashboard's ProgressBar.
+function ProgressBar({ value, total, color }: { value: number; total: number; color: string }) {
+  const pct = total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0
+  return (
+    <div style={{ height: 4, borderRadius: 99, background: 'var(--surface2)', overflow: 'hidden' }}>
+      <div style={{ height: 4, borderRadius: 99, width: `${pct}%`, background: color, transition: 'width 200ms ease' }} />
+    </div>
+  )
+}
+
+function PaceLegend({ note }: { note?: string }) {
+  const item = (color: string, label: string) => (
+    <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Dot color={color} />
+      {label}
+    </span>
+  )
+  return (
+    <div style={LEGEND}>
+      {item(PACE_DOT.ok, 'Not started')}
+      {item(PACE_DOT.go, 'In progress')}
+      {item(PACE_DOT.risk, 'Behind pace')}
+      {item(PACE_DOT.done, 'Target met')}
+      {note && <span style={{ marginLeft: 'auto', color: 'var(--text3)' }}>{note}</span>}
+    </div>
+  )
+}
+
+// Caveat note. The live dashboard has no dedicated component for this, but it
+// does have a caution language — the amber wash it puts behind the NPS
+// "Current Month" row — so the flag is drawn in the same amber tokens.
 function Flag({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flag">
-      <span aria-hidden="true">⚑</span>
-      <div>{children}</div>
+    <div
+      style={{
+        display: 'flex',
+        gap: 9,
+        alignItems: 'flex-start',
+        marginTop: 12,
+        padding: '11px 14px',
+        borderRadius: 12,
+        background: 'var(--amber-bg)',
+        border: '1px solid var(--border)',
+        borderLeft: '3px solid var(--amber)',
+        fontSize: 12,
+        lineHeight: 1.55,
+        color: 'var(--text2)',
+      }}
+    >
+      <span aria-hidden="true" style={{ color: 'var(--amber)' }}>⚑</span>
+      {/* `b` inside the note picks up the amber the same way the live dashboard's
+          highlighted rows do. */}
+      <div style={{ minWidth: 0 }} className="okr2-flagbody">{children}</div>
     </div>
   )
 }
@@ -1417,15 +1648,44 @@ function Fold({
   metaRight?: string
   children: React.ReactNode
 }) {
+  // Mirrors the <details> open state purely so the ▸ can rotate; the element
+  // still opens and closes itself.
+  const [open, setOpen] = useState(false)
   return (
-    <details className="fold">
-      <summary>
-        <span className="cv">▶</span>
-        <span className="ft">{title}</span>
-        {meta && <span>{meta}</span>}
-        {metaRight && <span className="fm">{metaRight}</span>}
+    <details
+      className="okr2-fold"
+      style={{ ...CARD, padding: 0, overflow: 'hidden' }}
+      onToggle={e => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary
+        style={{
+          cursor: 'pointer',
+          padding: '12px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          fontSize: 12.5,
+          color: 'var(--text3)',
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            fontSize: 9,
+            color: 'var(--text3)',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 150ms ease',
+          }}
+        >
+          ▶
+        </span>
+        <span style={{ fontWeight: 600, color: 'var(--text)' }}>{title}</span>
+        {meta && (
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meta}</span>
+        )}
+        {metaRight && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>{metaRight}</span>}
       </summary>
-      <div className="foldbody">{children}</div>
+      <div style={{ padding: '0 16px 16px' }}>{children}</div>
     </details>
   )
 }
@@ -1449,11 +1709,12 @@ interface ProjCard {
   groups: ProjCardGroup[]
 }
 
-const PHASE_PILL: Record<ProjCard['phase'], { cls: string; dot: string; label: string }> = {
-  Design: { cls: 'blue', dot: 'go', label: 'In design' },
-  Permit: { cls: 'ochre', dot: '', label: 'In permit' },
-  Contract: { cls: 'green', dot: 'done', label: 'In contract' },
-  Complete: { cls: 'teal', dot: 'done', label: 'Complete' },
+// Same four phases the live dashboard's CurrentPhaseBadge covers, in its tones.
+const PHASE_PILL: Record<ProjCard['phase'], { tone: string; dot: string; label: string }> = {
+  Design: { tone: 'blue', dot: PACE_DOT.go, label: 'In design' },
+  Permit: { tone: 'amber', dot: 'var(--amber)', label: 'In permit' },
+  Contract: { tone: 'green', dot: PACE_DOT.done, label: 'In contract' },
+  Complete: { tone: 'neutral', dot: 'var(--text3)', label: 'Complete' },
 }
 
 function ProjectCard({ p }: { p: ProjCard }) {
@@ -1461,60 +1722,98 @@ function ProjectCard({ p }: { p: ProjCard }) {
   const oPct = sTotal > 0 ? Math.round((sDone / sTotal) * 100) : 0
   const pill = PHASE_PILL[p.phase]
   return (
-    <div className="pcard">
-      <div className="phead">
-        <Link href={`/customers/${p.id}`} className="who2">{p.name}</Link>
-        <span className="chip">{p.pm}</span>
-        {p.type && <span className="ptype">{p.type}</span>}
-        <span className={`pill ${pill.cls}`} style={{ marginLeft: 'auto' }}>
-          <i className={`dot ${pill.dot}`} />{pill.label}
+    <div style={{ ...CARD, padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+        <Link
+          href={`/customers/${p.id}`}
+          style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', textDecoration: 'none' }}
+        >
+          {p.name}
+        </Link>
+        {/* PM chip — the live dashboard's NamePill */}
+        <span
+          style={{
+            display: 'inline-block',
+            fontSize: 11,
+            background: 'var(--surface2)',
+            color: 'var(--text2)',
+            border: '1px solid var(--border)',
+            borderRadius: 99,
+            padding: '2px 8px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {p.pm}
+        </span>
+        {p.type && <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>{p.type}</span>}
+        <span style={{ marginLeft: 'auto' }}>
+          <Pill tone={pill.tone} dot={pill.dot}>{pill.label}</Pill>
         </span>
       </div>
 
-      <div className="overall">
-        <span className="ol">Overall journey</span>
-        <div className="track" style={{ margin: 0, flex: 1 }}>
-          {sDone > 0 && <i style={{ width: `${oPct}%` }} />}
+      {/* Overall journey — charcoal bar, exactly as on the live dashboard. */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)' }}>
+            Overall journey
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
+            {sDone} of {sTotal} steps · {oPct}%
+          </span>
         </div>
-        <span className="pv mono">{sDone} / {sTotal}</span>
+        <ProgressBar value={sDone} total={sTotal} color="var(--charcoal)" />
+        <div style={{ borderBottom: '1px solid var(--border)', marginTop: 14 }} />
       </div>
 
-      {p.groups.map(g => {
-        const [gSteps, gStepsTotal] = g.steps
-        const [gTasks, gTasksTotal] = g.tasks
-        const stepsOff = gSteps === 0
-        const tasksOff = gTasks === 0
-        const stepPct = gStepsTotal > 0 ? Math.round((gSteps / gStepsTotal) * 100) : 0
-        const taskPct = gTasksTotal > 0 ? Math.round((gTasks / gTasksTotal) * 100) : 0
-        return (
-          <Fragment key={g.key}>
-            {/* Phase step progress */}
-            <div className="prow">
-              <span className={stepsOff ? 'pl off' : 'pl'}>{g.label}</span>
-              <div className="track" style={{ margin: 0 }}>
-                {!stepsOff && <i style={{ width: `${stepPct}%` }} />}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+        {p.groups.map(g => {
+          const [gSteps, gStepsTotal] = g.steps
+          const [gTasks, gTasksTotal] = g.tasks
+          const stepPct = gStepsTotal > 0 ? Math.round((gSteps / gStepsTotal) * 100) : 0
+          const taskPct = gTasksTotal > 0 ? Math.round((gTasks / gTasksTotal) * 100) : 0
+          return (
+            <div key={g.key}>
+              {/* Phase step progress */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 5 }}>
+                <span style={{ color: 'var(--text2)', fontWeight: 600 }}>{g.label}</span>
+                <span style={{ color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
+                  {gSteps} of {gStepsTotal} · {stepPct}%
+                </span>
               </div>
-              <span className={stepsOff ? 'pv off' : 'pv'}>{gSteps} / {gStepsTotal}</span>
-            </div>
+              <ProgressBar value={gSteps} total={gStepsTotal} color={PHASE_META[g.key].accent} />
 
-            {/* KPI tasks for THIS phase, nested under it. Keeps the live
-                dashboard's fallback for a phase with no tasks defined. */}
-            <div className="prow kpirow">
-              <span className="pl">KPI tasks</span>
-              {gTasksTotal === 0 ? (
-                <span className="none">No tasks recorded yet</span>
-              ) : (
-                <>
-                  <div className="track" style={{ margin: 0 }}>
-                    {!tasksOff && <i style={{ width: `${taskPct}%` }} />}
-                  </div>
-                  <span className="pv">{gTasks} / {gTasksTotal}</span>
-                </>
-              )}
+              {/* KPI tasks for THIS phase, nested under it. Keeps the live
+                  dashboard's fallback for a phase with no tasks defined. */}
+              <div style={{ marginTop: 6 }}>
+                {gTasksTotal === 0 ? (
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontStyle: 'italic' }}>No tasks recorded yet</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 4 }}>
+                      <span style={{ color: 'var(--text3)' }}>KPI tasks</span>
+                      <span style={{ color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
+                        {gTasks} of {gTasksTotal} · {taskPct}%
+                      </span>
+                    </div>
+                    <div style={{ height: 3, borderRadius: 99, background: 'var(--surface2)', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: 3,
+                          borderRadius: 99,
+                          width: `${taskPct}%`,
+                          background: PHASE_META[g.key].accent,
+                          opacity: 0.6,
+                          transition: 'width 200ms ease',
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </Fragment>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -1531,46 +1830,105 @@ function CompletionsCalendar({
   dots: Map<number, Map<PhaseKey, number>>
 }) {
   const hasEntries = dots.size > 0
-  // When there is nothing to plot the mockup shows a short empty state with an
+  // When there is nothing to plot the page shows a short empty state with an
   // opt-in to reveal the grid anyway. With entries, the grid shows immediately.
   const [shown, setShown] = useState(hasEntries)
   const firstWeekday = new Date(year, monthIdx, 1).getDay() // 0 = Sun
   const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  const trailing = (firstWeekday + daysInMonth) % 7
 
   return (
     <div>
       {!hasEntries && (
-        <div className="calempty">
-          <p>No completions logged in {monthName} yet</p>
-          <small>Design, permit and contract dates appear here as projects clear each stage.</small>
-          <button onClick={() => setShown(s => !s)}>
+        <div style={{ ...CARD, textAlign: 'center', padding: 22 }}>
+          <p style={{ fontSize: 12.5, color: 'var(--text2)' }}>No completions logged in {monthName} yet</p>
+          <small style={{ fontSize: 11.5, color: 'var(--text3)', display: 'block', marginTop: 4 }}>
+            Design, permit and contract dates appear here as projects clear each stage.
+          </small>
+          <button
+            onClick={() => setShown(s => !s)}
+            style={{
+              marginTop: 12,
+              fontFamily: 'inherit',
+              fontSize: 12,
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+              color: 'var(--text)',
+              borderRadius: 8,
+              padding: '6px 13px',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+          >
             {shown ? 'Hide calendar' : 'Show the empty calendar anyway'}
           </button>
         </div>
       )}
 
       {shown && (
-        <div style={{ marginTop: hasEntries ? 0 : 10 }}>
-          <div className="cal">
-            {dows.map(d => <div className="dow" key={d}>{d}</div>)}
-            {Array.from({ length: firstWeekday }, (_, i) => <div className="cell pad" key={`lead-${i}`} />)}
+        <div style={{ ...CARD, marginTop: hasEntries ? 0 : 10 }}>
+          {/* Weekday header */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 6 }}>
+            {dows.map(d => (
+              <div
+                key={d}
+                style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text3)', fontWeight: 600, textAlign: 'center' }}
+              >
+                {d}
+              </div>
+            ))}
+          </div>
+
+          {/* Day grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+            {Array.from({ length: firstWeekday }, (_, i) => <div key={`lead-${i}`} />)}
             {range(1, daysInMonth).map(d => {
               const day = dots.get(d)
               return (
-                <div className={d === todayDay ? 'cell today' : 'cell'} key={d}>
-                  <span>{d}</span>
+                <div
+                  key={d}
+                  style={{
+                    minHeight: 56,
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: '5px 7px',
+                    background: d === todayDay ? 'var(--surface2)' : 'var(--surface)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: d === todayDay ? 'var(--text)' : 'var(--text3)',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {d}
+                  </span>
                   {day && (
-                    <div className="cdots">
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       {PHASE_KEYS.filter(k => day.has(k)).map(k => {
                         const n = day.get(k) ?? 0
                         const multi = n > 1
                         return (
                           <span
                             key={k}
-                            className={multi ? 'cdot multi' : 'cdot'}
                             title={`${PHASE_META[k].label}${multi ? ` ×${n}` : ''}`}
-                            style={{ background: PHASE_META[k].accent }}
+                            style={{
+                              width: multi ? 14 : 8,
+                              height: multi ? 14 : 8,
+                              borderRadius: '50%',
+                              background: PHASE_META[k].accent,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#fff',
+                              fontSize: 8,
+                              fontWeight: 700,
+                              lineHeight: 1,
+                            }}
                           >
                             {multi ? n : ''}
                           </span>
@@ -1581,13 +1939,13 @@ function CompletionsCalendar({
                 </div>
               )
             })}
-            {trailing > 0 &&
-              Array.from({ length: 7 - trailing }, (_, i) => <div className="cell pad" key={`trail-${i}`} />)}
           </div>
-          <div className="legend" style={{ border: 0, padding: '9px 0' }}>
+
+          {/* Legend — same row the live dashboard puts above its calendar. */}
+          <div style={{ display: 'flex', gap: 16, marginTop: 14, flexWrap: 'wrap' }}>
             {PHASE_KEYS.map(k => (
-              <span key={k}>
-                <i className="dot" style={{ background: PHASE_META[k].accent }} />
+              <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text2)' }}>
+                <Dot color={PHASE_META[k].accent} />
                 {PHASE_META[k].short}
               </span>
             ))}
@@ -1602,8 +1960,8 @@ function CompletionsCalendar({
 // LIVE TRACKER SECTIONS — read from the Precon KPI Tracker via
 // /api/okr-dashboard-v2/excel-data (Graph, read-only).
 //
-// Each one degrades to the mockup's em-dash shell when the read fails, so a
-// Graph outage costs you the numbers, not the page.
+// Each one degrades to an em-dash shell when the read fails, so a Graph outage
+// costs you the numbers, not the page.
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Right-hand meta text on a fold summary.
@@ -1619,7 +1977,7 @@ function TrackerUnavailable({ what, detail, errors }: { what: string; detail: st
       <b>{what} unavailable.</b> {detail} The dashboard could not read the tracker just now, so no figures are
       shown rather than stale ones.
       {errors.length > 0 && (
-        <span className="dim" style={{ display: 'block', marginTop: 5, fontSize: 11 }}>
+        <span style={{ display: 'block', marginTop: 5, fontSize: 11, color: 'var(--text3)' }}>
           {errors.slice(0, 3).join(' · ')}
         </span>
       )}
@@ -1628,7 +1986,7 @@ function TrackerUnavailable({ what, detail, errors }: { what: string; detail: st
 }
 
 function SectionSkeleton() {
-  return <div className="skel shimmer" style={{ height: 120 }} />
+  return <div className="shimmer" style={{ height: 120, borderRadius: 12, border: '1px solid var(--border)' }} />
 }
 
 // ── Selections / Bid KPI card ──────────────────────────────────────────────
@@ -1642,32 +2000,34 @@ function TrackerCountCard({
 }) {
   if (loading) {
     return (
-      <div className="kpi">
-        <div className="k">{label}</div>
-        <div className="v empty-v">·</div>
-        <div className="foot">Reading tracker…</div>
+      <div style={KPI_CARD}>
+        <div style={KPI_LABEL}>{label}</div>
+        <div style={KPI_VALUE_ROW}><span style={{ ...KPI_VALUE, color: 'var(--text3)' }}>·</span></div>
+        <div style={KPI_FOOT}>Reading tracker…</div>
       </div>
     )
   }
   if (!data) {
     return (
-      <div className="kpi">
-        <div className="k">{label}</div>
-        <div className="v empty-v">—</div>
-        <div className="foot">Tracker unavailable</div>
+      <div style={KPI_CARD}>
+        <div style={KPI_LABEL}>{label}</div>
+        <div style={KPI_VALUE_ROW}><span style={{ ...KPI_VALUE, color: 'var(--text3)' }}>—</span></div>
+        <div style={KPI_FOOT}>Tracker unavailable</div>
       </div>
     )
   }
   // "This month" against the tracker's own completion dates. There is no target
   // for these two in the source, so no track bar and no pace marker.
   return (
-    <div className="kpi">
-      <div className="k">{label}</div>
-      <div className={data.thisMonth === 0 ? 'v empty-v' : 'v'}>
-        {data.thisMonth}
-        <small> in {monthShort}</small>
+    <div style={KPI_CARD}>
+      <div style={KPI_LABEL}>{label}</div>
+      <div style={KPI_VALUE_ROW}>
+        <span style={{ ...KPI_VALUE, color: data.thisMonth === 0 ? 'var(--text3)' : 'var(--text)' }}>
+          {data.thisMonth}
+        </span>
+        <span style={KPI_DELTA}>in {monthShort}</span>
       </div>
-      <div className="foot">{data.total} all time · from tracker</div>
+      <div style={KPI_FOOT}>{data.total} all time · from tracker</div>
     </div>
   )
 }
@@ -1676,11 +2036,59 @@ function TrackerCountCard({
 function Spark({ counts }: { counts: number[] }) {
   const max = Math.max(...counts, 1)
   return (
-    <span className="spark" aria-hidden="true">
+    <span
+      aria-hidden="true"
+      style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 2, height: 14, verticalAlign: -2 }}
+    >
       {counts.map((v, i) => (
-        <i key={i} style={{ height: `${Math.max(1, (v / max) * 14)}px`, opacity: v ? 1 : 0.25 }} />
+        <i
+          key={i}
+          style={{
+            display: 'block',
+            width: 3,
+            borderRadius: 1,
+            background: 'var(--text3)',
+            height: `${Math.max(1, (v / max) * 14)}px`,
+            opacity: v ? 1 : 0.25,
+          }}
+        />
       ))}
     </span>
+  )
+}
+
+// Twisty used by the NPS tree — a borderless button with a rotating ▸.
+function Twisty({ open, onClick, children }: { open: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      aria-expanded={open}
+      onClick={onClick}
+      style={{
+        background: 'none',
+        border: 0,
+        padding: 0,
+        color: 'inherit',
+        font: 'inherit',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          fontSize: 9,
+          width: 9,
+          color: 'var(--text3)',
+          transform: open ? 'rotate(90deg)' : 'none',
+          transition: 'transform 150ms ease',
+        }}
+      >
+        ▶
+      </span>
+      {children}
+    </button>
   )
 }
 
@@ -1711,100 +2119,97 @@ function NpsHistorySection({
 
   return (
     <div>
-      <div className="tbox">
-        <div className="tscroll">
-          <table className="tree">
-            <thead>
-              <tr>
-                <th style={{ minWidth: 190 }}>Period</th>
-                <th className="num">Responses</th>
-                <th className="num">Avg score</th>
-                <th className="num" style={{ minWidth: 80 }}>Trend</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.years.length === 0 ? (
-                <tr><td colSpan={4} className="dim">No dated responses in the tracker.</td></tr>
-              ) : (
-                data.years.map(y => {
-                  const yId = `y${y.year}`
-                  const yOpen = isOpen(yId, y.year === firstYear)
-                  return (
-                    <Fragment key={yId}>
-                      <tr className="lv1">
-                        <td>
-                          <button
-                            className="tw"
-                            aria-expanded={yOpen}
-                            onClick={() => setOpen(o => ({ ...o, [yId]: !yOpen }))}
-                          >
-                            <span className="cv" aria-hidden="true">▶</span>{y.year}
-                          </button>
-                        </td>
-                        <td className="num">{y.count}</td>
-                        <td className="num">{fmt(y.avg)}</td>
-                        <td className="num"><Spark counts={y.spark} /></td>
-                      </tr>
-                      {yOpen && y.quarters.map(q => {
-                        const qId = `${yId}-${q.label}`
-                        const qOpen = isOpen(qId, true)
-                        return (
-                          <Fragment key={qId}>
-                            <tr className="lv2">
-                              <td>
-                                <button
-                                  className="tw"
-                                  aria-expanded={qOpen}
-                                  onClick={() => setOpen(o => ({ ...o, [qId]: !qOpen }))}
-                                >
-                                  <span className="cv" aria-hidden="true">▶</span>{q.label}
-                                </button>
+      <div style={CARD_FLUSH}>
+        <table style={{ ...TABLE, minWidth: 520 }}>
+          <thead>
+            <tr>
+              <th style={{ ...TH_LEFT, minWidth: 190 }}>Period</th>
+              <th style={TH_NUM}>Responses</th>
+              <th style={TH_NUM}>Avg score</th>
+              <th style={{ ...TH_NUM, minWidth: 80 }}>Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.years.length === 0 ? (
+              <tr><td colSpan={4} style={TD_MUTED}>No dated responses in the tracker.</td></tr>
+            ) : (
+              data.years.map(y => {
+                const yId = `y${y.year}`
+                const yOpen = isOpen(yId, y.year === firstYear)
+                return (
+                  <Fragment key={yId}>
+                    <tr style={TR_LINE}>
+                      <td style={{ ...TD_LEFT, fontWeight: 600 }}>
+                        <Twisty open={yOpen} onClick={() => setOpen(o => ({ ...o, [yId]: !yOpen }))}>
+                          {y.year}
+                        </Twisty>
+                      </td>
+                      <td style={TD_NUM}>{y.count}</td>
+                      <td style={TD_NUM}>{fmt(y.avg)}</td>
+                      <td style={TD_NUM}><Spark counts={y.spark} /></td>
+                    </tr>
+                    {yOpen && y.quarters.map(q => {
+                      const qId = `${yId}-${q.label}`
+                      const qOpen = isOpen(qId, true)
+                      return (
+                        <Fragment key={qId}>
+                          <tr style={TR_LINE}>
+                            <td style={{ ...TD_LEFT, paddingLeft: 34, color: 'var(--text2)' }}>
+                              <Twisty open={qOpen} onClick={() => setOpen(o => ({ ...o, [qId]: !qOpen }))}>
+                                {q.label}
+                              </Twisty>
+                            </td>
+                            <td style={{ ...TD_NUM, color: q.count ? 'var(--text)' : 'var(--text3)' }}>{q.count}</td>
+                            <td style={{ ...TD_NUM, color: q.avg !== null ? 'var(--text)' : 'var(--text3)' }}>{fmt(q.avg)}</td>
+                            <td style={TD_NUM} />
+                          </tr>
+                          {qOpen && q.months.map(m => (
+                            <tr style={TR_LINE} key={`${qId}-${m.label}`}>
+                              <td style={{ ...TD_LEFT, paddingLeft: 56, paddingTop: 6, paddingBottom: 6, fontSize: 11.5, color: 'var(--text3)' }}>
+                                {m.label}
                               </td>
-                              <td className={q.count ? 'num' : 'num dim'}>{q.count}</td>
-                              <td className={q.avg !== null ? 'num' : 'num dim'}>{fmt(q.avg)}</td>
-                              <td />
+                              <td style={{ ...TD_NUM, paddingTop: 6, paddingBottom: 6, fontSize: 11.5, color: m.count ? 'var(--text)' : 'var(--text3)' }}>
+                                {m.count || '—'}
+                              </td>
+                              <td style={{ ...TD_NUM, paddingTop: 6, paddingBottom: 6, fontSize: 11.5, color: m.avg !== null ? 'var(--text)' : 'var(--text3)' }}>
+                                {fmt(m.avg)}
+                              </td>
+                              <td style={TD_NUM} />
                             </tr>
-                            {qOpen && q.months.map(m => (
-                              <tr className="lv3" key={`${qId}-${m.label}`}>
-                                <td>{m.label}</td>
-                                <td className={m.count ? 'num' : 'num dim'}>{m.count || '—'}</td>
-                                <td className={m.avg !== null ? 'num' : 'num dim'}>{fmt(m.avg)}</td>
-                                <td />
-                              </tr>
-                            ))}
-                          </Fragment>
-                        )
-                      })}
-                    </Fragment>
-                  )
-                })
-              )}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td>All time</td>
-                <td className="num">{data.total}</td>
-                <td className="num">{fmt(data.avgAll)}</td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+                          ))}
+                        </Fragment>
+                      )
+                    })}
+                  </Fragment>
+                )
+              })
+            )}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style={TFOOT_TD}>All time</td>
+              <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{data.total}</td>
+              <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{fmt(data.avgAll)}</td>
+              <td style={TFOOT_TD} />
+            </tr>
+          </tfoot>
+        </table>
         {data.byPm.length > 0 && (
-          <div className="legend">
+          <div style={LEGEND}>
             {data.byPm.map(p => (
-              <span key={p.pm}>
-                <i className="dot go" />{p.pm} · {p.count} · avg {fmt(p.avg)}
+              <span key={p.pm} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Dot color={PACE_DOT.go} size={6} />
+                {p.pm} · {p.count} · avg {fmt(p.avg)}
               </span>
             ))}
           </div>
         )}
       </div>
       <Flag>
-        <b>Live from the tracker.</b> Read from the <span className="mono">NewNPS</span> table, scored on
+        <b>Live from the tracker.</b> Read from the <span style={MONO}>NewNPS</span> table, scored on
         &ldquo;how satisfied are you with your experience so far?&rdquo; (1&ndash;10) and bucketed by Date Submitted.
         {data.scored < data.total && ` ${data.total - data.scored} of ${data.total} responses carry no score and are counted but not averaged.`}
-        {' '}The older <span className="mono">NPS</span> tab asks a different question (likelihood to refer) and is
+        {' '}The older <span style={MONO}>NPS</span> tab asks a different question (likelihood to refer) and is
         not merged in — the two are not the same metric.
       </Flag>
     </div>
@@ -1832,47 +2237,56 @@ function PitGoalsSection({
 
   return (
     <div>
-      <div className="tbox">
-        <div className="tscroll">
-          <table>
-            <thead>
-              {/* Same column shape as the current dashboard: Name + the five
-                  stages. No Total column — the funnel makes the first stage
-                  column equal to the person's item count already. */}
-              <tr>
-                <th style={{ minWidth: 150 }}>Name</th>
-                {data.stages.map(s => <th className="num" key={s}>{s}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {data.people.length === 0 ? (
-                <tr><td colSpan={data.stages.length + 1} className="dim">No PIT items in the tracker.</td></tr>
-              ) : (
-                data.people.map(p => (
-                  <tr key={p.name}>
-                    <td>
-                      <span className="nm">{p.name}</span>
-                      {p.email && <div className="sub">{p.email}</div>}
-                    </td>
-                    {p.counts.map((c, i) => (
-                      <td className={c ? 'num' : 'num dim'} key={i}>{c}</td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td>Actual</td>
-                {data.totals.map((t, i) => <td className="num" key={i}>{t}</td>)}
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+      <div style={CARD_FLUSH}>
+        <table style={{ ...TABLE, minWidth: 660 }}>
+          <thead>
+            {/* Same column shape as the current dashboard: Name + the five
+                stages, on its dark header band. No Total column — the funnel
+                makes the first stage column equal to the person's item count. */}
+            <tr style={{ background: '#1a1917' }}>
+              <th style={{ ...TH_LEFT, minWidth: 150, color: '#fff', borderBottom: 'none', fontSize: 10.5, letterSpacing: '0.06em' }}>
+                Name
+              </th>
+              {data.stages.map(s => (
+                <th
+                  key={s}
+                  style={{ ...TH_NUM, color: '#fff', borderBottom: 'none', fontSize: 10.5, letterSpacing: '0.06em' }}
+                >
+                  {s}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.people.length === 0 ? (
+              <tr><td colSpan={data.stages.length + 1} style={TD_MUTED}>No PIT items in the tracker.</td></tr>
+            ) : (
+              data.people.map(p => (
+                <tr key={p.name} style={TR_LINE}>
+                  <td style={TD_LEFT}>
+                    <span style={{ fontWeight: 600 }}>{p.name}</span>
+                    {p.email && <div style={{ fontSize: 10.5, color: 'var(--text3)' }}>{p.email}</div>}
+                  </td>
+                  {p.counts.map((c, i) => (
+                    <td style={{ ...TD_NUM, color: c ? 'var(--text)' : 'var(--text3)' }} key={i}>{c}</td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style={TFOOT_TD}>Actual</td>
+              {data.totals.map((t, i) => (
+                <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }} key={i}>{t}</td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
       </div>
       <Flag>
-        <b>Live from the tracker.</b> Read from the <span className="mono">PITprecon</span> table, where{' '}
-        <span className="mono">Status</span> records the furthest stage an item has reached. The columns are therefore
+        <b>Live from the tracker.</b> Read from the <span style={MONO}>PITprecon</span> table, where{' '}
+        <span style={MONO}>Status</span> records the furthest stage an item has reached. The columns are therefore
         a <b>cumulative funnel</b>: an item at &ldquo;SOP Created&rdquo; is counted under every earlier stage too, so
         each column reads &ldquo;how many have got at least this far&rdquo; and the numbers step down left to right.
         <span style={{ display: 'block', marginTop: 6 }}>
@@ -1883,7 +2297,7 @@ function PitGoalsSection({
           he has logged an item since those numbers were typed in.
         </span>
         {data.notes.length > 0 && (
-          <span className="dim" style={{ display: 'block', marginTop: 6, fontSize: 11 }}>
+          <span style={{ display: 'block', marginTop: 6, fontSize: 11, color: 'var(--text3)' }}>
             {data.notes.join(' · ')}
           </span>
         )}
@@ -1892,87 +2306,268 @@ function PitGoalsSection({
   )
 }
 
-// ── Selections / Bid completed ─────────────────────────────────────────────
+// ── Selections / Bid — Completed | Ongoing ─────────────────────────────────
+// One card, two datasets. Completed is the view on load; Ongoing is only offered
+// when its table actually came back, so a failed SelectionsOng read costs the
+// toggle rather than leaving a tab that opens onto nothing.
+//
+// Each list previews PREVIEW_ROWS and expands from there — the same interaction
+// as Big Vision's "Load N more". Expansion is tracked per view, so opening the
+// whole Completed list does not silently open the Ongoing one behind it.
+const PREVIEW_ROWS = 12
+
+type CompView = 'completed' | 'ongoing'
+
+// The two datasets differ in exactly one column — a completion date vs a start
+// date — so they are normalised to one shape and rendered through one table
+// instead of two near-identical copies of the same markup drifting apart.
+interface DisplayRow {
+  customer: string
+  pm: string
+  projectType: string
+  date: string | null
+  days: number | null
+}
+
 function CompletionsSection({
-  what, data, loading, errors, monthLabel, fallbackDetail,
+  what, data, ongoing, loading, errors, monthLabel, fallbackDetail,
 }: {
   what: string
   data: CompPayload | null
+  ongoing: OngPayload | null
   loading: boolean
   errors: string[]
   monthLabel: string
   fallbackDetail: string
 }) {
+  // Hooks before the early returns below — those are conditional, hook calls
+  // cannot be.
+  const [view, setView] = useState<CompView>('completed')
+  const [expanded, setExpanded] = useState<Record<CompView, boolean>>({
+    completed: false,
+    ongoing: false,
+  })
+
   if (loading) return <SectionSkeleton />
   if (!data) {
     return <TrackerUnavailable what={`${what} completed`} detail={fallbackDetail} errors={errors} />
   }
 
   const tableName = what === 'Bid' ? 'BidComp' : 'SelectionsComp'
+  const ongTableName = what === 'Bid' ? 'BidOng' : 'SelectionsOng'
+
+  // Narrowing through a local keeps the rest of the component free of non-null
+  // assertions: `activeOng` is non-null exactly when the Ongoing view is live.
+  const activeOng = view === 'ongoing' ? ongoing : null
+  const isOngoing = activeOng !== null
+
+  const rows: DisplayRow[] = activeOng
+    ? activeOng.rows.map(r => ({
+        customer: r.customer,
+        pm: r.pm,
+        projectType: r.projectType,
+        date: r.started,
+        days: r.days,
+      }))
+    : data.rows.map(r => ({
+        customer: r.customer,
+        pm: r.pm,
+        projectType: r.projectType,
+        date: r.date,
+        days: r.days,
+      }))
+
+  const source = activeOng ?? data
+  const dateHeader = activeOng ? (activeOng.startColumn ?? 'Started') : data.dateColumn
+  const isExpanded = expanded[isOngoing ? 'ongoing' : 'completed']
+  const visible = isExpanded ? rows : rows.slice(0, PREVIEW_ROWS)
+  // Rows are sorted longest-first, so the first usable figure is the maximum.
+  const longestOngoing = activeOng?.rows.find(r => r.days !== null)?.days ?? null
+  const toggleExpanded = () =>
+    setExpanded(e => ({ ...e, [isOngoing ? 'ongoing' : 'completed']: !isExpanded }))
 
   return (
     <div>
-      <div className="tbox">
-        <div className="tscroll">
-          <table>
-            <thead>
-              <tr>
-                <th style={{ minWidth: 170 }}>Customer</th>
-                <th>PM</th>
-                <th>Type</th>
-                <th className="num">{data.dateColumn}</th>
-                <th className="num">Days</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.recent.length === 0 ? (
-                <tr><td colSpan={5} className="dim">No completed rows in the tracker.</td></tr>
-              ) : (
-                data.recent.map((r, i) => (
-                  <tr key={`${r.customer}-${i}`}>
-                    <td className="nm">{r.customer || '—'}</td>
-                    <td className="dim">{r.pm || '—'}</td>
-                    <td className="dim">{r.projectType || '—'}</td>
-                    <td className={r.date ? 'num' : 'num dim'}>{r.date ?? '—'}</td>
-                    <td className={r.days !== null ? 'num' : 'num dim'}>{r.days ?? '—'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td>{data.total} completed all time</td>
-                <td colSpan={2} className="dim">
-                  {data.byPm.map(p => `${p.pm} ${p.count}`).join(' · ')}
-                </td>
-                <td className="num">{data.thisMonth} in {monthLabel.split(' ')[0]}</td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        {data.recent.length > 0 && data.total > data.recent.length && (
-          <div className="legend">
-            <span className="dim">
-              Showing the {data.recent.length} most recent of {data.total} — newest first
+      <div style={CARD_FLUSH}>
+        {ongoing && (
+          <div
+            role="group"
+            aria-label={`${what} — completed or ongoing`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              padding: '10px 12px',
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            {/* Segmented control, drawn in the live dashboard's pill vocabulary:
+                a --surface2 trough with the active segment lifted onto --surface. */}
+            <div
+              style={{
+                display: 'inline-flex',
+                gap: 2,
+                padding: 2,
+                borderRadius: 99,
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              {([['completed', 'Completed'], ['ongoing', 'Ongoing']] as [CompView, string][]).map(([id, label]) => {
+                const on = (id === 'ongoing') === isOngoing
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setView(id)}
+                    style={{
+                      fontFamily: 'inherit',
+                      fontSize: 11.5,
+                      fontWeight: on ? 700 : 600,
+                      padding: '4px 13px',
+                      borderRadius: 99,
+                      cursor: 'pointer',
+                      background: on ? 'var(--surface)' : 'transparent',
+                      border: `1px solid ${on ? 'var(--border)' : 'transparent'}`,
+                      color: on ? 'var(--text)' : 'var(--text3)',
+                      transition: 'color 150ms ease, background 150ms ease',
+                    }}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>
+              {isOngoing
+                ? `${ongoing.total} still in ${what.toLowerCase()} · ${ongTableName}`
+                : `${data.total} completed all time · ${tableName}`}
             </span>
           </div>
         )}
-      </div>
-      <Flag>
-        <b>Live from the tracker.</b> Read from the <span className="mono">{tableName}</span> table. That table has
-        no &ldquo;date completed&rdquo; column, so <span className="mono">{data.dateColumn}</span> is used as the
-        completion date — it is the column whose difference from <span className="mono">Date Permit Routed</span>
-        {' '}matches the sheet&apos;s own <span className="mono">#&nbsp;Days</span> figure.
-        {data.dated < data.total && ` ${data.total - data.dated} row(s) have no readable date and are excluded from the monthly count.`}
-        {data.anomalies > 0 && (
-          <span style={{ display: 'block', marginTop: 6 }}>
-            <b>{data.anomalies} row{data.anomalies === 1 ? '' : 's'} disagree with {data.dateColumn === 'Date Contract Signed' ? 'their own' : 'the'} day count</b>
-            {' '}— the two dates and <span className="mono">#&nbsp;Days</span> do not reconcile, so at least one of
-            the three is wrong at source. Worth a look before reporting off these dates.
-          </span>
+        <table style={{ ...TABLE, minWidth: 620 }}>
+          <thead>
+            <tr>
+              <th style={{ ...TH_LEFT, minWidth: 170 }}>Customer</th>
+              <th style={TH_LEFT}>PM</th>
+              <th style={TH_LEFT}>Type</th>
+              <th style={TH_NUM}>{dateHeader}</th>
+              <th style={TH_NUM}>Days</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={TD_MUTED}>
+                  No {isOngoing ? 'ongoing' : 'completed'} rows in the tracker.
+                </td>
+              </tr>
+            ) : (
+              visible.map((r, i) => (
+                <tr key={`${isOngoing ? 'ong' : 'comp'}-${r.customer}-${i}`} style={TR_LINE}>
+                  <td style={{ ...TD_LEFT, fontWeight: 600 }}>{r.customer || '—'}</td>
+                  <td style={TD_MUTED}>{r.pm || '—'}</td>
+                  <td style={TD_MUTED}>{r.projectType || '—'}</td>
+                  <td style={{ ...TD_NUM, color: r.date ? 'var(--text)' : 'var(--text3)' }}>{r.date ?? '—'}</td>
+                  <td style={{ ...TD_NUM, color: r.days !== null ? 'var(--text)' : 'var(--text3)' }}>{r.days ?? '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style={TFOOT_TD}>
+                {isOngoing ? `${source.total} in progress` : `${source.total} completed all time`}
+              </td>
+              <td colSpan={2} style={{ ...TFOOT_TD, fontWeight: 400, color: 'var(--text3)' }}>
+                {source.byPm.map(p => `${p.pm} ${p.count}`).join(' · ')}
+              </td>
+              <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                {isOngoing
+                  ? (longestOngoing !== null ? `${longestOngoing}d longest` : '—')
+                  : `${data.thisMonth} in ${monthLabel.split(' ')[0]}`}
+              </td>
+              <td style={TFOOT_TD} />
+            </tr>
+          </tfoot>
+        </table>
+        {(rows.length > PREVIEW_ROWS || source.truncated > 0 || !ongoing) && (
+          <div style={LEGEND}>
+            {rows.length > PREVIEW_ROWS && (
+              <span>
+                {isExpanded
+                  ? `All ${rows.length} rows — ${isOngoing ? 'longest-running first' : 'newest first'}`
+                  : `Showing ${visible.length} of ${rows.length} — ${isOngoing ? 'longest-running first' : 'newest first'}`}
+              </span>
+            )}
+            {source.truncated > 0 && (
+              <span>
+                {source.truncated} further row{source.truncated === 1 ? '' : 's'} exist in the tracker but are
+                past the read endpoint&apos;s row ceiling and were not loaded
+              </span>
+            )}
+            {!ongoing && (
+              <span>
+                Ongoing view unavailable — <span style={MONO}>{ongTableName}</span> did not come back on this read
+              </span>
+            )}
+            {rows.length > PREVIEW_ROWS && (
+              <button
+                type="button"
+                onClick={toggleExpanded}
+                style={{ ...LINK_BTN, marginLeft: 'auto', fontSize: 11 }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text2)' }}
+              >
+                {isExpanded ? 'Show less' : `View all ${rows.length} →`}
+              </button>
+            )}
+          </div>
         )}
-      </Flag>
+      </div>
+      {isOngoing && activeOng ? (
+        <Flag>
+          <b>Live from the tracker.</b> Read from the <span style={MONO}>{ongTableName}</span> table — rows still
+          in {what.toLowerCase()}, not yet completed. These rows have no completion date, so the date column is
+          {' '}<span style={MONO}>{activeOng.startColumn ?? 'unavailable'}</span> (the start), and
+          {' '}<span style={MONO}>#&nbsp;Days</span> is the sheet&apos;s own elapsed-days figure as of its last
+          calculation — days so far, not a finished duration, and it lags if the workbook has not recalculated
+          recently.
+          {activeOng.dated < activeOng.total && ` ${activeOng.total - activeOng.dated} row(s) have no readable start date.`}
+          {activeOng.notes.length > 0 && (
+            <span style={{ display: 'block', marginTop: 6, fontSize: 11, color: 'var(--text3)' }}>
+              {activeOng.notes.join(' · ')}
+            </span>
+          )}
+          {activeOng.anomalies > 0 && (
+            <span style={{ display: 'block', marginTop: 6 }}>
+              <b>{activeOng.anomalies} row{activeOng.anomalies === 1 ? '' : 's'} carry an unusable day count</b>
+              {' '}— negative, or longer than ten years, which is the sheet&apos;s formula emitting a raw date serial
+              instead of a day count. Those show <span style={MONO}>—</span> rather than a wrong number and sort
+              to the end of the list. This is the same source defect the completed side reports; with no second date
+              on an ongoing row there is nothing else to cross-check, so this is the whole of the ongoing count.
+            </span>
+          )}
+        </Flag>
+      ) : (
+        <Flag>
+          <b>Live from the tracker.</b> Read from the <span style={MONO}>{tableName}</span> table. That table has
+          no &ldquo;date completed&rdquo; column, so <span style={MONO}>{data.dateColumn}</span> is used as the
+          completion date — it is the column whose difference from <span style={MONO}>Date Permit Routed</span>
+          {' '}matches the sheet&apos;s own <span style={MONO}>#&nbsp;Days</span> figure.
+          {data.dated < data.total && ` ${data.total - data.dated} row(s) have no readable date and are excluded from the monthly count.`}
+          {data.anomalies > 0 && (
+            <span style={{ display: 'block', marginTop: 6 }}>
+              <b>{data.anomalies} row{data.anomalies === 1 ? '' : 's'} disagree with {data.dateColumn === 'Date Contract Signed' ? 'their own' : 'the'} day count</b>
+              {' '}— the two dates and <span style={MONO}>#&nbsp;Days</span> do not reconcile, or the day count
+              itself is unusable, so at least one of the three is wrong at source. Worth a look before reporting off
+              these dates.
+            </span>
+          )}
+        </Flag>
+      )}
     </div>
   )
 }
@@ -1980,12 +2575,24 @@ function CompletionsSection({
 // ═══════════════════════════════════════════════════════════════════════════
 // Floating CASK Intelligence — same behaviour as the live dashboard's panel
 // (POSTs to /api/chat/client, persists to chat_history scoped by user_email +
-// page_context), restyled to the mockup's FAB and surface tokens.
+// page_context), and now the same look too: the CASK-red FAB, the charcoal
+// drawer header and the red speaker labels.
 //
 // page_context is '/customers/okr-dashboard-v2' so this preview's history stays
 // separate from the live dashboard's thread.
 // ═══════════════════════════════════════════════════════════════════════════
 const OKR2_PAGE_CONTEXT = '/customers/okr-dashboard-v2'
+const OKR2_AI_ACCENT = '#c8311a' // CASK red — the live dashboard's panel accent
+const OKR2_AI_D = {
+  bg: 'var(--surface)',
+  surface: 'var(--surface2)',
+  border: 'var(--border)',
+  borderSoft: 'var(--border)',
+  text: 'var(--text)',
+  text2: 'var(--text2)',
+  text3: 'var(--text3)',
+  accent: OKR2_AI_ACCENT,
+}
 const OKR2_AI_GREETING =
   "CASK Intelligence online. I have live context on every active client's OKR status — Design, Permit and Contract progress, PM assignments and this month's targets — plus live figures from the Precon KPI Tracker for NPS, PIT goals, and Selections/Bid completions. Ask who's behind, how NPS is trending, or where a PIT item sits."
 const OKR2_QUICK_PROMPTS = [
@@ -2004,6 +2611,7 @@ function FloatingOKRAI({ aiContext }: { aiContext: string }) {
   const [messages, setMessages] = useState<OKR2Msg[]>([{ role: 'assistant', content: OKR2_AI_GREETING }])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
+  const [btnHover, setBtnHover] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const userEmailRef = useRef('')
 
@@ -2085,10 +2693,43 @@ function FloatingOKRAI({ aiContext }: { aiContext: string }) {
 
   return (
     <>
-      <button className="fab" onClick={() => setOpen(o => !o)} aria-expanded={open} aria-controls="okr2-aipanel">
-        <span className="sp" aria-hidden="true">✦</span>CASK Intelligence
+      {/* Floating button */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        onMouseEnter={() => setBtnHover(true)}
+        onMouseLeave={() => setBtnHover(false)}
+        aria-expanded={open}
+        aria-controls="okr2-aipanel"
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          zIndex: 60,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '12px 18px',
+          borderRadius: 999,
+          background: 'var(--fable-red)',
+          color: '#fff',
+          border: 'none',
+          cursor: 'pointer',
+          fontFamily: 'var(--font-geist), sans-serif',
+          fontSize: 13,
+          fontWeight: 700,
+          letterSpacing: '0.2px',
+          boxShadow: btnHover
+            ? '0 12px 30px -6px rgba(0,0,0,0.45)'
+            : '0 6px 18px -4px rgba(0,0,0,0.35)',
+          transform: btnHover ? 'translateY(-2px)' : 'translateY(0)',
+          transition: 'transform 160ms ease, box-shadow 160ms ease',
+        }}
+      >
+        <span style={{ fontSize: 15, lineHeight: 1 }}>💬</span>
+        CASK Intelligence
       </button>
 
+      {/* Chat drawer — slides up from bottom-right */}
       {open && (
         <div
           id="okr2-aipanel"
@@ -2096,103 +2737,187 @@ function FloatingOKRAI({ aiContext }: { aiContext: string }) {
           aria-label="CASK Intelligence"
           style={{
             position: 'fixed',
-            bottom: 70,
-            right: 22,
-            zIndex: 59,
-            width: 360,
-            maxWidth: 'calc(100vw - 44px)',
-            height: 480,
-            maxHeight: 'calc(100vh - 120px)',
-            background: 'var(--s2)',
-            border: '.5px solid var(--bd2)',
-            borderRadius: 'var(--rc)',
+            bottom: 24,
+            right: 24,
+            zIndex: 61,
+            width: 380,
+            maxWidth: 'calc(100vw - 48px)',
+            height: 500,
+            maxHeight: 'calc(100vh - 48px)',
+            background: OKR2_AI_D.bg,
+            color: OKR2_AI_D.text,
+            border: `1px solid ${OKR2_AI_D.border}`,
+            borderRadius: 16,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            color: 'var(--tx)',
+            fontFamily: 'var(--font-geist), sans-serif',
+            boxShadow: '0 24px 60px -12px rgba(0,0,0,0.5)',
+            animation: 'okrAISlideUp 220ms ease',
           }}
         >
+          {/* Dark header */}
           <div
             style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '12px 15px', borderBottom: '.5px solid var(--bd)',
-              fontFamily: 'var(--fd)', fontSize: 12.5, fontWeight: 500, flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '13px 16px',
+              background: 'var(--charcoal)',
+              flexShrink: 0,
             }}
           >
-            <span style={{ color: 'var(--ochre)' }} aria-hidden="true">✦</span>
-            CASK Intelligence
-            <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: OKR2_AI_D.accent,
+                  boxShadow: `0 0 8px ${OKR2_AI_D.accent}`,
+                }}
+              />
+              <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '1.6px', textTransform: 'uppercase', color: '#fff' }}>
+                CASK Intelligence
+              </span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button
                 onClick={clearHistory}
                 title="Clear chat history"
                 style={{
-                  fontSize: 10, padding: '3px 8px', borderRadius: 20,
-                  background: 'var(--s1)', border: '.5px solid var(--bd)',
-                  color: 'var(--tx3)', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '0.5px',
+                  textTransform: 'uppercase',
+                  padding: '5px 9px',
+                  borderRadius: 20,
+                  background: 'rgba(255,255,255,0.1)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  color: 'rgba(255,255,255,0.85)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
                 }}
               >
                 Clear
               </button>
               <button
                 onClick={() => setOpen(false)}
+                title="Close"
                 aria-label="Close"
-                style={{ background: 'none', border: 0, color: 'var(--tx3)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 26,
+                  height: 26,
+                  borderRadius: 7,
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'rgba(255,255,255,0.7)',
+                  cursor: 'pointer',
+                  transition: 'background 150ms ease, color 150ms ease',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+                  e.currentTarget.style.color = '#fff'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+                }}
               >
-                ✕
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </span>
           </div>
 
-          <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: '4px 15px 10px' }}>
+          {/* Feed */}
+          <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', padding: '6px 16px 10px' }}>
             {messages.map((m, i) => (
               <div
                 key={i}
                 style={{
                   padding: '11px 0',
-                  borderBottom: i < messages.length - 1 ? '.5px solid var(--bd)' : 'none',
+                  borderBottom: i < messages.length - 1 ? `1px solid ${OKR2_AI_D.borderSoft}` : 'none',
                 }}
               >
                 <div
                   style={{
-                    fontSize: 9.5, letterSpacing: '.12em', textTransform: 'uppercase',
-                    color: m.role === 'user' ? 'var(--tx3)' : 'var(--ochre)', marginBottom: 5,
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    color: m.role === 'user' ? OKR2_AI_D.text3 : OKR2_AI_D.accent,
+                    marginBottom: 5,
                   }}
                 >
                   {m.role === 'user' ? 'You' : 'CASK Intelligence'}
                 </div>
                 <div
                   style={{
-                    fontSize: 12.5, lineHeight: 1.55,
-                    color: m.role === 'user' ? 'var(--tx2)' : 'var(--tx)',
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    fontSize: 12.5,
+                    lineHeight: 1.55,
+                    color: m.role === 'user' ? OKR2_AI_D.text2 : OKR2_AI_D.text,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
                   }}
                 >
                   <ArtifactContent content={m.content} />
                 </div>
               </div>
             ))}
+
             {thinking && (
               <div style={{ padding: '11px 0' }}>
-                <div style={{ fontSize: 9.5, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ochre)', marginBottom: 5 }}>
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '1.5px',
+                    textTransform: 'uppercase',
+                    color: OKR2_AI_D.accent,
+                    marginBottom: 5,
+                  }}
+                >
                   CASK Intelligence
                 </div>
-                <div style={{ fontSize: 12.5, color: 'var(--tx3)', fontStyle: 'italic' }}>Analyzing…</div>
+                <div style={{ fontSize: 12.5, color: OKR2_AI_D.text3, fontStyle: 'italic' }}>Analyzing…</div>
               </div>
             )}
             <div ref={endRef} />
           </div>
 
+          {/* Quick prompts (only at start) */}
           {messages.length <= 1 && !thinking && (
-            <div style={{ padding: '0 15px 10px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 16px 10px', flexShrink: 0 }}>
               {OKR2_QUICK_PROMPTS.map(q => (
                 <button
                   key={q}
                   onClick={() => send(q)}
                   style={{
-                    display: 'block', width: '100%', textAlign: 'left',
-                    fontFamily: 'inherit', fontSize: 12, color: 'var(--tx2)',
-                    background: 'var(--s1)', border: '.5px solid var(--bd)',
-                    borderRadius: 'var(--r)', padding: '8px 11px', marginBottom: 6, cursor: 'pointer',
+                    fontSize: 10.5,
+                    fontWeight: 500,
+                    padding: '5px 10px',
+                    borderRadius: 20,
+                    background: OKR2_AI_D.surface,
+                    border: `1px solid ${OKR2_AI_D.border}`,
+                    color: OKR2_AI_D.text2,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    textAlign: 'left',
+                    transition: 'border-color 150ms ease, color 150ms ease',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = `${OKR2_AI_D.accent}66`
+                    e.currentTarget.style.color = OKR2_AI_D.text
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = OKR2_AI_D.border
+                    e.currentTarget.style.color = OKR2_AI_D.text2
                   }}
                 >
                   {q}
@@ -2201,25 +2926,38 @@ function FloatingOKRAI({ aiContext }: { aiContext: string }) {
             </div>
           )}
 
-          <div style={{ padding: '10px 15px 13px', borderTop: '.5px solid var(--bd)', flexShrink: 0 }}>
+          {/* Input */}
+          <div style={{ padding: '10px 16px 14px', borderTop: `1px solid ${OKR2_AI_D.border}`, flexShrink: 0 }}>
             <div
               style={{
-                display: 'flex', alignItems: 'flex-end', gap: 6,
-                borderRadius: 'var(--r)', padding: 5,
-                border: '.5px solid var(--bd)', background: 'var(--s1)',
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: 6,
+                borderRadius: 9,
+                padding: 5,
+                border: `1px solid ${OKR2_AI_D.border}`,
+                background: OKR2_AI_D.surface,
               }}
             >
               <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={onKey}
-                placeholder="Ask about OKR status, PMs, targets…"
+                placeholder="Ask about OKR status, PMs, targets..."
                 rows={1}
                 style={{
-                  flex: 1, resize: 'none', background: 'transparent', fontSize: 12.5,
-                  padding: '5px 6px', outline: 'none', lineHeight: 1.5,
-                  color: 'var(--tx)', fontFamily: 'inherit', maxHeight: 96,
-                  overflowY: 'auto', border: 'none',
+                  flex: 1,
+                  resize: 'none',
+                  background: 'transparent',
+                  fontSize: 12.5,
+                  padding: '5px 6px',
+                  outline: 'none',
+                  lineHeight: 1.5,
+                  color: OKR2_AI_D.text,
+                  fontFamily: 'inherit',
+                  maxHeight: 96,
+                  overflowY: 'auto',
+                  border: 'none',
                 }}
               />
               <button
@@ -2227,11 +2965,18 @@ function FloatingOKRAI({ aiContext }: { aiContext: string }) {
                 disabled={!input.trim() || thinking}
                 title="Send"
                 style={{
-                  flexShrink: 0, width: 28, height: 28, borderRadius: 'var(--r)',
-                  display: 'grid', placeItems: 'center',
-                  background: input.trim() && !thinking ? 'var(--ochre)' : 'var(--s3)',
-                  color: input.trim() && !thinking ? 'var(--s0)' : 'var(--tx3)',
-                  border: 'none', cursor: !input.trim() || thinking ? 'not-allowed' : 'pointer',
+                  flexShrink: 0,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 7,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: input.trim() && !thinking ? OKR2_AI_D.accent : OKR2_AI_D.surface,
+                  color: input.trim() && !thinking ? '#fff' : OKR2_AI_D.text3,
+                  border: 'none',
+                  cursor: !input.trim() || thinking ? 'not-allowed' : 'pointer',
+                  transition: 'background 150ms ease',
                 }}
               >
                 <svg width="13" height="13" viewBox="0 0 12 12" fill="none" aria-hidden="true">

@@ -7,14 +7,21 @@ export const dynamic = 'force-dynamic'
 
 // GET /api/okr-dashboard-v2/excel-data
 //
-// Reads four NAMED TABLES out of the live "Precon KPI Tracker.xlsm" on SharePoint
+// Reads six NAMED TABLES out of the live "Precon KPI Tracker.xlsm" on SharePoint
 // via the Microsoft Graph Excel Workbook API, and returns them aggregated for the
 // v2 OKR Dashboard:
 //
 //   NewNPS         (New NPS tab)    → NPS History
 //   PITprecon      (PIT Goals tab)  → PIT Goals KPI, aggregated per person
 //   SelectionsComp (Selections tab) → Selections Completed
+//   SelectionsOng  (Selections tab) → Selections Ongoing (still in the stage)
 //   BidComp        (Bid tab)        → Bid Completed
+//   BidOng         (Bid tab)        → Bid Ongoing (still in the stage)
+//
+// Ongoing is read for Selections and Bid ONLY, deliberately. Design, Permitting
+// and Contract already have one trusted ongoing view — Active Projects Progress,
+// sourced from Supabase — and reading their *Ong tables here would put a second,
+// differently-sourced answer to the same question on the same page.
 //
 // Named-table access means no cell-range guessing: Graph resolves the table by
 // name and returns its header row and data body separately, so a column moving
@@ -69,6 +76,8 @@ const TABLE_NAMES = {
   pit: 'PITprecon',
   selections: 'SelectionsComp',
   bid: 'BidComp',
+  selectionsOng: 'SelectionsOng',
+  bidOng: 'BidOng',
 } as const
 
 // ── Excel serial dates ──────────────────────────────────────────────────────
@@ -117,6 +126,11 @@ function str(v: unknown): string {
 // a date serial, so a leaked serial can never sneak under it while a genuine
 // long-running project always clears it. Negatives fail too: a phase cannot
 // take less than no time, so a negative means reversed or missing dates.
+//
+// The same guard runs over the Ongoing tables' day counts — the defect is in the
+// sheet's formula, not in whether a row has finished — and a suppressed value
+// counts as an anomaly there too, so blanking one can never quietly shrink the
+// count on either side of the toggle.
 const MAX_PLAUSIBLE_DAYS = 3650
 
 function plausibleDays(v: number | null): number | null {
@@ -124,6 +138,13 @@ function plausibleDays(v: number | null): number | null {
   if (v < 0 || v > MAX_PLAUSIBLE_DAYS) return null
   return v
 }
+
+// ── Row-list ceiling ────────────────────────────────────────────────────────
+// The page previews 12 rows and expands to the rest client-side, so the whole
+// list has to travel — but it travels bounded rather than however large the
+// workbook grows. Anything past this is reported as `truncated` so the UI can say
+// so out loud; it is never a silent cut.
+const MAX_ROWS_RETURNED = 400
 
 // ── Row helper ──────────────────────────────────────────────────────────────
 // Wraps a table's header row + data body so columns are addressed by name.
@@ -207,8 +228,33 @@ export interface CompPayload {
   dated: number
   dateColumn: string
   byPm: { pm: string; count: number }[]
-  recent: CompletionRow[]
-  anomalies: number // rows where # Days disagrees with the two dates
+  rows: CompletionRow[] // every completed row, newest first (bounded — see truncated)
+  truncated: number     // rows the ceiling dropped from `rows`; 0 in the normal case
+  anomalies: number     // rows where # Days disagrees with the two dates, or is unusable
+}
+
+// ── Ongoing rows ────────────────────────────────────────────────────────────
+// An ongoing row is one still sitting in the stage, so it has no completion date
+// and no finished duration. `started` is whichever start column the table
+// actually carries (reported in `startColumn` rather than assumed), and `days` is
+// the sheet's own elapsed-days figure as of its last calculation.
+export interface OngoingRow {
+  customer: string
+  pm: string
+  projectType: string
+  started: string | null
+  days: number | null
+}
+export interface OngPayload {
+  total: number
+  dated: number
+  startColumn: string | null // null when the table carries no usable start-date column
+  daysColumn: string | null  // null when the expected "# Days in …" column is absent
+  byPm: { pm: string; count: number }[]
+  rows: OngoingRow[] // longest-running first (bounded — see truncated)
+  truncated: number
+  anomalies: number // rows whose day count failed plausibleDays() and was suppressed
+  notes: string[]   // column-resolution caveats, surfaced verbatim on the page
 }
 
 export interface ExcelDataPayload {
@@ -218,6 +264,8 @@ export interface ExcelDataPayload {
   pit: PitPayload | null
   selections: CompPayload | null
   bid: CompPayload | null
+  selectionsOngoing: OngPayload | null
+  bidOngoing: OngPayload | null
   errors: string[]
 }
 
@@ -247,7 +295,7 @@ function mean(xs: number[]): number | null {
 }
 
 // ── Per-instance cache ──────────────────────────────────────────────────────
-// Nine Graph round-trips per page load is wasteful when several people open the
+// Thirteen Graph round-trips per page load is wasteful when several people open the
 // dashboard at once. The tracker is a single shared resource read through one
 // account, so the payload is identical for every caller and can be shared. This
 // is best-effort only: serverless instances are ephemeral and each keeps its own
@@ -272,7 +320,9 @@ export async function GET() {
     const fail = (msg: string): NextResponse => {
       const payload: ExcelDataPayload = {
         ok: false, source: null, nps: null, pit: null,
-        selections: null, bid: null, errors: [msg, ...errors],
+        selections: null, bid: null,
+        selectionsOngoing: null, bidOngoing: null,
+        errors: [msg, ...errors],
       }
       // 200 on purpose: the page treats this as "show placeholders", not a crash.
       return NextResponse.json(payload)
@@ -378,7 +428,7 @@ export async function GET() {
     ])
 
     // A 401 here means the refreshed token was still rejected — nothing else will
-    // succeed, so report once rather than four times.
+    // succeed, so report once rather than once per table.
     if ([metaRes, ...tableRes].some(r => r.status === 401)) {
       return fail('Graph rejected the token (401) — the tracker reader needs to reconnect Microsoft')
     }
@@ -652,8 +702,101 @@ export async function GET() {
         byPm: Array.from(pmCounts.entries())
           .map(([pm, count]) => ({ pm, count }))
           .sort((a, b) => b.count - a.count || a.pm.localeCompare(b.pm)),
-        recent: rows.slice(0, 12),
+        // The full list travels; the page previews 12 and expands from there.
+        rows: rows.slice(0, MAX_ROWS_RETURNED),
+        truncated: Math.max(0, rows.length - MAX_ROWS_RETURNED),
         anomalies,
+      }
+    }
+
+    // ── 6b. Selections / Bid ongoing ───────────────────────────────────────
+    // Rows still sitting in the stage. Two things are deliberately different from
+    // the Completed summariser above:
+    //
+    //   • There is no completion date, so there is nothing to bucket "this month"
+    //     by and no second date to reconcile "# Days" against.
+    //   • The start column is RESOLVED, not assumed. The Comp tables' start is
+    //     `Date Permit Routed`; if an Ong table names it differently the first
+    //     other Date* header is used instead and the actual column name is
+    //     returned in `startColumn`, so the page's header reads what was really
+    //     read rather than a column the sheet may not have.
+    const summarizeOngoing = (t: Table, daysHeader: string): OngPayload => {
+      const notes: string[] = []
+      const PREFERRED_START = 'Date Permit Routed'
+
+      let startColumn: string | null = null
+      if (t.col(PREFERRED_START) >= 0) {
+        startColumn = PREFERRED_START
+      } else {
+        const alt = t.headers.find(h => /^date\b/i.test(h) && !/contract\s+signed/i.test(h))
+        startColumn = alt ?? null
+        if (alt) notes.push(`no "${PREFERRED_START}" column in this table — "${alt}" is used as the start date`)
+        else notes.push('this table carries no start-date column, so the date column is blank')
+      }
+
+      const daysColumn = t.col(daysHeader) >= 0 ? daysHeader : null
+      if (!daysColumn) notes.push(`no "${daysHeader}" column in this table, so day counts are blank`)
+
+      let anomalies = 0
+      let dated = 0
+      const pmCounts = new Map<string, number>()
+      const rows: OngoingRow[] = []
+
+      for (const r of t.rows) {
+        const started = startColumn ? serialToISODate(t.cell(r, startColumn)) : null
+        const rawDays = daysColumn ? num(t.cell(r, daysColumn)) : null
+        const days = plausibleDays(rawDays)
+        const pm = str(t.cell(r, 'PM Assigned'))
+
+        if (started) dated += 1
+        if (pm) pmCounts.set(pm, (pmCounts.get(pm) ?? 0) + 1)
+
+        // Same rule the Completed tables use for the case they share: a day count
+        // that had to be suppressed is itself the anomaly.
+        //
+        // The Completed tables' SECOND check — reconciling # Days against the two
+        // dates — has no counterpart here on purpose. An ongoing row has no end
+        // date, and the only other candidate, today, is not comparable: Graph
+        // returns the workbook's last-calculated values, so a sheet that has not
+        // recalculated since Friday reports a # Days that is legitimately days
+        // behind "now". Reconciling against the server clock would manufacture
+        // anomalies out of staleness. Ongoing anomalies are suppressed rows only.
+        if (rawDays !== null && days === null) anomalies += 1
+
+        rows.push({
+          customer: str(t.cell(r, 'Customer Name')),
+          pm,
+          projectType: str(t.cell(r, 'ProjectType')),
+          started,
+          days,
+        })
+      }
+
+      // Longest-running first — the useful read on an in-flight list. A row whose
+      // day count was suppressed has nothing to sort on and sorts last; the
+      // anomaly count is what keeps it from disappearing quietly.
+      rows.sort((a, b) => {
+        if (a.days !== null && b.days !== null) return b.days - a.days
+        if (a.days !== null) return -1
+        if (b.days !== null) return 1
+        if (a.started && b.started) return a.started.localeCompare(b.started)
+        if (a.started) return -1
+        if (b.started) return 1
+        return 0
+      })
+
+      return {
+        total: t.rows.length,
+        dated,
+        startColumn,
+        daysColumn,
+        byPm: Array.from(pmCounts.entries())
+          .map(([pm, count]) => ({ pm, count }))
+          .sort((a, b) => b.count - a.count || a.pm.localeCompare(b.pm)),
+        rows: rows.slice(0, MAX_ROWS_RETURNED),
+        truncated: Math.max(0, rows.length - MAX_ROWS_RETURNED),
+        anomalies,
+        notes,
       }
     }
 
@@ -675,8 +818,28 @@ export async function GET() {
       }
     }
 
+    // Each ongoing table resolves independently of its completed twin: a failed
+    // SelectionsOng read costs the Ongoing view on that card and nothing else.
+    let selectionsOngoing: OngPayload | null = null
+    if (tables.selectionsOng) {
+      try {
+        selectionsOngoing = summarizeOngoing(tables.selectionsOng, '# Days in Selections')
+      } catch (e) {
+        errors.push(`SelectionsOng aggregation failed: ${e instanceof Error ? e.message : 'unknown'}`)
+      }
+    }
+
+    let bidOngoing: OngPayload | null = null
+    if (tables.bidOng) {
+      try {
+        bidOngoing = summarizeOngoing(tables.bidOng, '# Days in BID')
+      } catch (e) {
+        errors.push(`BidOng aggregation failed: ${e instanceof Error ? e.message : 'unknown'}`)
+      }
+    }
+
     const payload: ExcelDataPayload = {
-      ok: Boolean(nps || pit || selections || bid),
+      ok: Boolean(nps || pit || selections || bid || selectionsOngoing || bidOngoing),
       source: {
         fileName: metaBody?.name ?? 'Precon KPI Tracker.xlsm',
         lastModified: metaBody?.lastModifiedDateTime ?? null,
@@ -686,6 +849,8 @@ export async function GET() {
       pit,
       selections,
       bid,
+      selectionsOngoing,
+      bidOngoing,
       errors,
     }
 
@@ -696,6 +861,7 @@ export async function GET() {
     const payload: ExcelDataPayload = {
       ok: false, source: null, nps: null, pit: null,
       selections: null, bid: null,
+      selectionsOngoing: null, bidOngoing: null,
       errors: ['server_error while reading the tracker'],
     }
     return NextResponse.json(payload)
