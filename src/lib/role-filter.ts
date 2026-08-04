@@ -11,6 +11,23 @@
 
 import type { Meeting } from '@/types'
 
+// NOTE: membership in RESTRICTED_ROLES no longer implies every restricted role
+// reaches the SAME set of pages. Two of them — 'vp_ops' (Chad Holman) and
+// 'ops_manager' (Matteo Carpani), each the sole holder of their role — are
+// narrowed further at the route level to Dashboard, Action Items and Customer
+// Journey only (no All Sessions, no Generate Agenda, no My Workspace).
+//
+// The gate for that narrowing is NARROWED_ROLES, which is duplicated in BOTH
+// src/middleware.ts (actual route access) and src/components/sidebar/Sidebar.tsx
+// (visible nav) — keep those two in sync. NARROWED_VISIBLE_HREFS in Sidebar.tsx
+// is NOT the gate: it is the role-agnostic href allowlist that whichever roles
+// are listed in NARROWED_ROLES get filtered against. Middleware does not use
+// that list at all; it evaluates its own route predicates. To narrow another
+// role, add it to NARROWED_ROLES in both files — the href list needs no edit.
+//
+// All of the above is route/nav access only. It does NOT affect the
+// meeting-visibility filtering in this file, which still treats every
+// restricted role identically (own-attendance only).
 export const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member']
 export const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 

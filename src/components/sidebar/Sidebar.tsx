@@ -80,6 +80,27 @@ const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 // (All Sessions, Generate Agenda, Action Items), so the whole section is shown.
 const RESTRICTED_VISIBLE_SECTIONS = ['General Meetings', 'My Workspace', 'Customer Journey']
 
+// ── Further-narrowed roles ───────────────────────────────────────────────────
+// These roles asked for their own access to be cut down to Action Items plus the
+// three Customer Journey pages — no All Sessions, no Generate Agenda, no My
+// Workspace. Dashboard (the standalone link below) stays for both.
+//   vp_ops      → Chad Holman    (c.holman@caskconstruction.com)
+//   ops_manager → Matteo Carpani (m.carpani@caskconstruction.com)
+// Each role has exactly one holder (verified against `users`), so narrowing by
+// role affects only those two people. Both share the SAME href allowlist, so
+// adding a role here is all that's needed — the list below is role-agnostic.
+// This is an href-level allowlist rather than a section-level one because
+// General Meetings must surface Action Items while hiding its two siblings.
+// Sections left empty are dropped below.
+// Mirrors the NARROWED_ROLES branch in src/middleware.ts — keep the two in sync.
+const NARROWED_ROLES = ['vp_ops', 'ops_manager']
+const NARROWED_VISIBLE_HREFS = [
+  '/actions',
+  '/customers/new',
+  '/customers',
+  '/customers/okr-dashboard',
+]
+
 // Input style for the Change Password modal — mirrors the app's form inputs
 // (see src/app/(app)/customers/new/page.tsx inputStyle).
 const CHANGE_PW_INPUT_STYLE: React.CSSProperties = {
@@ -228,12 +249,26 @@ export default function Sidebar() {
   const hideMyWorkspace =
     user?.email === 'c.noonan@caskconstruction.com'
 
+  // Narrowed roles get an href-level allowlist on top of the section filter
+  // below, so their sections are trimmed item-by-item.
+  const isNarrowed = role !== null && NARROWED_ROLES.includes(role) && !ADMIN_ROLES.includes(role)
+
   // Restricted roles see only the Customer Journey section; admins see all.
   // MY WORKSPACE is then dropped for Calin/Kai when hideMyWorkspace is true.
   const visibleSections = (isRestricted
     ? NAV_SECTIONS.filter((s) => RESTRICTED_VISIBLE_SECTIONS.includes(s.label))
     : NAV_SECTIONS
-  ).filter((s) => !(hideMyWorkspace && s.label === 'My Workspace'))
+  )
+    .filter((s) => !(hideMyWorkspace && s.label === 'My Workspace'))
+    // Item-level trim for narrowed roles only; a no-op for every other role.
+    .map((s) =>
+      isNarrowed
+        ? { ...s, items: s.items.filter((i) => NARROWED_VISIBLE_HREFS.includes(i.href)) }
+        : s
+    )
+    // Drops sections emptied by the trim above (e.g. My Workspace for vp_ops).
+    // Also a no-op for other roles — every NAV_SECTIONS entry has >= 1 item.
+    .filter((s) => s.items.length > 0)
 
   async function handleSignOut() {
     setSigningOut(true)
