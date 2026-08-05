@@ -473,7 +473,7 @@ export default function NewClientSetupPage() {
 
                 {/* Owner */}
                 <div style={{ ...fieldStyle, maxWidth: 220 }}>
-                  <label style={labelStyle}>Sales PM</label>
+                  <label style={labelStyle}>Client Solution Manager</label>
                   {addingOwner ? (
                     <input
                       type="text"
@@ -484,7 +484,7 @@ export default function NewClientSetupPage() {
                       onKeyDown={e => {
                         if (e.key === 'Enter') { e.preventDefault(); commitNewOwner() }
                       }}
-                      placeholder="New Sales PM name…"
+                      placeholder="New Client Solution Manager name…"
                       style={inputStyle}
                       onFocus={focusInput}
                     />
@@ -684,16 +684,16 @@ export default function NewClientSetupPage() {
                   className="text-[11px] font-semibold tracking-[0.6px] uppercase mb-2"
                   style={{ color: 'var(--text3)' }}
                 >
-                  33-Step Workflow Auto-created
+                  37-Step Workflow Auto-created
                 </div>
                 <div className="mb-2.5" style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text3)' }}>
-                  The complete 33-step pre-construction workflow will be automatically loaded into this client&apos;s profile, including role-based checklists for Sales PM, Architect, and Estimator.
+                  The complete 37-step pre-construction workflow will be automatically loaded into this client&apos;s profile, including role-based checklists for Client Solution Manager, Architect, and Estimator.
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {[
-                    'Design & Planning · Steps 1-13',
-                    'Permit · Steps 14-15',
-                    'Contract & Selections · Steps 16-33',
+                    'Design & Planning · Steps 1-16',
+                    'Permit · Steps 17-20',
+                    'Contract & Selections · Steps 21-37',
                   ].map(phase => (
                     <span
                       key={phase}

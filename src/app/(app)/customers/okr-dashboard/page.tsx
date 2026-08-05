@@ -268,13 +268,13 @@ const PHASE_META: Record<
   // `accent` is the only field that moved: the three phase colours are now the
   // live dashboard's exact hexes (blue / amber / green), not the mockup palette's.
   // Labels, short names and step ranges are untouched — they feed the AI context.
-  design:   { label: 'Design completed',  short: 'Design',   accent: '#3b82f6', steps: range(6, 13),  startStep: 6,  finalStep: 13 },
-  permit:   { label: 'Permit received',   short: 'Permit',   accent: '#f59e0b', steps: range(14, 15), startStep: 14, finalStep: 15 },
-  contract: { label: 'Contract executed', short: 'Contract', accent: '#22c55e', steps: range(16, 21), startStep: 16, finalStep: 21 },
+  design:   { label: 'Design completed',  short: 'Design',   accent: '#3b82f6', steps: range(6, 16),  startStep: 6,  finalStep: 16 },
+  permit:   { label: 'Permit received',   short: 'Permit',   accent: '#f59e0b', steps: range(17, 20), startStep: 17, finalStep: 20 },
+  contract: { label: 'Contract executed', short: 'Contract', accent: '#22c55e', steps: range(21, 26), startStep: 21, finalStep: 26 },
 }
 
 const MONTHLY_TARGET_PER_PM = 3 // each OKR: 3 per PM per month
-const TOTAL_JOURNEY_STEPS = 33  // denominator for the overall journey row
+const TOTAL_JOURNEY_STEPS = 37  // denominator for the overall journey row
 
 const PHASE_MEETING_CODES: Record<PhaseKey, Set<string>> = {
   design: new Set(PHASE_META.design.steps.map(n => `step_${String(n).padStart(2, '0')}`)),
@@ -289,9 +289,9 @@ const getFixedTaskTotal = (stepStart: number, stepEnd: number) =>
       acc + step.roles.reduce((rAcc, role) => rAcc + role.tasks.length, 0), 0)
 
 const PHASE_TOTAL_TASKS: Record<PhaseKey, number> = {
-  design: getFixedTaskTotal(6, 13),
-  permit: getFixedTaskTotal(14, 15),
-  contract: getFixedTaskTotal(16, 21),
+  design: getFixedTaskTotal(6, 16),
+  permit: getFixedTaskTotal(17, 20),
+  contract: getFixedTaskTotal(21, 26),
 }
 
 // ── Support-team reference rows ─────────────────────────────────────────────
@@ -998,7 +998,7 @@ in the data above — never invent clients or numbers not present here.`
                   )
                 })}
 
-                {/* Avg design days — real, from step 6 start → step 13 completion */}
+                {/* Avg design days — real, from step 6 → step 16 */}
                 <div style={KPI_CARD}>
                   <div style={KPI_LABEL}>Avg design days</div>
                   <div style={KPI_VALUE_ROW}>

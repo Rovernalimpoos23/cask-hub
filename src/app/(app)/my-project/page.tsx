@@ -66,17 +66,17 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 // ── Phase progress tracker (NEW, additive) ────────────────────────────────────
-// 4 major milestone phases mapped onto the 33 workflow steps. CSS-var mapping
+// 4 major milestone phases mapped onto the 37 workflow steps. CSS-var mapping
 // follows the same convention documented at the top of this file:
 //   --text-muted → --text3 · --text-primary → --text · --text-secondary → --text2
 //   --surface-1 → --surface2 · --border-strong → --border2
 interface PhaseDef { label: string; steps: number[]; description: string }
 
 const PHASES: PhaseDef[] = [
-  { label: 'Design & Planning', steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], description: 'Meetings, drawings & design decisions' },
-  { label: 'Permit', steps: [14, 15, 16], description: 'Permit submission & approval' },
-  { label: 'Contract & Selections', steps: [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], description: 'Contract signing & material selections' },
-  { label: 'Construction', steps: [33], description: 'Building your home' },
+  { label: 'Design & Planning', steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], description: 'Meetings, drawings & design decisions' },
+  { label: 'Permit', steps: [17, 18, 19, 20, 21], description: 'Permit submission & approval' },
+  { label: 'Contract & Selections', steps: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36], description: 'Contract signing & material selections' },
+  { label: 'Construction', steps: [37], description: 'Building your home' },
 ]
 
 type PhaseState = 'done' | 'active' | 'upcoming'
