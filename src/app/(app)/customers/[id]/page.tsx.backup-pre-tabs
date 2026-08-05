@@ -273,15 +273,15 @@ const JOURNEY_PHASES: JourneyPhaseDef[] = [
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const HAPPINESS = {
-  green: { bg: '#F0FDF4', color: 'var(--green)', label: 'Happy', accent: '#22c55e' },
-  yellow: { bg: '#FFFBEB', color: '#92400E', label: 'At Risk', accent: '#f59e0b' },
-  red: { bg: '#FDF2F0', color: '#9B1C0E', label: 'Needs Attention', accent: 'var(--red)' },
+  green: { bg: '#F0FDF4', color: '#166534', label: 'Happy', accent: '#16a34a' },
+  yellow: { bg: '#FFFBEB', color: '#92400E', label: 'At Risk', accent: '#d97706' },
+  red: { bg: '#FDF2F0', color: '#9B1C0E', label: 'Needs Attention', accent: '#dc2626' },
 }
 
 const PRIORITY_CONFIG: Record<PriorityStatus, { dot: string; color: string; strike: boolean }> = {
-  done: { dot: '#22c55e', color: '#22c55e', strike: true },
-  in_progress: { dot: '#f59e0b', color: '#f59e0b', strike: false },
-  unresolved: { dot: 'var(--red)', color: 'var(--red)', strike: false },
+  done: { dot: '#16a34a', color: '#16a34a', strike: true },
+  in_progress: { dot: '#d97706', color: '#d97706', strike: false },
+  unresolved: { dot: '#dc2626', color: '#dc2626', strike: false },
 }
 
 // ── Edit Client modal config (mirrors New Client Setup) ───────────────────────
@@ -295,9 +295,9 @@ const ALL_TAGS = [
   'Relationship-driven', 'Skeptical',
 ]
 const HAPPINESS_OPTIONS: { value: Happiness; emoji: string; label: string; accent: string; bg: string }[] = [
-  { value: 'green',  emoji: '🟢', label: 'Happy',           accent: 'var(--green)', bg: 'var(--green-bg)' },
-  { value: 'yellow', emoji: '🟡', label: 'At Risk',         accent: 'var(--amber)', bg: 'var(--amber-bg)' },
-  { value: 'red',    emoji: '🔴', label: 'Needs Attention', accent: 'var(--red)', bg: 'var(--red-soft)' },
+  { value: 'green',  emoji: '🟢', label: 'Happy',           accent: '#16a34a', bg: '#F0FDF4' },
+  { value: 'yellow', emoji: '🟡', label: 'At Risk',         accent: '#d97706', bg: '#FFFBEB' },
+  { value: 'red',    emoji: '🔴', label: 'Needs Attention', accent: '#dc2626', bg: '#FDF2F0' },
 ]
 
 const COMM_PLACEHOLDER = 'No communication style added yet.'
@@ -395,50 +395,6 @@ function BackLink() {
     >
       ← Active Clients
     </Link>
-  )
-}
-
-// ── Profile tabs (NEW) ────────────────────────────────────────────────────────
-// This page's sections are grouped into four tab panels. Panels are hidden with the
-// `hidden` attribute rather than conditionally rendered, so a tab switch never
-// unmounts a section: every state variable, effect and mount-time fetch behaves
-// exactly as it did before. Follows the OKR Dashboard's TabBtn / role="tabpanel"
-// pattern for consistency.
-type ClientTab = 'overview' | 'journey' | 'communication' | 'files'
-
-function ClientTabBtn({ id, cur, set, children }: {
-  id: ClientTab
-  cur: ClientTab
-  set: (v: ClientTab) => void
-  children: React.ReactNode
-}) {
-  const sel = cur === id
-  return (
-    <button
-      role="tab"
-      id={`client-t-${id}`}
-      aria-selected={sel}
-      aria-controls={`client-p-${id}`}
-      onClick={() => set(id)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 7,
-        background: 'none',
-        border: 0,
-        borderBottom: `2px solid ${sel ? 'var(--charcoal)' : 'transparent'}`,
-        marginBottom: -1,
-        padding: '9px 14px',
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-        fontSize: 12.5,
-        fontWeight: sel ? 700 : 600,
-        color: sel ? 'var(--text)' : 'var(--text3)',
-        transition: 'color 150ms ease',
-      }}
-    >
-      {children}
-    </button>
   )
 }
 
@@ -801,7 +757,7 @@ function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
         {/* Header */}
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
           <div>
-            <h2 style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3, letterSpacing: '-0.2px' }}>
+            <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3, letterSpacing: '-0.2px' }}>
               {agenda.header}
             </h2>
             <p style={{ fontSize: 12, color: 'var(--text3)', margin: '4px 0 0' }}>
@@ -909,7 +865,7 @@ function getJourneyState(stepCompletions: Set<number>): JourneyState {
 
 const workflowActionBtn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500,
-  color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)',
+  color: 'var(--text2)', background: 'var(--white)', border: '1px solid var(--border)',
   padding: '4px 9px', borderRadius: 5, whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'inherit',
 }
 
@@ -962,7 +918,7 @@ function WorkflowStep({
         borderBottom: '1px solid var(--border)',
         // 3px colored bar by type; current step gets a red bar on the whole row.
         borderLeft: isCurrent ? '3px solid #ef4444' : `3px solid ${cfg.bar}`,
-        background: 'var(--surface)',
+        background: 'var(--white)',
       }}
     >
       {/* Header row — click to expand/collapse */}
@@ -996,7 +952,7 @@ function WorkflowStep({
 
         {/* Status badge */}
         {isCompleted ? (
-          <span className="shrink-0 self-center" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--green)', background: 'var(--green-bg)', border: '1px solid var(--pill-green-border)', padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap' }}>
+          <span className="shrink-0 self-center" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#166534', background: 'var(--green-bg)', border: '1px solid var(--pill-green-border)', padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap' }}>
             Done
           </span>
         ) : isCurrent ? (
@@ -1017,7 +973,7 @@ function WorkflowStep({
           {/* Time window pill */}
           {step.timeWindow && (
             <div style={{ marginBottom: 11 }}>
-              <span style={{ display: 'inline-block', fontSize: 10, color: 'var(--text2)', border: '0.5px solid var(--border)', background: 'var(--surface)', borderRadius: 99, padding: '2px 8px' }}>
+              <span style={{ display: 'inline-block', fontSize: 10, color: 'var(--text2)', border: '0.5px solid var(--border)', background: 'var(--white)', borderRadius: 99, padding: '2px 8px' }}>
                 ⏱ {step.timeWindow}
               </span>
             </div>
@@ -1029,7 +985,7 @@ function WorkflowStep({
               {step.roles.map(roleBlock => (
                 <div
                   key={roleBlock.role}
-                  style={{ flex: '1 1 240px', minWidth: 220, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}
+                  style={{ flex: '1 1 240px', minWidth: 220, background: 'var(--white)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}
                 >
                   {/* Role header */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -1083,14 +1039,14 @@ function WorkflowStep({
                 type="button"
                 onClick={() => onAction('recap', step)}
                 style={hasRecap
-                  ? { ...workflowActionBtn, color: '#3b82f6', background: 'rgba(59, 130, 246, 0.13)', border: '1px solid rgba(59, 130, 246, 0.28)', fontWeight: 600 }
+                  ? { ...workflowActionBtn, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', fontWeight: 600 }
                   : { ...workflowActionBtn, color: 'var(--text3)', opacity: 0.5, cursor: 'not-allowed' }}
               >
                 🎙️ View Recap
               </button>
             )}
             {step.hasEmail && (
-              <button type="button" onClick={() => onAction('email', step)} style={{ ...workflowActionBtn, color: 'var(--amber)', background: 'var(--amber-bg)', border: '1px solid var(--badge-open-border)', fontWeight: 600 }}>✉️ Generate Recap Email</button>
+              <button type="button" onClick={() => onAction('email', step)} style={{ ...workflowActionBtn, color: '#92400e', background: 'var(--amber-bg)', border: '1px solid var(--badge-open-border)', fontWeight: 600 }}>✉️ Generate Recap Email</button>
             )}
             <button
               type="button"
@@ -1271,9 +1227,9 @@ const AGENDA_SECTIONS: AgendaSectionDef[] = [
 
 // Tag pill colors.
 const AGENDA_TAG_STYLES: Record<string, { bg: string; color: string }> = {
-  '1ST DESIGN': { bg: 'rgba(59, 130, 246, 0.13)', color: '#3b82f6' },
+  '1ST DESIGN': { bg: '#eff6ff', color: '#1d4ed8' },
   'FLAG':       { bg: '#fef2f2', color: '#b91c1c' },
-  '2ND DESIGN': { bg: 'var(--green-bg)', color: 'var(--green)' },
+  '2ND DESIGN': { bg: '#f0fdf4', color: '#166534' },
 }
 
 const SPECIAL_CONDITIONS = [
@@ -1774,16 +1730,16 @@ function StandingAgenda({ clientId, clientName, clientProjectAddress, onToast }:
   }
 
   return (
-    <div className="rounded-[12px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+    <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
       {/* Card header */}
       <button
         type="button"
         onClick={() => setCardOpen(v => !v)}
         className="w-full text-left flex items-center justify-between"
-        style={{ padding: '13px 20px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderBottom: cardOpen ? '1px solid var(--border)' : 'none' }}
+        style={{ padding: '13px 17px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', borderBottom: cardOpen ? '1px solid var(--border)' : 'none' }}
       >
         <div>
-          <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text3)' }}>Standing Agenda</h2>
+          <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Standing Agenda</h2>
           <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>Architect Design Agenda · Living record</div>
         </div>
         <span style={{ color: 'var(--text3)', fontSize: 11, transition: 'transform 200ms ease', transform: cardOpen ? 'rotate(180deg)' : 'none' }}>▾</span>
@@ -2102,7 +2058,7 @@ function CurrentStepTodos({
 
   const subHeaderStyle: React.CSSProperties = {
     fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
-    color: 'var(--text3)', padding: '10px 20px', borderBottom: '1px solid var(--border)',
+    color: 'var(--text3)', padding: '10px 17px', borderBottom: '1px solid var(--border)',
     display: 'flex', alignItems: 'center', gap: 8,
   }
   const countBadgeStyle: React.CSSProperties = {
@@ -2120,10 +2076,10 @@ function CurrentStepTodos({
     : 'All steps complete'
 
   return (
-    <div className="rounded-[12px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+    <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
       {/* Card header */}
-      <div className="flex items-baseline justify-between" style={{ padding: '13px 20px', borderBottom: '1px solid var(--border)' }}>
-        <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text3)' }}>
+      <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+        <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>
           Current Step To-Do&apos;s
         </h2>
         <span style={{ fontSize: 12, color: 'var(--text3)' }}>{stepLabel}</span>
@@ -2135,9 +2091,9 @@ function CurrentStepTodos({
         <span style={countBadgeStyle}>{journeyIncomplete}</span>
       </div>
       {!step ? (
-        <div style={{ padding: '10px 20px', fontSize: 13, color: 'var(--text3)' }}>All steps complete</div>
+        <div style={{ padding: '10px 17px', fontSize: 13, color: 'var(--text3)' }}>All steps complete</div>
       ) : journeyTasks.length === 0 ? (
-        <div style={{ padding: '10px 20px', fontSize: 13, color: 'var(--text3)' }}>No journey tasks for this step.</div>
+        <div style={{ padding: '10px 17px', fontSize: 13, color: 'var(--text3)' }}>No journey tasks for this step.</div>
       ) : (
         step.roles.map((rb, ri) => (
           <div key={rb.role} style={{ borderBottom: ri < step.roles.length - 1 ? '1px solid var(--border)' : undefined }}>
@@ -2163,7 +2119,7 @@ function CurrentStepTodos({
                   disabled={busy}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'flex-start', gap: 9,
-                    padding: '8px 20px', background: 'transparent', borderTop: '1px solid var(--border)',
+                    padding: '8px 17px', background: 'transparent', borderTop: '1px solid var(--border)',
                     borderLeft: 'none', borderRight: 'none', borderBottom: 'none', textAlign: 'left',
                     cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.6 : 1,
                   }}
@@ -2187,7 +2143,7 @@ function CurrentStepTodos({
                     </span>
                   )}
                   {taskDue === 'soon' && (
-                    <span style={{ background: 'var(--amber-bg)', color: 'var(--amber)', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 1 }}>
+                    <span style={{ background: 'var(--amber-bg)', color: '#92400e', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 1 }}>
                       Due soon
                     </span>
                   )}
@@ -2209,9 +2165,9 @@ function CurrentStepTodos({
         <span style={countBadgeStyle}>{actionsIncomplete}</span>
       </div>
       {!recapRow ? (
-        <div style={{ padding: '10px 20px', fontSize: 13, color: 'var(--text3)' }}>No meeting recorded yet for this step</div>
+        <div style={{ padding: '10px 17px', fontSize: 13, color: 'var(--text3)' }}>No meeting recorded yet for this step</div>
       ) : actionItems.length === 0 ? (
-        <div style={{ padding: '10px 20px', fontSize: 13, color: 'var(--text3)' }}>No action items in this recap.</div>
+        <div style={{ padding: '10px 17px', fontSize: 13, color: 'var(--text3)' }}>No action items in this recap.</div>
       ) : (
         actionItems.map((item, i) => {
           const state = dueState(item)
@@ -2219,10 +2175,10 @@ function CurrentStepTodos({
           const textColor = done
             ? 'var(--text3)'
             : state === 'overdue' ? 'var(--fable-red)'
-            : state === 'soon' ? 'var(--amber)'
+            : state === 'soon' ? '#d97706'
             : 'var(--text)'
           return (
-            <div key={i} style={{ padding: '8px 20px', borderTop: '1px solid var(--border)' }}>
+            <div key={i} style={{ padding: '8px 17px', borderTop: '1px solid var(--border)' }}>
               <div style={{ fontSize: 13, lineHeight: 1.45, color: textColor, textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.6 : 1 }}>
                 {item.task ?? 'Untitled task'}
               </div>
@@ -2237,7 +2193,7 @@ function CurrentStepTodos({
                   <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--red-soft)', color: '#991b1b', borderRadius: 99, padding: '1px 7px' }}>Overdue</span>
                 )}
                 {!done && state === 'soon' && (
-                  <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--amber-bg)', color: 'var(--amber)', borderRadius: 99, padding: '1px 7px' }}>Due soon</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--amber-bg)', color: '#92400e', borderRadius: 99, padding: '1px 7px' }}>Due soon</span>
                 )}
                 <span style={{ fontSize: 10.5, color: 'var(--text3)', fontStyle: 'italic' }}>
                   from {recapRow.title}
@@ -2256,10 +2212,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const containerRef = useRef<HTMLDivElement>(null)
   const journeyRef = useRef<HTMLDivElement>(null)
   const [aiOpen, setAiOpen] = useState(false)
-  // Which profile tab is showing. Presentation only — all four panels stay mounted
-  // (hidden via the `hidden` attribute), so no fetch, effect or child state is
-  // deferred or reset by switching tabs.
-  const [activeTab, setActiveTab] = useState<ClientTab>('overview')
   const [client, setClient] = useState<ClientData | null | 'loading'>('loading')
   const [journeyRows, setJourneyRows] = useState<Map<string, ClientMeetingRow>>(new Map())
   const [markingIds, setMarkingIds] = useState<Set<string>>(new Set())
@@ -3009,7 +2961,7 @@ Today's date is ${today}.
       <>
         <TopBar title="Loading…" subtitle="Customer Journey" />
         <div className="flex-1 overflow-y-auto p-7">
-          <div className="rounded-[12px] h-[148px] shimmer mb-3.5" style={{ border: '1px solid var(--border)' }} />
+          <div className="rounded-[10px] h-[148px] shimmer mb-3.5" style={{ border: '1px solid var(--border)' }} />
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div className="rounded-lg h-[200px] shimmer" style={{ border: '1px solid var(--border)' }} />
             <div className="rounded-lg h-[200px] shimmer" style={{ border: '1px solid var(--border)' }} />
@@ -3214,7 +3166,7 @@ Today's date is ${today}.
   const nextBtn: React.CSSProperties = {
     fontSize: 13, fontWeight: 550, borderRadius: 7, cursor: 'pointer',
     padding: '9px 15px', lineHeight: 1, border: '1px solid var(--border)',
-    background: 'var(--surface)', color: 'var(--text)', whiteSpace: 'nowrap', fontFamily: 'inherit',
+    background: 'var(--white)', color: 'var(--text)', whiteSpace: 'nowrap', fontFamily: 'inherit',
   }
 
   return (
@@ -3233,7 +3185,7 @@ Today's date is ${today}.
           >
             {/* Header */}
             <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
-              <h2 style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 20, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
+              <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 20, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
                 Edit Client
               </h2>
               <button
@@ -3531,7 +3483,7 @@ Today's date is ${today}.
             style={{ width: '100%', maxWidth: 420, background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', overflow: 'hidden' }}
           >
             <div style={{ padding: '24px 24px 20px' }}>
-              <h2 style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 20, fontWeight: 400, color: 'var(--text)', margin: '0 0 16px', lineHeight: 1.3 }}>
+              <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 20, fontWeight: 400, color: 'var(--text)', margin: '0 0 16px', lineHeight: 1.3 }}>
                 Send Email to {client.name}?
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '14px 16px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
@@ -3580,7 +3532,7 @@ Today's date is ${today}.
           >
             <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
               <div>
-                <h2 style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
+                <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
                   {previewDraft.email_code} — Email Preview
                 </h2>
                 <p style={{ fontSize: 12, color: 'var(--text3)', margin: '4px 0 0' }}>
@@ -3636,7 +3588,7 @@ Today's date is ${today}.
           >
             <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
               <div>
-                <h2 style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
+                <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
                   ✏️ Edit Email Draft
                 </h2>
                 <p style={{ fontSize: 12, color: 'var(--text3)', margin: '4px 0 0' }}>
@@ -3696,7 +3648,7 @@ Today's date is ${today}.
         <div
           style={{
             position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-            zIndex: 10002, background: 'var(--green)', color: '#fff',
+            zIndex: 10002, background: '#166534', color: '#fff',
             padding: '10px 20px', borderRadius: 9, fontSize: 13, fontWeight: 600,
             boxShadow: '0 4px 24px rgba(0,0,0,0.22)',
             whiteSpace: 'nowrap', pointerEvents: 'none',
@@ -3723,7 +3675,7 @@ Today's date is ${today}.
                   <span style={{ fontSize: 14 }}>📧</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>Email Sent</span>
                 </div>
-                <h2 style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 18, fontWeight: 400, color: '#fff', margin: 0, lineHeight: 1.3 }}>
+                <h2 style={{ fontFamily: 'var(--font-instrument-serif, Georgia, serif)', fontSize: 18, fontWeight: 400, color: '#fff', margin: 0, lineHeight: 1.3 }}>
                   {viewSentEmail.email_code} — {(() => {
                     const phase = JOURNEY_PHASES.flatMap(p => p.meetings).find(m => m.code === viewSentEmail.email_code)
                     return phase?.title ?? viewSentEmail.subject
@@ -3804,29 +3756,15 @@ Today's date is ${today}.
         <div style={{ maxWidth: 1180, padding: '28px 36px 90px' }}>
         <BackLink />
 
-        {/* ── Profile tabs (NEW) ───────────────────────────────────────── */}
-        <div
-          role="tablist"
-          aria-label="Client profile views"
-          style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 24 }}
-        >
-          <ClientTabBtn id="overview" cur={activeTab} set={setActiveTab}>Overview</ClientTabBtn>
-          <ClientTabBtn id="journey" cur={activeTab} set={setActiveTab}>Journey</ClientTabBtn>
-          <ClientTabBtn id="communication" cur={activeTab} set={setActiveTab}>Communication</ClientTabBtn>
-          <ClientTabBtn id="files" cur={activeTab} set={setActiveTab}>Files &amp; Agenda</ClientTabBtn>
-        </div>
-
-        {/* ══════════════ OVERVIEW ══════════════ */}
-        <section id="client-p-overview" role="tabpanel" aria-labelledby="client-t-overview" hidden={activeTab !== 'overview'}>
         {/* ── Hero (kept dark — it earned it) ───────────────────────────── */}
         <section
-          className="rounded-[12px]"
+          className="rounded-[10px]"
           style={{
             background: 'var(--sidebar)',
             color: '#E8E8EB',
             border: '1px solid var(--border)',
             padding: '22px 24px',
-            marginBottom: 20,
+            marginBottom: 24,
             display: 'flex',
             alignItems: 'flex-start',
             justifyContent: 'space-between',
@@ -3858,10 +3796,10 @@ Today's date is ${today}.
               <div className="flex items-center gap-2.5" style={{ marginTop: 3 }}>
                 <h1
                   style={{
-                    fontFamily: 'var(--font-instrument), Georgia, serif',
+                    fontFamily: 'var(--font-fraunces), Georgia, serif',
                     fontWeight: 500,
-                    fontSize: 26,
-                    letterSpacing: '-0.5px',
+                    fontSize: 28,
+                    letterSpacing: '-0.015em',
                     color: '#fff',
                     lineHeight: 1.1,
                     margin: 0,
@@ -3976,15 +3914,15 @@ Today's date is ${today}.
         {/* ── Next step (computed from the journey) ─────────────────────── */}
         {currentStepDef && (
           <section
-            className="rounded-[12px]"
+            className="rounded-[10px]"
             style={{
               border: '1px solid var(--border)',
-              background: 'var(--surface)',
+              background: 'var(--white)',
               display: 'flex',
               alignItems: 'center',
               gap: 18,
               padding: '16px 20px',
-              marginBottom: 20,
+              marginBottom: 24,
             }}
           >
             <span style={{ width: 3, alignSelf: 'stretch', background: 'var(--fable-red)', borderRadius: 3, flexShrink: 0 }} />
@@ -3996,7 +3934,7 @@ Today's date is ${today}.
                 Next step · Step {currentStepDef.step} of {TOTAL_WORKFLOW_STEPS}
               </div>
               <div
-                style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em', marginTop: 4, color: 'var(--text)' }}
+                style={{ fontFamily: 'var(--font-fraunces), Georgia, serif', fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em', marginTop: 4, color: 'var(--text)' }}
               >
                 {currentStepDef.title}
               </div>
@@ -4053,22 +3991,7 @@ Today's date is ${today}.
               Draft follow-up
             </button>
             <button
-              onClick={() => {
-                // Already on Journey → unchanged behaviour: scroll straight there.
-                if (activeTab === 'journey') {
-                  journeyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                  return
-                }
-                // From any other tab the Journey panel is still mounted but hidden
-                // (display: none), and scrollIntoView on a hidden element is a no-op.
-                // Switch tabs first, then scroll on the next frame — the click is a
-                // discrete event, so React has flushed the re-render (and the panel is
-                // visible) by the time the rAF callback runs.
-                setActiveTab('journey')
-                requestAnimationFrame(() => {
-                  journeyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                })
-              }}
+              onClick={() => journeyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
               style={{ ...nextBtn, background: 'var(--btn-primary-bg, var(--charcoal))', borderColor: 'var(--btn-primary-bg, var(--charcoal))', color: 'var(--btn-primary-text, #fff)' }}
               onMouseEnter={e => { e.currentTarget.style.opacity = '0.88' }}
               onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
@@ -4091,84 +4014,30 @@ Today's date is ${today}.
               stepStartMap={stepStartMap}
             />
 
-        </div>{/* /full-width stacked layout */}
-        </section>{/* /OVERVIEW */}
-
-        {/* ══════════════ JOURNEY ══════════════ */}
-        <section id="client-p-journey" role="tabpanel" aria-labelledby="client-t-journey" hidden={activeTab !== 'journey'}>
-        <div className="flex flex-col gap-5">
-
-        {/* ── Meeting Journey — 37-step workflow ────────────────────────── */}
-        <div ref={journeyRef} className="rounded-[12px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
-          <div className="flex items-baseline justify-between" style={{ padding: '13px 20px', borderBottom: '1px solid var(--border)' }}>
-            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text3)' }}>Meeting Journey</h2>
-            <span style={{ fontSize: 12, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
-              {stepsCompletedCount} of {TOTAL_WORKFLOW_STEPS} steps{sentEmailCount > 0 ? ` · ${sentEmailCount} emails` : ''}
-            </span>
-          </div>
-
-          {/* Progress */}
-          <div className="flex items-center" style={{ gap: 12, padding: '13px 20px', borderBottom: '1px solid var(--border)' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--text2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-              <b style={{ fontWeight: 600, color: 'var(--text)' }}>{stepsCompletedCount} of {TOTAL_WORKFLOW_STEPS}</b> steps complete
-            </span>
-            <span className="flex-1 overflow-hidden" style={{ height: 4, borderRadius: 99, background: 'var(--surface2)' }}>
-              <span style={{ display: 'block', height: '100%', width: `${stepsPct}%`, background: happiness.accent, borderRadius: 99, transition: 'width 200ms ease' }} />
-            </span>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{stepsPct}%</span>
-          </div>
-
-          {/* Steps */}
-          <div>
-            {WORKFLOW_STEPS.map(step => (
-              <WorkflowStep
-                key={step.step}
-                step={step}
-                isCompleted={stepCompletions.has(step.step)}
-                isCurrent={step.step === currentStepNumber}
-                defaultExpanded={step.step === currentStepNumber}
-                checklistRows={checklistRows}
-                checklistToggling={checklistToggling}
-                onToggleChecklist={toggleChecklistTask}
-                marking={stepMarking.has(step.step)}
-                onMarkComplete={markStepComplete}
-                onAction={handleWorkflowAction}
-                hasRecap={journeyRows.has(stepCode(step.step))}
-              />
-            ))}
-          </div>
-        </div>
-        </div>
-        </section>{/* /JOURNEY */}
-
-        {/* ══════════════ COMMUNICATION ══════════════ */}
-        <section id="client-p-communication" role="tabpanel" aria-labelledby="client-t-communication" hidden={activeTab !== 'communication'}>
-        <div className="flex flex-col gap-5">
-
         {/* ── Emails — Pending (left) | Sent (right), side-by-side grid ──── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
         {/* Left column: Pending Emails */}
         <div>
         {emailDrafts.length > 0 && (
           <div
-            className="rounded-[12px] p-5"
-            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+            className="rounded-lg p-5"
+            style={{ background: 'var(--white)', border: '1px solid var(--border)' }}
           >
             {/* Custom amber header for actionable drafts */}
             <div className="flex items-center gap-2 mb-4">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.85, color: 'var(--amber)' }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.85 }}>
                 <rect x="2" y="4" width="20" height="16" rx="2" />
                 <polyline points="2,4 12,13 22,4" />
               </svg>
               <span
                 className="text-[12px] font-bold tracking-[1.2px] uppercase"
-                style={{ color: 'var(--amber)' }}
+                style={{ color: '#92400e' }}
               >
                 Pending Emails
               </span>
               <span
                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                style={{ background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid var(--badge-open-border)' }}
+                style={{ background: 'var(--amber-bg)', color: '#92400e', border: '1px solid var(--badge-open-border)' }}
               >
                 {emailDrafts.length}
               </span>
@@ -4182,7 +4051,8 @@ Today's date is ${today}.
                   style={{
                     background: 'var(--amber-bg)',
                     border: '1px solid var(--badge-open-border)',
-                    borderLeft: '3px solid var(--amber)',
+                    borderLeft: '3px solid #d97706',
+                    boxShadow: '0 1px 4px rgba(217,119,6,0.08)',
                   }}
                 >
                   {/* Draft header */}
@@ -4192,7 +4062,7 @@ Today's date is ${today}.
                         <span
                           className="text-[10px] font-bold tracking-[0.4px] shrink-0"
                           style={{
-                            background: 'var(--amber)',
+                            background: '#d97706',
                             color: '#fff',
                             padding: '2px 7px',
                             borderRadius: 4,
@@ -4203,16 +4073,16 @@ Today's date is ${today}.
                         </span>
                         <span
                           className="text-[12px] font-semibold truncate"
-                          style={{ color: 'var(--amber)' }}
+                          style={{ color: '#92400e' }}
                         >
                           {draft.subject}
                         </span>
                       </div>
-                      <div className="text-[11px]" style={{ color: 'var(--amber)' }}>
+                      <div className="text-[11px]" style={{ color: '#b45309' }}>
                         To: {draft.recipient_name}{draft.recipient_email ? ` (${draft.recipient_email})` : ''}
                       </div>
                       {draft.created_at && (
-                        <div className="text-[11px] mt-0.5" style={{ color: 'var(--amber)', opacity: 0.7 }}>
+                        <div className="text-[11px] mt-0.5" style={{ color: '#b45309', opacity: 0.7 }}>
                           Generated: {new Date(draft.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                         </div>
                       )}
@@ -4227,12 +4097,12 @@ Today's date is ${today}.
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         fontSize: 11, fontWeight: 600,
-                        color: 'var(--amber)', background: 'var(--surface)', border: '1px solid var(--badge-open-border)',
+                        color: '#92400e', background: 'var(--surface)', border: '1px solid var(--badge-open-border)',
                         padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
                         transition: 'border-color 120ms ease',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--amber)' }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--badge-open-border)' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#d97706' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#fde68a' }}
                     >
                       👁 Preview
                     </button>
@@ -4243,12 +4113,12 @@ Today's date is ${today}.
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         fontSize: 11, fontWeight: 600,
-                        color: 'var(--amber)', background: 'var(--surface)', border: '1px solid var(--badge-open-border)',
+                        color: '#92400e', background: 'var(--surface)', border: '1px solid var(--badge-open-border)',
                         padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
                         transition: 'border-color 120ms ease',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--amber)' }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--badge-open-border)' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#d97706' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#fde68a' }}
                     >
                       ✏️ Edit
                     </button>
@@ -4282,9 +4152,9 @@ Today's date is ${today}.
         <div>
         {/* ── Sent Emails ──────────────────────────────────────────────── */}
         {sentEmails.length > 0 && (
-          <div className="rounded-[12px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
-            <div className="flex items-baseline justify-between" style={{ padding: '13px 20px', borderBottom: '1px solid var(--border)' }}>
-              <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text3)' }}>Sent Emails</h2>
+          <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+            <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+              <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Sent Emails</h2>
               <span style={{ fontSize: 12, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>{sentEmails.length} sent</span>
             </div>
             <div>
@@ -4301,7 +4171,7 @@ Today's date is ${today}.
                   <div
                     key={sent.id}
                     className="flex items-center"
-                    style={{ gap: 12, padding: '11px 20px', borderTop: i > 0 ? '1px solid var(--border)' : 'none', cursor: 'pointer', overflow: 'hidden' }}
+                    style={{ gap: 12, padding: '11px 17px', borderTop: i > 0 ? '1px solid var(--border)' : 'none', cursor: 'pointer', overflow: 'hidden' }}
                     onClick={() => setViewSentEmail(sent)}
                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
@@ -4330,14 +4200,17 @@ Today's date is ${today}.
         )}
         </div>{/* /right column: Sent Emails */}
         </div>{/* /emails grid */}
+        </div>{/* /full-width stacked layout */}
+
+        <div className="flex flex-col gap-5" style={{ marginTop: 24 }}>
 
         {/* ── Recent Meeting Recaps (NEW) ───────────────────────────────── */}
-        <div className="rounded-[12px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
-          <div className="flex items-baseline justify-between" style={{ padding: '13px 20px', borderBottom: '1px solid var(--border)' }}>
-            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text3)' }}>Recent Meeting Recaps</h2>
+        <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+          <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Recent Meeting Recaps</h2>
           </div>
           {recentRecaps.length === 0 ? (
-            <div style={{ padding: '15px 20px', fontSize: 13, color: 'var(--text3)' }}>
+            <div style={{ padding: '15px 17px', fontSize: 13, color: 'var(--text3)' }}>
               No meeting recaps yet — recaps appear here after meetings are recorded
             </div>
           ) : (
@@ -4351,7 +4224,7 @@ Today's date is ${today}.
                   <div
                     key={row.id ?? row.meeting_id}
                     className="flex items-center"
-                    style={{ gap: 12, padding: '10px 20px', borderBottom: '1px solid var(--border)' }}
+                    style={{ gap: 12, padding: '10px 17px', borderBottom: '1px solid var(--border)' }}
                   >
                     <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: dotColor }} />
                     <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', fontFamily: 'monospace', flexShrink: 0 }}>
@@ -4366,7 +4239,7 @@ Today's date is ${today}.
                     <button
                       type="button"
                       onClick={() => router.push(`/customers/${params.id}/meetings/${row.meeting_id}`)}
-                      style={{ ...workflowActionBtn, color: '#3b82f6', background: 'rgba(59, 130, 246, 0.13)', border: '1px solid rgba(59, 130, 246, 0.28)', fontWeight: 600 }}
+                      style={{ ...workflowActionBtn, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', fontWeight: 600 }}
                     >
                       View Recap →
                     </button>
@@ -4377,20 +4250,130 @@ Today's date is ${today}.
           )}
         </div>{/* /Recent Meeting Recaps */}
 
+        {/* ── Project Files (NEW · additive) ────────────────────────────── */}
+        <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+          {/* Hidden file input — drives the "+ Upload File" / browse buttons */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx"
+            onChange={handleFileUpload}
+            style={{ display: 'none' }}
+          />
+
+          {/* Header */}
+          <div className="flex items-center justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Project Files</h2>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingFile}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
+                color: 'var(--fable-red)', background: 'var(--white)', border: '1px solid var(--border)',
+                padding: '4px 10px', borderRadius: 5, whiteSpace: 'nowrap',
+                cursor: uploadingFile ? 'not-allowed' : 'pointer', opacity: uploadingFile ? 0.5 : 1, fontFamily: 'inherit',
+              }}
+            >
+              + Upload File
+            </button>
+          </div>
+
+          {/* Upload area / status */}
+          <div style={{ padding: '12px 17px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingFile}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
+                color: 'var(--fable-red)', background: 'var(--white)', border: '1px solid var(--border)',
+                padding: '6px 12px', borderRadius: 6, whiteSpace: 'nowrap',
+                cursor: uploadingFile ? 'not-allowed' : 'pointer', opacity: uploadingFile ? 0.5 : 1, fontFamily: 'inherit',
+              }}
+            >
+              {uploadingFile ? 'Uploading…' : 'Click to browse'}
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              PDF, Word, Excel or images · max 10MB
+            </span>
+            {fileError && (
+              <span style={{ fontSize: 11, color: 'var(--fable-red)', fontWeight: 500 }}>{fileError}</span>
+            )}
+          </div>
+
+          {/* File list */}
+          {clientFiles.length === 0 ? (
+            <div style={{ padding: '15px 17px', fontSize: 13, color: 'var(--text3)' }}>
+              No files uploaded yet — upload plans, permits, or documents for this client
+            </div>
+          ) : (
+            <div>
+              {clientFiles.map(file => {
+                const dateLabel = file.uploaded_at
+                  ? new Date(file.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : ''
+                return (
+                  <div
+                    key={file.id}
+                    className="flex items-center"
+                    style={{ gap: 12, padding: '10px 17px', borderBottom: '1px solid var(--border)' }}
+                  >
+                    <span style={{ fontSize: 16, marginRight: 8, flexShrink: 0 }}>{fileIcon(file.file_type, file.file_name)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {file.file_name}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>{formatFileSize(file.file_size)}</span>
+                    {dateLabel && (
+                      <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>{dateLabel}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleFileDownload(file)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 500,
+                        color: 'var(--text2)', background: 'var(--white)', border: '1px solid var(--border)',
+                        padding: '4px 9px', borderRadius: 5, whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+                      }}
+                    >
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFileDelete(file)}
+                      disabled={deletingFileId === file.id}
+                      title="Delete file"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24,
+                        fontSize: 13, fontWeight: 700, lineHeight: 1,
+                        color: '#dc2626', background: 'var(--white)', border: '1px solid var(--red-border, #f5c9c2)',
+                        borderRadius: 5, cursor: deletingFileId === file.id ? 'not-allowed' : 'pointer',
+                        opacity: deletingFileId === file.id ? 0.5 : 1, fontFamily: 'inherit', flexShrink: 0,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>{/* /Project Files */}
+
         {/* ── Personality & Communication (moved · collapsible) ─────────── */}
         {(client.personality_tags.length > 0 || hasInterests || hasComm || hasTip) && (
-        <div className="rounded-[12px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
           <button
             type="button"
             onClick={() => setIsPersonalityExpanded(v => !v)}
             className="w-full flex items-center justify-between"
-            style={{ padding: '13px 20px', borderBottom: isPersonalityExpanded ? '1px solid var(--border)' : 'none', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+            style={{ padding: '13px 17px', borderBottom: isPersonalityExpanded ? '1px solid var(--border)' : 'none', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
           >
-            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text3)' }}>Personality &amp; Communication</h2>
+            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Personality &amp; Communication</h2>
             <span style={{ color: 'var(--text3)', fontSize: 11, transition: 'transform 200ms ease', transform: isPersonalityExpanded ? 'none' : 'rotate(-90deg)' }}>▾</span>
           </button>
           {isPersonalityExpanded && (
-              <div style={{ padding: '15px 20px' }}>
+              <div style={{ padding: '15px 17px' }}>
                 {client.personality_tags.length > 0 && (
                   <div className="flex flex-wrap gap-1.5" style={{ marginBottom: 13 }}>
                     {client.personality_tags.map(tag => (
@@ -4429,21 +4412,21 @@ Today's date is ${today}.
 
         {/* ── Key Priorities (moved · collapsible) ──────────────────────── */}
         {client.priorities.some(p => p.text.trim()) && (
-              <div className="rounded-[12px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+              <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
                 <button
                   type="button"
                   onClick={() => setIsPrioritiesExpanded(v => !v)}
                   className="w-full flex items-center justify-between"
-                  style={{ padding: '13px 20px', borderBottom: isPrioritiesExpanded ? '1px solid var(--border)' : 'none', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+                  style={{ padding: '13px 17px', borderBottom: isPrioritiesExpanded ? '1px solid var(--border)' : 'none', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
                 >
-                  <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text3)' }}>Key Priorities</h2>
+                  <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Key Priorities</h2>
                   <span className="flex items-center" style={{ gap: 10 }}>
                     <span style={{ fontSize: 12, color: 'var(--text3)' }}>From meeting recaps</span>
                     <span style={{ color: 'var(--text3)', fontSize: 11, transition: 'transform 200ms ease', transform: isPrioritiesExpanded ? 'none' : 'rotate(-90deg)' }}>▾</span>
                   </span>
                 </button>
                 {isPrioritiesExpanded && (
-                <div style={{ padding: '6px 20px' }}>
+                <div style={{ padding: '6px 17px' }}>
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                     {client.priorities.filter(p => p.text.trim()).map((p, i, arr) => {
                       const cfg = PRIORITY_CONFIG[p.status]
@@ -4470,128 +4453,51 @@ Today's date is ${today}.
                 )}
               </div>
         )}{/* /Key Priorities */}
-        </div>
-        </section>{/* /COMMUNICATION */}
-
-        {/* ══════════════ FILES & AGENDA ══════════════ */}
-        <section id="client-p-files" role="tabpanel" aria-labelledby="client-t-files" hidden={activeTab !== 'files'}>
-        <div className="flex flex-col gap-5">
-
-        {/* ── Project Files (NEW · additive) ────────────────────────────── */}
-        <div className="rounded-[12px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
-          {/* Hidden file input — drives the "+ Upload File" / browse buttons */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx"
-            onChange={handleFileUpload}
-            style={{ display: 'none' }}
-          />
-
-          {/* Header */}
-          <div className="flex items-center justify-between" style={{ padding: '13px 20px', borderBottom: '1px solid var(--border)' }}>
-            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text3)' }}>Project Files</h2>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingFile}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
-                color: 'var(--fable-red)', background: 'var(--surface)', border: '1px solid var(--border)',
-                padding: '4px 10px', borderRadius: 5, whiteSpace: 'nowrap',
-                cursor: uploadingFile ? 'not-allowed' : 'pointer', opacity: uploadingFile ? 0.5 : 1, fontFamily: 'inherit',
-              }}
-            >
-              + Upload File
-            </button>
-          </div>
-
-          {/* Upload area / status */}
-          <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingFile}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
-                color: 'var(--fable-red)', background: 'var(--surface)', border: '1px solid var(--border)',
-                padding: '6px 12px', borderRadius: 6, whiteSpace: 'nowrap',
-                cursor: uploadingFile ? 'not-allowed' : 'pointer', opacity: uploadingFile ? 0.5 : 1, fontFamily: 'inherit',
-              }}
-            >
-              {uploadingFile ? 'Uploading…' : 'Click to browse'}
-            </button>
-            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-              PDF, Word, Excel or images · max 10MB
-            </span>
-            {fileError && (
-              <span style={{ fontSize: 11, color: 'var(--fable-red)', fontWeight: 500 }}>{fileError}</span>
-            )}
-          </div>
-
-          {/* File list */}
-          {clientFiles.length === 0 ? (
-            <div style={{ padding: '15px 20px', fontSize: 13, color: 'var(--text3)' }}>
-              No files uploaded yet — upload plans, permits, or documents for this client
-            </div>
-          ) : (
-            <div>
-              {clientFiles.map(file => {
-                const dateLabel = file.uploaded_at
-                  ? new Date(file.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                  : ''
-                return (
-                  <div
-                    key={file.id}
-                    className="flex items-center"
-                    style={{ gap: 12, padding: '10px 20px', borderBottom: '1px solid var(--border)' }}
-                  >
-                    <span style={{ fontSize: 16, marginRight: 8, flexShrink: 0 }}>{fileIcon(file.file_type, file.file_name)}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {file.file_name}
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>{formatFileSize(file.file_size)}</span>
-                    {dateLabel && (
-                      <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>{dateLabel}</span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleFileDownload(file)}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 500,
-                        color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)',
-                        padding: '4px 9px', borderRadius: 5, whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
-                      }}
-                    >
-                      Download
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleFileDelete(file)}
-                      disabled={deletingFileId === file.id}
-                      title="Delete file"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24,
-                        fontSize: 13, fontWeight: 700, lineHeight: 1,
-                        color: 'var(--red)', background: 'var(--surface)', border: '1px solid var(--red-border, #f5c9c2)',
-                        borderRadius: 5, cursor: deletingFileId === file.id ? 'not-allowed' : 'pointer',
-                        opacity: deletingFileId === file.id ? 0.5 : 1, fontFamily: 'inherit', flexShrink: 0,
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>{/* /Project Files */}
 
         {/* ── Standing Agenda (NEW) ─────────────────────────────────────── */}
         <StandingAgenda clientId={params.id} clientName={client.name} clientProjectAddress={client.project_address ?? ''} onToast={setToast} />
-        </div>
-        </section>{/* /FILES & AGENDA */}
 
+        {/* ── Meeting Journey — 37-step workflow ────────────────────────── */}
+        <div ref={journeyRef} className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+          <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+            <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Meeting Journey</h2>
+            <span style={{ fontSize: 12, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
+              {stepsCompletedCount} of {TOTAL_WORKFLOW_STEPS} steps{sentEmailCount > 0 ? ` · ${sentEmailCount} emails` : ''}
+            </span>
+          </div>
+
+          {/* Progress */}
+          <div className="flex items-center" style={{ gap: 12, padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ fontSize: 12.5, color: 'var(--text2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              <b style={{ fontWeight: 600, color: 'var(--text)' }}>{stepsCompletedCount} of {TOTAL_WORKFLOW_STEPS}</b> steps complete
+            </span>
+            <span className="flex-1 overflow-hidden" style={{ height: 5, borderRadius: 99, background: 'var(--surface2)' }}>
+              <span style={{ display: 'block', height: '100%', width: `${stepsPct}%`, background: happiness.accent, borderRadius: 99, transition: 'width 400ms ease' }} />
+            </span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{stepsPct}%</span>
+          </div>
+
+          {/* Steps */}
+          <div>
+            {WORKFLOW_STEPS.map(step => (
+              <WorkflowStep
+                key={step.step}
+                step={step}
+                isCompleted={stepCompletions.has(step.step)}
+                isCurrent={step.step === currentStepNumber}
+                defaultExpanded={step.step === currentStepNumber}
+                checklistRows={checklistRows}
+                checklistToggling={checklistToggling}
+                onToggleChecklist={toggleChecklistTask}
+                marking={stepMarking.has(step.step)}
+                onMarkComplete={markStepComplete}
+                onAction={handleWorkflowAction}
+                hasRecap={journeyRows.has(stepCode(step.step))}
+              />
+            ))}
+          </div>
+        </div>
+        </div>
         </div>{/* /max-width wrapper */}
       </div>
 
