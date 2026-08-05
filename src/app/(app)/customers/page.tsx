@@ -94,7 +94,7 @@ function formatCurrency(value: unknown): string {
 function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDelete: (client: Client) => void }) {
   const [hovered, setHovered] = useState(false)
   const config = getHappinessConfig(client.happiness)
-  const pct = Math.round((client.meetingsCompleted / 33) * 100)
+  const pct = Math.round((client.meetingsCompleted / 37) * 100)
 
   return (
     <Link
@@ -186,7 +186,7 @@ function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDele
       {/* Progress */}
       <div style={{ width: 160, flexShrink: 0 }}>
         <div style={{ fontSize: 11, color: 'var(--muted, #6b7280)', marginBottom: 5 }}>
-          {client.meetingsCompleted} of 33 steps
+          {client.meetingsCompleted} of 37 steps
           {client.emailsSent > 0 && <span style={{ color: 'var(--muted, #6b7280)' }}> · {client.emailsSent} emails sent</span>}
         </div>
         <div

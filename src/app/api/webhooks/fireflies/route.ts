@@ -531,15 +531,15 @@ RULES:
           'step_07': 'step_08_email',
           'step_09': 'step_10_email',
           'step_12': 'step_13_email',
-          'step_15': 'step_15_email',
-          'step_18': null,
-          'step_20': 'step_21_email',
+          'step_15': 'step_16_email',
+          'step_20': 'step_20_email',
           'step_23': null,
-          'step_24': 'step_25_email',
-          'step_27': 'step_28_email',
-          'step_29': 'step_30_email',
-          'step_32': null,
-          'step_33': null,
+          'step_25': 'step_26_email',
+          'step_28': 'step_29_email',
+          'step_31': 'step_32_email',
+          'step_33': 'step_34_email',
+          'step_36': null,
+          'step_37': null,
         }
 
         const nextEmailCode = MEETING_TO_EMAIL[meetingCode]

@@ -10,7 +10,7 @@ import 'react-quill/dist/quill.snow.css'
 import { TopBar } from '@/components/ui'
 import { createClient } from '@/lib/supabase'
 import { AGENDAS, NPS_QUESTIONS, type AgendaContent, type AgendaItem, type AgendaSection } from '../_agendaData'
-// Single source of truth for the 33-step Customer Journey: step data, role display
+// Single source of truth for the 37-step Customer Journey: step data, role display
 // names, badge styling, the step/checklist key helpers, and the pure task due-date
 // helpers. This page previously kept its own full inline duplicate of the step data.
 import {
@@ -267,7 +267,7 @@ const JOURNEY_PHASES: JourneyPhaseDef[] = [
 ]
 
 // NOTE: the legacy `TOTAL_MEETINGS` count (55, derived from JOURNEY_PHASES) was
-// removed — every remaining reader of journey progress uses TOTAL_WORKFLOW_STEPS (33).
+// removed — every remaining reader of journey progress uses TOTAL_WORKFLOW_STEPS (37).
 // JOURNEY_PHASES itself is still used for recap labels and sent-email titles.
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -398,7 +398,7 @@ function BackLink() {
   )
 }
 
-// Takes the already-computed 33-step journey state (see getJourneyState) rather
+// Takes the already-computed 37-step journey state (see getJourneyState) rather
 // than journeyRows — the legacy phase/meeting-code lookup it used before always
 // reported Phase 1 / the first legacy meeting no matter how far along the client was.
 function buildGreeting(client: ClientData, journey: JourneyState): string {
@@ -852,7 +852,7 @@ interface JourneyState {
 
 function getJourneyState(stepCompletions: Set<number>): JourneyState {
   const completedCount = WORKFLOW_STEPS.filter(s => stepCompletions.has(s.step)).length
-  // Current step = first step that is not yet completed; null once all 33 are done.
+  // Current step = first step that is not yet completed; null once all 37 are done.
   const currentStepNumber = WORKFLOW_STEPS.find(s => !stepCompletions.has(s.step))?.step ?? null
   const currentStep =
     currentStepNumber != null
@@ -2249,7 +2249,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [checklistRows, setChecklistRows] = useState<Map<string, ChecklistRowState>>(new Map())
   const [checklistToggling, setChecklistToggling] = useState<Set<string>>(new Set())
   const checklistUserIdRef = useRef<string | null>(null)
-  // 33-step workflow completion state (workflow_step_completions table)
+  // 37-step workflow completion state (workflow_step_completions table)
   const [stepCompletions, setStepCompletions] = useState<Set<number>>(new Set())
   const [stepMarking, setStepMarking] = useState<Set<number>>(new Set())
   // NEW (additive): when each step started (journey_step_start). Drives task due dates.
@@ -2900,7 +2900,7 @@ PERSONALITY & COMMUNICATION:
 KEY PRIORITIES:
 ${client.priorities.map(p => `- ${p.text}: ${p.status}`).join('\n') || '- None added'}
 
-MEETING JOURNEY (33-step CASK Customer Journey — the authoritative source for where this client is):
+MEETING JOURNEY (37-step CASK Customer Journey — the authoritative source for where this client is):
 - Progress: ${journey.completedCount} of ${journey.totalSteps} steps completed
 - Current / Next Step: ${currentStepLine}
 ${completedStepList.length ? `- Completed Steps:\n${completedStepList.join('\n')}` : '- Completed Steps: None yet'}
@@ -2916,7 +2916,7 @@ present one of those as the client's current or next step.
 Use this context to answer questions about this client.
 Help Calin and the team understand:
 - How to communicate with this client based on their personality
-- Which of the 33 steps they are on and what comes next
+- Which of the 37 steps they are on and what comes next
 - What was discussed in recent meetings
 - What action items may be pending based on recaps
 - How the client is feeling about the project
@@ -2986,7 +2986,7 @@ Today's date is ${today}.
   const happiness = HAPPINESS[client.happiness]
   const sentEmailCount = sentEmails.length
 
-  // ── 33-step workflow progress ──────────────────────────────────────────────
+  // ── 37-step workflow progress ──────────────────────────────────────────────
   // Drives the Meeting Journey section, the Next Step banner and the AI surfaces —
   // all from the one shared helper so they cannot disagree.
   const journey = getJourneyState(stepCompletions)
@@ -3030,7 +3030,7 @@ Today's date is ${today}.
 
   // Primary branch (the most recent recap) is source-independent and already correct,
   // so it is unchanged. Only the no-recap-yet fallback was rewritten — it used to
-  // describe the legacy phase; it now describes 33-step position.
+  // describe the legacy phase; it now describes 37-step position.
   const nextStepDesc = lastCompleted?.recap
     ? summarize(lastCompleted.recap, 180)
     : currentStepDef
@@ -4457,7 +4457,7 @@ Today's date is ${today}.
         {/* ── Standing Agenda (NEW) ─────────────────────────────────────── */}
         <StandingAgenda clientId={params.id} clientName={client.name} clientProjectAddress={client.project_address ?? ''} onToast={setToast} />
 
-        {/* ── Meeting Journey — 33-step workflow ────────────────────────── */}
+        {/* ── Meeting Journey — 37-step workflow ────────────────────────── */}
         <div ref={journeyRef} className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
           <div className="flex items-baseline justify-between" style={{ padding: '13px 17px', borderBottom: '1px solid var(--border)' }}>
             <h2 className="uppercase" style={{ fontSize: 11, letterSpacing: '0.12em', fontWeight: 700, color: 'var(--text)' }}>Meeting Journey</h2>
