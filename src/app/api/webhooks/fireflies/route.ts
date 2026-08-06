@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase-server'
+import { createClient } from '@supabase/supabase-js'
 import { AGENDAS, type AgendaContent, type AgendaItem } from '@/app/(app)/customers/_agendaData'
 import { generateEmbeddings } from '@/lib/embeddings'
 
@@ -279,8 +279,15 @@ export async function POST(req: NextRequest) {
       // Fall through — save with Fireflies metadata only
     }
 
-    // 4. Save to Supabase using service role key (bypasses RLS)
-    const supabase = createClient()
+    // 4. Save to Supabase with the SERVICE-ROLE key (bypasses RLS).
+    // Must not be the cookie-backed anon helper in @/lib/supabase-server: a
+    // Fireflies POST carries no session cookie, so that client ran as `anon`,
+    // and the same endpoint hit from a logged-in browser ran as that user —
+    // privilege depended on the caller. This client is deterministic.
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
 
     // Validate extracted date — Claude sometimes hallucinates the wrong year
     const rawDate: string = (extracted.date as string) ?? meetingDate
@@ -787,7 +794,8 @@ Return ONLY the email body HTML. No subject line in the body.`
 
     // ── 7. Mirror the meeting into hub_memory for Big Vision agents ──────
     // Tags come from (a) leader attendees and (b) strategic-topic keywords in the
-    // title/transcript. Reuses the SAME `supabase` service-role client above. Fully
+    // title/transcript. Reuses the SAME `supabase` client constructed at step 4 —
+    // which is now genuinely service-role, as this comment already claimed. Fully
     // isolated in its own try/catch so any failure here can't affect the meetings
     // save above or the webhook response. Variables reused from the existing code:
     //   fullTranscript (plain text), transcript.meeting_attendees, sessionTitle,
