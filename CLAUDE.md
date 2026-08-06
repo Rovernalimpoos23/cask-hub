@@ -16,11 +16,10 @@ builder, St. Petersburg, Florida), built and maintained solo by Rovern Alimpoos.
   Twilio (SMS morning briefing + meeting reminders, cron-driven via `vercel.json`)
 - **Model usage is mixed, not uniform.** `claude-opus-5` runs in 5 call sites
   (Fireflies webhook ×3, `/api/extract-meeting`, `/api/big-vision/chat`).
-  `claude-sonnet-4-6` runs in 7 (`/api/chat`, `/api/chat/client`,
+  `claude-sonnet-4-6` runs in 6 (`/api/chat`, `/api/chat/client`,
   `/api/big-vision-chat`, `/api/big-vision-upload-chat`, `/api/generate-agenda`,
-  `/api/generate-event-agenda`, `/api/webhooks/fireflies/test`). Check which model a
-  route actually uses before assuming — it changes the response-parsing rules (see
-  gotchas).
+  `/api/generate-event-agenda`). Check which model a route actually uses before
+  assuming — it changes the response-parsing rules (see gotchas).
 
 ## How to work in this repo — standing rules
 
@@ -78,13 +77,14 @@ builder, St. Petersburg, Florida), built and maintained solo by Rovern Alimpoos.
   array by default.** Never assume `content[0].text` — always extract with
   `content.find(b => b.type === 'text')?.text`. This broke 5 routes silently in the past
   (HTTP 200, empty/fallback output, no visible error).
-  **Seven routes still use the unsafe `content[0]` pattern** — safe only because they're
+  **Six routes still use the unsafe `content[0]` pattern** — safe only because they're
   on `claude-sonnet-4-6`. They break the moment any of them is bumped to Opus 5:
   `api/chat/route.ts:779`, `api/chat/client/route.ts:45`,
   `api/big-vision-chat/route.ts:60`, `api/big-vision-upload-chat/route.ts:99`,
-  `api/generate-agenda/route.ts:72`, `api/generate-event-agenda/route.ts:33`,
-  `api/webhooks/fireflies/test/route.ts:73`. Migrating a route's model and migrating its
-  extraction are one change, never two.
+  `api/generate-agenda/route.ts:72`, `api/generate-event-agenda/route.ts:33`.
+  Migrating a route's model and migrating its extraction are one change, never two.
+  (Was seven — `api/webhooks/fireflies/test/route.ts` came off the list when that route
+  was deleted on 2026-08-07.)
 - **Model-generated JSON fields should never be trusted as strictly typed.** Prefer
   `typeof x === 'string' ? x : fallback` over `x ?? fallback` — a bad model response could
   return a non-null, non-string value that `??` won't catch. Note `src/types/index.ts`
@@ -161,14 +161,16 @@ builder, St. Petersburg, Florida), built and maintained solo by Rovern Alimpoos.
 - `src/middleware.ts` — route gating for restricted roles. Allowlist for restricted roles:
   `/dashboard`, `/sessions/*`, `/generate/*`, `/actions/*`, `/customers/*`, `/my-project/*`,
   `/my-workspace/*`. Everything else redirects to `/dashboard`. **API routes, webhooks,
-  `/api/seed`, and auth pages are all exempt from gating.**
+  and auth pages are all exempt from gating.** (The `isSeedRoute` exemption was removed
+  on 2026-08-07 along with `/api/seed` itself.)
 - `src/lib/role-filter.ts` — role-based meeting filtering by attendee first-name match
   (client-side; do not assume this is a real security boundary)
 - `src/lib/supabase.ts` (browser, anon) / `src/lib/supabase-server.ts` (server cookie
   client, **anon key — not service-role, despite what some call sites claim**)
 - `src/lib/meetings.ts`, `src/lib/meetings-client.ts` — meeting fetches with silent
   seed-data fallback (see gotcha)
-- `src/lib/seed-data.ts` — 18KB hardcoded `MEETINGS`, used by the fallback and `/api/seed`
+- `src/lib/seed-data.ts` — 18KB hardcoded `MEETINGS`. Since `/api/seed` was deleted its
+  only importers are `meetings.ts` / `meetings-client.ts`, i.e. the silent fallback
 - `src/lib/workflow-steps.ts` — customer-journey step definitions (used by customer detail,
   OKR dashboard, dashboard, my-project)
 - `src/lib/theme-context.tsx` — light/dark theme provider (6 importers)
@@ -201,12 +203,14 @@ builder, St. Petersburg, Florida), built and maintained solo by Rovern Alimpoos.
   crons `morning-briefing` at 11:30 UTC daily.
 - `src/app/api/webhooks/fireflies/route.ts` — public, unauthenticated, anon-key writes
   (see gotcha above)
-- `src/app/api/webhooks/fireflies/test/route.ts` — public, unauthenticated,
-  middleware-exempt, **service-role**, and writes to `client_meetings` when called with
-  `?save=true`. Known open issue — belongs in the same lock-down pass as `/api/seed`.
-- `src/app/api/seed/route.ts` — public, unauthenticated, service-role writes on both GET
-  and POST; middleware-exempt. Known open issue, treat as high-priority to lock down or
-  remove.
+- **DELETED 2026-08-07 — do not recreate:** `src/app/api/seed/route.ts` and
+  `src/app/api/webhooks/fireflies/test/route.ts`. Both were public, unauthenticated,
+  middleware-exempt and wrote with the service-role key (`meetings` and `client_meetings`
+  respectively); the test route also forwarded arbitrary unauthenticated request bodies
+  straight to the Anthropic API, so it was a metered-spend vector as well as a data one.
+  Neither had a caller anywhere in application code. Both were briefly secured with an
+  admin-session gate, then deleted outright instead — dead surface area beats guarded
+  dead surface area. The `isSeedRoute` reference in `middleware.ts` went with them.
 
 **Repo-level**
 - `.claude/skills/cask-hub/SKILL.md` — older project skill. **Partly stale**: names
@@ -227,15 +231,29 @@ builder, St. Petersburg, Florida), built and maintained solo by Rovern Alimpoos.
   cannot be re-verified from the repo — treat the counts as last-known, not current.*
   Code-side status of the fix order:
   1. Confirm whether the legacy `USING(true)` policy on `users` still permits UPDATE —
-     **DB-side, unverified.**
-  2. Lock `users` writes to service-role + fix/remove `/api/seed` — **not done.**
-     `/api/seed` is still public on GET and POST with a service-role client and is
-     explicitly exempted in `middleware.ts`.
+     **ANSWERED 2026-08-06: yes.** A direct query returned a single policy on `users`:
+     "Allow all", `roles={public}`, `cmd=ALL`, `qual=true`, `with_check=true` — i.e. the
+     anon key alone could read *and* write any row, `role` column included. Resolved by
+     step 2.
+  2. Lock `users` writes to service-role + fix/remove `/api/seed` — **DONE 2026-08-07.**
+     "Allow all" was dropped and replaced with `users_select_own` (SELECT, `TO
+     authenticated`, `lower(email) = lower(auth.jwt() ->> 'email')`). No INSERT/UPDATE/
+     DELETE policy exists, so writes are service-role-only; table GRANTs for those three
+     commands were also revoked from `anon`/`authenticated` as defence in depth.
+     *DB-side — cannot be re-verified from the repo; treat as last-known.*
+     Code-side facts established before the change, which are re-verifiable: all `users`
+     call sites are `.select()` — **nothing in the app writes to `users` at all** — and
+     each of the 9 anon-key readers fetches only its own row through a session-carrying
+     client (`lib/supabase.ts` → `createBrowserClient`, `middleware.ts:8` →
+     `createServerClient`, both cookie-backed), so the JWT-email policy matches them.
+     No admin read-all policy was added — nothing needs one yet, and the naive version
+     self-recurses (`42P17`) unless routed through a `SECURITY DEFINER` helper.
+     `/api/seed` was deleted rather than secured.
   3. Migrate the Fireflies webhook to service-role + add signature verification —
      **not done.** It still builds an anon-key client (and carries a comment falsely
-     claiming otherwise). No signature check exists. **Also lock down
-     `/api/webhooks/fireflies/test`** in this same step — it is public, middleware-exempt,
-     service-role, and writes `client_meetings` on `?save=true`.
+     claiming otherwise). No signature check exists. The `/api/webhooks/fireflies/test`
+     half of this step is closed — that route was deleted on 2026-08-07; only the main
+     `route.ts` remains, and it is still the blocker for step 4.
   4. Tighten RLS on `meetings`/`clients`/`client_meetings`/`client_email_drafts`/
      `hub_memory` as one coordinated change (not before step 3).
   5. Add RLS enforcement for `chat_history`, and regenerate `supabase-schema.sql` from the
@@ -260,8 +278,8 @@ builder, St. Petersburg, Florida), built and maintained solo by Rovern Alimpoos.
   use `ownerMatches()` for any toggle/update logic that matches raw JSONB against
   normalized state. Remember `src/types/index.ts` types `owner` as non-nullable `string`,
   so the compiler will not catch a missed boundary.
-- **Model usage is split between `claude-opus-5` and `claude-sonnet-4-6`** across 12 call
-  sites, with 7 of them still on the unsafe `content[0]` extraction pattern. Not a bug
+- **Model usage is split between `claude-opus-5` and `claude-sonnet-4-6`** across 11 call
+  sites, with 6 of them still on the unsafe `content[0]` extraction pattern. Not a bug
   today, but it is a loaded gun for the next model bump — see the gotcha for the full list.
 
 ## Who's who (for context in prompts/data, not for access decisions)

@@ -30,12 +30,6 @@ Fill in:
 
 1. Go to your Supabase project → SQL Editor
 2. Run `supabase-schema.sql` to create all tables
-3. Seed data: `POST /api/seed` (run once)
-
-```bash
-# After the dev server is running:
-curl -X POST http://localhost:3000/api/seed
-```
 
 ### 4. Run development server
 
@@ -69,8 +63,7 @@ src/
 │   │   └── actions/        # Action Items
 │   └── api/
 │       ├── chat/           # Claude AI chat endpoint
-│       ├── generate-agenda/ # Agenda generation endpoint
-│       └── seed/           # Database seed endpoint
+│       └── generate-agenda/ # Agenda generation endpoint
 ├── components/
 │   ├── sidebar/            # Left navigation
 │   ├── ai-panel/           # Right AI chat panel

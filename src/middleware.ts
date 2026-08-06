@@ -34,10 +34,9 @@ export async function middleware(request: NextRequest) {
   const isAuthPage = pathname.startsWith('/auth/')
   // Allow authenticated users to access reset-password (recovery session must land here)
   const isPasswordReset = pathname === '/auth/reset-password'
-  const isSeedRoute = pathname === '/api/seed'
   const isWebhook = pathname.startsWith('/api/webhooks/')
 
-  if (!user && !isAuthPage && !isSeedRoute && !isWebhook) {
+  if (!user && !isAuthPage && !isWebhook) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/auth/login'
     return NextResponse.redirect(loginUrl)
@@ -56,8 +55,8 @@ export async function middleware(request: NextRequest) {
   // — My Calendar + My Emails), and the customer portal preview (/my-project).
   // Any OTHER page (Command Center, President's Workflow,
   // Design Center, CASK Big Vision, etc.) is redirected to /dashboard. API
-  // routes, webhooks, the seed route and auth pages are intentionally excluded
-  // so app functionality (e.g. AI chat, data fetches) keeps working for them.
+  // routes, webhooks and auth pages are intentionally excluded so app
+  // functionality (e.g. AI chat, data fetches) keeps working for them.
   // NOTE: 'ea' (Kai) is intentionally NOT a restricted role, so it bypasses the
   // allowlist below and has full access to all non-API routes, including
   // /my-workspace/*. No allowlist entry needed.
@@ -75,7 +74,7 @@ export async function middleware(request: NextRequest) {
   // src/components/sidebar/Sidebar.tsx (NARROWED_ROLES) — keep the two in sync.
   const NARROWED_ROLES = ['vp_ops', 'ops_manager']
   const isApi = pathname.startsWith('/api/')
-  if (user?.email && !isAuthPage && !isApi && !isSeedRoute && !isWebhook) {
+  if (user?.email && !isAuthPage && !isApi && !isWebhook) {
     const { data: profile } = await supabase
       .from('users')
       .select('role')
