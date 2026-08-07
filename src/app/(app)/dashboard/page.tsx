@@ -1354,19 +1354,38 @@ export default function DashboardPage() {
     const supabase = createClient()
 
     // 1. Find the meeting whose action_items JSON contains this item (matched by task + owner).
-    const { data } = await supabase
+    const { data, error: fetchErr } = await supabase
       .from('meetings')
       .select('id, action_items')
       .not('action_items', 'is', null)
     const rows = (data ?? []) as { id: string; action_items: ActionItemX[] | null }[]
     const target = rows.find(m => (m.action_items ?? []).some(matches))
-    if (!target) return
+    // "Not found" means the owning meeting was absent from what this SELECT returned.
+    // Today that only happens if the row was deleted mid-session; once RLS narrows
+    // this SELECT it will also mean "not visible to you". Both have to fail loudly:
+    // the optimistic update above has already ticked the checkbox, so returning
+    // quietly leaves the UI asserting a save that never reached the database.
+    if (!target) {
+      console.error('[dashboard] toggle: owning meeting not found', {
+        task: item.task, owner: item.owner, fetchErr: fetchErr?.message,
+      })
+      setOauthToast({
+        kind: 'error',
+        message: "Couldn't save that change — the meeting it belongs to wasn't found. Refreshing the list.",
+      })
+      loadAllActionItems() // resync so the checkbox stops showing an unsaved state
+      return
+    }
 
     // 2. Update that specific item's done + completed_at within the array.
     const updated = (target.action_items ?? []).map(a => (matches(a) ? applyDone(a) : a))
 
     // 3. Save the updated array back to the meetings.action_items column.
-    await supabase.from('meetings').update({ action_items: updated }).eq('id', target.id)
+    const { error: saveErr } = await supabase.from('meetings').update({ action_items: updated }).eq('id', target.id)
+    if (saveErr) {
+      console.error('[dashboard] toggle persist failed:', saveErr.message)
+      setOauthToast({ kind: 'error', message: "Couldn't save that change. Please try again." })
+    }
 
     loadAllActionItems()
   }
@@ -1381,19 +1400,36 @@ export default function DashboardPage() {
     const supabase = createClient()
 
     // 1. Find the meeting whose action_items JSON contains this item (matched by task + owner).
-    const { data } = await supabase
+    const { data, error: fetchErr } = await supabase
       .from('meetings')
       .select('id, action_items')
       .not('action_items', 'is', null)
     const rows = (data ?? []) as { id: string; action_items: ActionItem[] | null }[]
     const target = rows.find(m => (m.action_items ?? []).some(matches))
-    if (!target) return
+    // Same reasoning as handleBottomToggle — see the comment there. The optimistic
+    // update above has already repainted the priority, so a quiet return would show
+    // a priority that was never persisted.
+    if (!target) {
+      console.error('[dashboard] priority: owning meeting not found', {
+        task: item.task, owner: item.owner, fetchErr: fetchErr?.message,
+      })
+      setOauthToast({
+        kind: 'error',
+        message: "Couldn't save that priority — the meeting it belongs to wasn't found. Refreshing the list.",
+      })
+      loadAllActionItems() // resync so the list stops showing an unsaved priority
+      return
+    }
 
     // 2. Update that specific item's priority field within the array.
     const updated = (target.action_items ?? []).map(a => (matches(a) ? { ...a, priority } : a))
 
     // 3. Save the updated array back to the meetings.action_items column.
-    await supabase.from('meetings').update({ action_items: updated }).eq('id', target.id)
+    const { error: saveErr } = await supabase.from('meetings').update({ action_items: updated }).eq('id', target.id)
+    if (saveErr) {
+      console.error('[dashboard] priority persist failed:', saveErr.message)
+      setOauthToast({ kind: 'error', message: "Couldn't save that priority. Please try again." })
+    }
 
     loadAllActionItems()
   }

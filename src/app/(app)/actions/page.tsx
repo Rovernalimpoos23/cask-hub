@@ -662,12 +662,33 @@ export default function ActionsPage() {
     const supabase = createClient()
 
     // Read the source meeting's current action_items array.
-    const { data } = await supabase
+    const { data, error: fetchErr } = await supabase
       .from('meetings')
       .select('action_items')
       .eq('id', target.meeting_id)
       .single()
-    const current = (data?.action_items ?? []) as ActionItemX[]
+
+    // Guard: no row came back at all. Today that means a transport error or a
+    // deleted meeting; once RLS narrows `meetings` it will also mean "not visible
+    // to this caller". Without this guard the line below would read missing data as
+    // "this meeting has zero action items" and the UPDATE further down would write
+    // that empty array back, destroying every real action item on the row. Bail
+    // before `updated` is constructed.
+    // NOTE: this deliberately tests `data` itself, never `action_items` — a meeting
+    // that legitimately has null or [] action_items is a valid state and still falls
+    // through to the normal path below.
+    if (fetchErr || !data) {
+      console.error('[actions] toggle: could not read source meeting', {
+        meeting_id: target.meeting_id, code: fetchErr?.code, message: fetchErr?.message,
+      })
+      // Roll back the optimistic tick. `target` is the pre-toggle snapshot because
+      // `items` in this closure predates the setItems call above.
+      setItems(prev => prev.map(item => (item.id === id ? target : item)))
+      alert("Couldn't save that change — the meeting it belongs to could not be loaded. Nothing was changed.")
+      return
+    }
+
+    const current = (data.action_items ?? []) as ActionItemX[]
 
     // Flip the matching item's done field (matched by task + owner), set or clear
     // completed_at to match, then save back. `current` is raw JSONB while
@@ -699,12 +720,28 @@ export default function ActionsPage() {
     const supabase = createClient()
 
     // Read the source meeting's current action_items array.
-    const { data } = await supabase
+    const { data, error: fetchErr } = await supabase
       .from('meetings')
       .select('action_items')
       .eq('id', target.meeting_id)
       .single()
-    const current = (data?.action_items ?? []) as ActionItem[]
+
+    // Same guard as handleToggle — see the full reasoning there. Missing `data`
+    // must not be read as "zero action items", or the UPDATE below wipes the row.
+    // Tests `data` itself, never `action_items`: a legitimately empty action_items
+    // array is a valid state and still falls through to the normal path.
+    if (fetchErr || !data) {
+      console.error('[actions] priority: could not read source meeting', {
+        meeting_id: target.meeting_id, code: fetchErr?.code, message: fetchErr?.message,
+      })
+      // Roll back the optimistic repaint. `target` is the pre-change snapshot because
+      // `items` in this closure predates the setItems call above.
+      setItems(prev => prev.map(item => (item.id === id ? target : item)))
+      alert("Couldn't save that priority — the meeting it belongs to could not be loaded. Nothing was changed.")
+      return
+    }
+
+    const current = (data.action_items ?? []) as ActionItem[]
 
     // Set the matching item's priority field (matched by task + owner), then save back.
     // Same raw-vs-normalized owner comparison as handleToggle — see ownerMatches.

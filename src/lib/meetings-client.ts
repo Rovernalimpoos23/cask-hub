@@ -61,9 +61,24 @@ export async function fetchMeetingById(id: string): Promise<Meeting | null> {
       .eq('id', id)
       .single()
 
-    if (error || !data) return MEETINGS.find(m => m.id === id) ?? null
+    // A Supabase-level error must never be masked with seed data. PGRST116 is
+    // ".single() matched no rows", which is exactly what an RLS policy hiding this
+    // row from the caller looks like — and it is indistinguishable from a genuinely
+    // deleted meeting. Either way the honest answer is null, so Session Detail
+    // renders its real "Session not found." branch instead of a hardcoded meeting
+    // from seed-data.ts presented as if it were live.
+    // Other codes (42501 permission denied, i.e. a revoked table GRANT) are treated
+    // identically and for the same reason: fake data is worse than no data.
+    if (error) {
+      console.error('[meetings] fetchMeetingById failed:', error.code, error.message)
+      return null
+    }
+    if (!data) return null
     return data as Meeting
-  } catch {
+  } catch (err) {
+    // Not reachable via RLS — this is the transport / Supabase-not-configured path,
+    // so the local-dev seed fallback is deliberately left in place here.
+    console.error('[meetings] fetchMeetingById unexpected error:', err)
     return MEETINGS.find(m => m.id === id) ?? null
   }
 }
