@@ -87,6 +87,7 @@ import type {
   PitPayload,
   CompPayload,
   OngPayload,
+  TrackerWarning,
 } from '@/app/api/okr-dashboard-v2/excel-data/route'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -455,6 +456,7 @@ export default function OKRDashboardV2Page() {
             ok: false, source: null, nps: null, pit: null, selections: null, bid: null,
             selectionsOngoing: null, bidOngoing: null,
             errors: ['Could not reach the tracker read endpoint.'],
+            warnings: [],
           })
         }
       } finally {
@@ -730,7 +732,7 @@ now. Do NOT guess, and do NOT quote numbers from memory.`
         `- ${n.total} responses all time; ${n.scored} carry a 1-10 score; average ${n.avgAll ?? 'n/a'}`,
         ...n.years.map(y => `- ${y.year}: ${y.count} responses, avg ${y.avg ?? 'n/a'}` +
           (y.quarters.length ? ` (${y.quarters.map(q => `${q.label} ${q.count}${q.avg !== null ? ` avg ${q.avg}` : ''}`).join(', ')})` : '')),
-        ...(n.byPm.length ? [`- By PM: ${n.byPm.map(p => `${p.pm} ${p.count} avg ${p.avg ?? 'n/a'}`).join('; ')}`] : []),
+        ...(n.byPm.length ? [`- By Client Solution Manager: ${n.byPm.map(p => `${p.pm} ${p.count} avg ${p.avg ?? 'n/a'}`).join('; ')}`] : []),
         '- The score is "how satisfied are you with your experience so far?" (1-10). The older',
         '  NPS tab asks likelihood-to-refer instead and is deliberately NOT merged in — if asked',
         '  about referral-based NPS, say that is a different metric and is not on this dashboard.',
@@ -771,7 +773,7 @@ now. Do NOT guess, and do NOT quote numbers from memory.`
         '',
         `${label} (${table} table):`,
         `- ${d.total} completed all time; ${d.thisMonth} in ${monthLabel}`,
-        ...(d.byPm.length ? [`- By PM: ${d.byPm.map(x => `${x.pm} ${x.count}`).join('; ')}`] : []),
+        ...(d.byPm.length ? [`- By Client Solution Manager: ${d.byPm.map(x => `${x.pm} ${x.count}`).join('; ')}`] : []),
         `- That table has no "date completed" column, so "${d.dateColumn}" is used as the`,
         "  completion date — it is the column that reconciles with the sheet's own # Days figure.",
       )
@@ -798,8 +800,16 @@ now. Do NOT guess, and do NOT quote numbers from memory.`
       L.push(
         '',
         `${label} (${table} table) — rows still in the stage, NOT completed:`,
-        `- ${d.total} in progress right now`,
-        ...(d.byPm.length ? [`- By PM: ${d.byPm.map(x => `${x.pm} ${x.count}`).join('; ')}`] : []),
+        // Active-only, matching the card. Quoting `d.total` here would put the
+        // paused projects back into the model's answer after the page had taken
+        // them out of the headline.
+        `- ${d.activeTotal} in progress right now`,
+        ...(d.pausedTotal > 0
+          ? [`- ${d.pausedTotal} further project(s) are marked "Pause" in the tracker and are NOT in that figure:`,
+             `  ${d.paused.map(p => `${p.customer || 'unnamed'}${p.days !== null ? ` (${p.days} days)` : ''}`).join('; ')}.`,
+             '  Call these paused, never "in progress" — they are real projects that are not moving.']
+          : []),
+        ...(d.byPm.length ? [`- By Client Solution Manager (active only): ${d.byPm.map(x => `${x.pm} ${x.count}`).join('; ')}`] : []),
         ...(d.daysColumn
           ? [`- "${d.daysColumn}" here is days elapsed SO FAR as the workbook last calculated it — it is`,
              '  not a finished duration, and it can lag if the sheet has not recalculated recently.']
@@ -816,6 +826,16 @@ now. Do NOT guess, and do NOT quote numbers from memory.`
       'Contract in-progress status comes from Active Projects Progress (Supabase) instead — do',
       'not mix the two sources or quote tracker ongoing figures for those three stages.',
     )
+    // The same warnings the banner shows. If a column could not be resolved the
+    // model must say so rather than reporting the gap as a real zero.
+    if (excel.warnings.length) {
+      L.push(
+        '',
+        'TRACKER READ WARNINGS — the reader could not resolve part of the workbook. Say this out',
+        'loud if the affected figures come up, and do not present them as complete:',
+        ...excel.warnings.map(w => `- ${w.message}`),
+      )
+    }
 
     return L.join('\n')
   })()
@@ -826,7 +846,7 @@ ACTIVE CLIENTS AND OKR STATUS:
 ${computed.map(client => {
   const completedSteps = completedStepsByClient.get(client.id) ?? 0
   return `
-- Client: ${client.name} | PM: ${client.owner} | Type: ${client.projectType}
+- Client: ${client.name} | Client Solution Manager: ${client.owner} | Type: ${client.projectType}
   Overall Journey: ${completedSteps} of ${TOTAL_JOURNEY_STEPS} steps · ${pct(completedSteps, TOTAL_JOURNEY_STEPS)}%
   Design (Steps 6-13): ${client.design.completedCount} of ${client.design.total} steps ${client.design.done ? '✓ COMPLETE' : 'IN PROGRESS'}
   Permit (Steps 14-15): ${client.permit.completedCount} of ${client.permit.total} steps ${client.permit.done ? '✓ COMPLETE' : 'IN PROGRESS'}
@@ -845,7 +865,7 @@ tracker's Monthly Summary block is not read at all.
 There is no Quarterly Targets section on this dashboard. If asked about quarterly targets,
 say the section was removed because the source tracker holds three conflicting copies of it.
 
-Answer questions about client OKR status, PM assignments, monthly targets, and the live
+Answer questions about client OKR status, Client Solution Manager assignments, monthly targets, and the live
 tracker figures above (NPS, PIT Goals, Selections, Bid). Be specific and ground every answer
 in the data above — never invent clients or numbers not present here.`
 
@@ -914,7 +934,7 @@ in the data above — never invent clients or numbers not present here.`
                 <b style={{ color: 'var(--text)', fontWeight: 600 }}>
                   {computed.length} active client{computed.length === 1 ? '' : 's'}
                 </b>{' '}
-                and {numPMs} PM{numPMs === 1 ? '' : 's'}.{' '}
+                and {numPMs} Client Solution Manager{numPMs === 1 ? '' : 's'}.{' '}
                 {/* Source stated precisely rather than the mockup's blanket "Synced from
                     the Excel tracker". The OKR figures come from workflow records; only
                     NPS, PIT, Selections and Bid come from the tracker. Avg design days
@@ -937,6 +957,11 @@ in the data above — never invent clients or numbers not present here.`
               </p>
             </div>
 
+            {/* Above the tabs on purpose: a renamed column breaks figures on
+                several tabs at once, so the warning cannot live inside any one
+                of them. */}
+            <TrackerWarnings warnings={excel?.warnings ?? []} />
+
             {/* Tabs — the live dashboard has none, so these follow its own idiom:
                 an underline in --charcoal (the colour it uses for the overall
                 journey bar) against uppercase-free 12.5px labels. */}
@@ -946,7 +971,7 @@ in the data above — never invent clients or numbers not present here.`
               style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 24 }}
             >
               <TabBtn id="over" cur={tab} set={setTab}>Overview</TabBtn>
-              <TabBtn id="pm" cur={tab} set={setTab} count={numPMs}>Per PM</TabBtn>
+              <TabBtn id="pm" cur={tab} set={setTab} count={numPMs}>Per CSM</TabBtn>
               <TabBtn id="proj" cur={tab} set={setTab} count={computed.length}>Projects</TabBtn>
               <TabBtn id="hist" cur={tab} set={setTab}>History</TabBtn>
             </div>
@@ -1068,7 +1093,7 @@ in the data above — never invent clients or numbers not present here.`
               </div>
 
               <SectionLabel
-                title="Per PM"
+                title="Per Client Solution Manager"
                 hint={`monthly targets · ${MONTHLY_TARGET_PER_PM} each per OKR`}
                 action="Open full view →"
                 onAction={() => setTab('pm')}
@@ -1096,7 +1121,7 @@ in the data above — never invent clients or numbers not present here.`
                       ))}
                     </tr>
                     <tr>
-                      <th style={TH_LEFT}>PM</th>
+                      <th style={TH_LEFT}>CSM</th>
                       {PHASE_KEYS.map(k => {
                         const band = k === 'permit' ? {} : BAND
                         return (
@@ -1111,7 +1136,7 @@ in the data above — never invent clients or numbers not present here.`
                   </thead>
                   <tbody>
                     {pmRows.length === 0 ? (
-                      <tr><td colSpan={10} style={TD_MUTED}>No PMs found.</td></tr>
+                      <tr><td colSpan={10} style={TD_MUTED}>No Client Solution Managers found.</td></tr>
                     ) : (
                       pmRows.map(row => (
                         <tr key={row.pm} style={TR_LINE}>
@@ -1231,8 +1256,8 @@ in the data above — never invent clients or numbers not present here.`
             {/* ══════════════ PER PM ══════════════ */}
             <section id="okr2-p-pm" role="tabpanel" aria-labelledby="okr2-t-pm" hidden={tab !== 'pm'}>
               <SectionLabel
-                title="Per PM breakdown"
-                hint={`${monthLabel} · ${MONTHLY_TARGET_PER_PM} per PM per OKR`}
+                title="Per Client Solution Manager breakdown"
+                hint={`${monthLabel} · ${MONTHLY_TARGET_PER_PM} per Client Solution Manager per OKR`}
               />
               <div style={CARD_FLUSH}>
                 <table style={{ ...TABLE, minWidth: 920 }}>
@@ -1257,7 +1282,7 @@ in the data above — never invent clients or numbers not present here.`
                       ))}
                     </tr>
                     <tr>
-                      <th style={TH_LEFT}>PM</th>
+                      <th style={TH_LEFT}>CSM</th>
                       {PHASE_KEYS.map(k => {
                         const band = k === 'permit' ? {} : BAND
                         return (
@@ -1273,7 +1298,7 @@ in the data above — never invent clients or numbers not present here.`
                   </thead>
                   <tbody>
                     {pmRows.length === 0 ? (
-                      <tr><td colSpan={13} style={TD_MUTED}>No PMs found.</td></tr>
+                      <tr><td colSpan={13} style={TD_MUTED}>No Client Solution Managers found.</td></tr>
                     ) : (
                       pmRows.map(row => (
                         <tr key={row.pm} style={TR_LINE}>
@@ -1640,6 +1665,54 @@ function Flag({ children }: { children: React.ReactNode }) {
       {/* `b` inside the note picks up the amber the same way the live dashboard's
           highlighted rows do. */}
       <div style={{ minWidth: 0 }} className="okr2-flagbody">{children}</div>
+    </div>
+  )
+}
+
+// ── Tracker read warnings ───────────────────────────────────────────────────
+// A column the reader could not resolve, or a Status value it did not
+// recognise, has to be LOUD. The failure this replaces was the opposite: the PM
+// lookup asked for a column name the sheet does not have, resolved to nothing,
+// and the only symptom anywhere was a blank strip in a table footer — no error,
+// no console line, no gap in the layout. So this sits above the tabs, on every
+// tab, in the same amber vocabulary as the caveat flags, and says what to do
+// about it rather than just that something is wrong.
+//
+// It renders nothing at all in the healthy case, which is the normal case.
+function TrackerWarnings({ warnings }: { warnings: TrackerWarning[] }) {
+  if (warnings.length === 0) return null
+  return (
+    <div
+      role="status"
+      style={{
+        display: 'flex',
+        gap: 9,
+        alignItems: 'flex-start',
+        marginBottom: 20,
+        padding: '11px 14px',
+        borderRadius: 12,
+        background: 'var(--amber-bg)',
+        border: '1px solid var(--border)',
+        borderLeft: '3px solid var(--amber)',
+        fontSize: 12,
+        lineHeight: 1.55,
+        color: 'var(--text2)',
+      }}
+    >
+      <span aria-hidden="true" style={{ color: 'var(--amber)' }}>⚠️</span>
+      <div style={{ minWidth: 0 }} className="okr2-flagbody">
+        <b>The tracker does not look the way this page expects.</b>{' '}
+        {warnings.length === 1 ? 'One reading' : `${warnings.length} readings`} could not be resolved, so the
+        figures below are incomplete. Nothing here is guessed — a column that cannot be found is reported
+        rather than quietly read as blank.
+        <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+          {warnings.map((w, i) => (
+            <li key={`${w.table}-${w.column ?? ''}-${w.value ?? ''}-${i}`} style={{ marginTop: 2 }}>
+              {w.message}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }
@@ -2386,6 +2459,10 @@ function CompletionsSection({
   const isExpanded = expanded[isOngoing ? 'ongoing' : 'completed']
   const visible = isExpanded ? rows : rows.slice(0, PREVIEW_ROWS)
   // Rows are sorted longest-first, so the first usable figure is the maximum.
+  // `activeOng.rows` is ACTIVE rows only — paused projects come back separately
+  // in `.paused` and are deliberately not eligible for this stat. They used to
+  // be: a paused row at 772 days was the "longest running" figure on both the
+  // Selections and Bid cards, which is a number about work that stopped.
   const longestOngoing = activeOng?.rows.find(r => r.days !== null)?.days ?? null
   const toggleExpanded = () =>
     setExpanded(e => ({ ...e, [isOngoing ? 'ongoing' : 'completed']: !isExpanded }))
@@ -2446,7 +2523,9 @@ function CompletionsSection({
             </div>
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>
               {isOngoing
-                ? `${ongoing.total} still in ${what.toLowerCase()} · ${ongTableName}`
+                ? `${ongoing.activeTotal} still in ${what.toLowerCase()}${
+                    ongoing.pausedTotal > 0 ? ` · ${ongoing.pausedTotal} paused` : ''
+                  } · ${ongTableName}`
                 : `${data.total} completed all time · ${tableName}`}
             </span>
           </div>
@@ -2455,7 +2534,7 @@ function CompletionsSection({
           <thead>
             <tr>
               <th style={{ ...TH_LEFT, minWidth: 170 }}>Customer</th>
-              <th style={TH_LEFT}>PM</th>
+              <th style={TH_LEFT}>CSM</th>
               <th style={TH_LEFT}>Type</th>
               <th style={TH_NUM}>{dateHeader}</th>
               <th style={TH_NUM}>Days</th>
@@ -2483,7 +2562,9 @@ function CompletionsSection({
           <tfoot>
             <tr>
               <td style={TFOOT_TD}>
-                {isOngoing ? `${source.total} in progress` : `${source.total} completed all time`}
+                {isOngoing && activeOng
+                  ? `${activeOng.activeTotal} in progress`
+                  : `${source.total} completed all time`}
               </td>
               <td colSpan={2} style={{ ...TFOOT_TD, fontWeight: 400, color: 'var(--text3)' }}>
                 {source.byPm.map(p => `${p.pm} ${p.count}`).join(' · ')}
@@ -2539,7 +2620,21 @@ function CompletionsSection({
           {' '}<span style={MONO}>#&nbsp;Days</span> is the sheet&apos;s own elapsed-days figure as of its last
           calculation — days so far, not a finished duration, and it lags if the workbook has not recalculated
           recently.
-          {activeOng.dated < activeOng.total && ` ${activeOng.total - activeOng.dated} row(s) have no readable start date.`}
+          {activeOng.dated < activeOng.activeTotal && ` ${activeOng.activeTotal - activeOng.dated} row(s) have no readable start date.`}
+          {activeOng.skippedNoCustomer > 0 && ` ${activeOng.skippedNoCustomer} row(s) in the table carry no customer name and are not counted as projects.`}
+          {activeOng.pausedTotal > 0 && (
+            <span style={{ display: 'block', marginTop: 6 }}>
+              <b>
+                {activeOng.pausedTotal} project{activeOng.pausedTotal === 1 ? '' : 's'}{' '}
+                {activeOng.pausedTotal === 1 ? 'is' : 'are'} marked <span style={MONO}>Pause</span> in the tracker
+              </b>
+              {' '}— not counted in the {activeOng.activeTotal} above, and not eligible for the longest-running
+              figure, because a paused project is not moving through the stage. They are still real work:{' '}
+              {activeOng.paused
+                .map(p => `${p.customer || 'unnamed'}${p.days !== null ? ` (${p.days}d)` : ''}`)
+                .join(', ')}.
+            </span>
+          )}
           {activeOng.notes.length > 0 && (
             <span style={{ display: 'block', marginTop: 6, fontSize: 11, color: 'var(--text3)' }}>
               {activeOng.notes.join(' · ')}
@@ -2562,6 +2657,7 @@ function CompletionsSection({
           completion date — it is the column whose difference from <span style={MONO}>Date Permit Routed</span>
           {' '}matches the sheet&apos;s own <span style={MONO}>#&nbsp;Days</span> figure.
           {data.dated < data.total && ` ${data.total - data.dated} row(s) have no readable date and are excluded from the monthly count.`}
+          {data.skippedNoCustomer > 0 && ` ${data.skippedNoCustomer} row(s) in the table carry no customer name and are not counted as projects.`}
           {data.anomalies > 0 && (
             <span style={{ display: 'block', marginTop: 6 }}>
               <b>{data.anomalies} row{data.anomalies === 1 ? '' : 's'} disagree with {data.dateColumn === 'Date Contract Signed' ? 'their own' : 'the'} day count</b>
@@ -2600,10 +2696,10 @@ const OKR2_AI_D = {
   accent: OKR2_AI_ACCENT,
 }
 const OKR2_AI_GREETING =
-  "CASK Intelligence online. I have live context on every active client's OKR status — Design, Permit and Contract progress, PM assignments and this month's targets — plus live figures from the Precon KPI Tracker for NPS, PIT goals, and Selections/Bid completions. Ask who's behind, how NPS is trending, or where a PIT item sits."
+  "CASK Intelligence online. I have live context on every active client's OKR status — Design, Permit and Contract progress, Client Solution Manager assignments and this month's targets — plus live figures from the Precon KPI Tracker for NPS, PIT goals, and Selections/Bid completions. Ask who's behind, how NPS is trending, or where a PIT item sits."
 const OKR2_QUICK_PROMPTS = [
   'Why has nothing moved past design this month?',
-  'Which PM is closest to hitting target?',
+  'Which Client Solution Manager is closest to hitting target?',
   'Who is furthest behind?',
 ]
 
@@ -2949,7 +3045,7 @@ function FloatingOKRAI({ aiContext }: { aiContext: string }) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={onKey}
-                placeholder="Ask about OKR status, PMs, targets..."
+                placeholder="Ask about OKR status, Client Solution Managers, targets..."
                 rows={1}
                 style={{
                   flex: 1,

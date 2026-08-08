@@ -112,6 +112,27 @@ function str(v: unknown): string {
   return String(v).trim()
 }
 
+// ── Placeholder cells ───────────────────────────────────────────────────────
+// The tracker's tables are sized larger than their content: the rows below the
+// last real project are template rows whose formulas resolve to the literal
+// string "-" in `Todays Date`, `# Days in …` and `Month KPI`. To a person
+// reading the sheet those rows are empty; to a `c !== ''` test they are content.
+// That is how 10 phantom rows survived into SelectionsOng's total and 15 into
+// BidOng's, each one counted as a project in flight.
+//
+// A cell holding nothing but dashes or whitespace carries no information, so it
+// reads as empty here. The range covers the ASCII hyphen plus Unicode
+// U+2010–U+2015 (non-breaking hyphen, figure dash, en dash, em dash, horizontal
+// bar) — Excel autocorrect turns a typed "-" into an en dash often enough that
+// matching only the ASCII one would leave the same hole half-open.
+const PLACEHOLDER_CELL = /^[-‐-―]+$/
+
+function isBlankCell(v: unknown): boolean {
+  if (v === null || v === undefined) return true
+  const s = String(v).trim()
+  return s === '' || PLACEHOLDER_CELL.test(s)
+}
+
 // ── "# Days" sanity check ───────────────────────────────────────────────────
 // `# Days in Selections` / `# Days in BID` are meant to be a plain day count,
 // but the sheet's formula sometimes emits a raw Excel date serial instead: the
@@ -161,8 +182,10 @@ class Table {
     this.headers.forEach((h, i) => {
       if (h && !this.index.has(h.toLowerCase())) this.index.set(h.toLowerCase(), i)
     })
-    // Drop fully-blank rows: Excel tables keep trailing empty rows.
-    this.rows = rows.filter(r => r.some(c => c !== null && c !== undefined && c !== ''))
+    // Drop fully-blank rows: Excel tables keep trailing empty rows. "Blank"
+    // includes placeholder-only cells — see isBlankCell for why a row of "-"
+    // is not a row.
+    this.rows = rows.filter(r => r.some(c => !isBlankCell(c)))
   }
 
   col(name: string): number {
@@ -177,6 +200,62 @@ class Table {
     const i = this.col(name)
     return i >= 0 ? row[i] : null
   }
+
+  /**
+   * Resolve a column by trying each alias in order — first hit wins, -1 when
+   * none resolve. Callers are expected to report a -1 rather than read blanks
+   * off it; see COLUMN_ALIASES.
+   */
+  colAny(aliases: readonly string[]): number {
+    for (const a of aliases) {
+      const i = this.col(a)
+      if (i >= 0) return i
+    }
+    return -1
+  }
+}
+
+// ── Column aliases ──────────────────────────────────────────────────────────
+// The tracker is hand-maintained, so its headers get renamed. Every column the
+// Selections/Bid summarisers depend on is resolved through an ordered alias list
+// — first match wins, current live name first — instead of one hardcoded
+// literal.
+//
+// This is not hypothetical hardening. The PM lookup asked for "PM Assigned";
+// the sheet says "Client Solution Manager", and does in all four tables. The
+// lookup returned -1, every row's PM read as the empty string, `byPm` came back
+// empty for all four payloads, and the page's per-PM footer strip rendered
+// blank with no error anywhere — a failure that survived precisely because
+// nothing ever said a column was missing. Hence the other half of this change:
+// an unresolved column goes onto `warnings` and is rendered on the page. Silent
+// blanks are the bug; a loud "I could not find this" is the fix.
+const COLUMN_ALIASES = {
+  status: ['Status'],
+  customer: ['Customer Name', 'Customer', 'Client Name'],
+  pm: ['Client Solution Manager', 'PM Assigned', 'Sales PM', 'PM'],
+  projectType: ['ProjectType', 'Project Type'],
+  completed: ['Date Contract Signed', 'Contract Signed', 'Date Completed'],
+  started: ['Date Permit Routed', 'Permit Routed', 'Date Started'],
+} as const
+
+// The day-count header differs per stage, so its alias list is built per call
+// with the stage-specific name first and this generic prefix as the fallback —
+// `col()` prefix-matches, so "# Days" resolves "# Days in Selections" and
+// "# Days in BID" alike if either is ever reworded after the "in".
+const DAYS_FALLBACK_ALIAS = '# Days'
+
+// ── Status ──────────────────────────────────────────────────────────────────
+// The live vocabulary, confirmed by reading the column's distinct values across
+// all four tables (2026-08-08): "On - Going", "Pause", "Completed", and blank.
+// Note the spaces around the hyphen — an exact match on "ongoing", or even on
+// "on-going", misses every row in the sheet. Everything non-alphabetic is
+// stripped before comparison so the sheet's spacing and punctuation cannot
+// break the match.
+const STATUS_PAUSED = 'pause'
+const KNOWN_STATUSES = new Set(['ongoing', 'pause', 'completed', ''])
+
+function normalizeStatus(v: unknown): string {
+  return str(v).toLowerCase().replace(/[^a-z]/g, '')
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -231,6 +310,22 @@ export interface CompPayload {
   rows: CompletionRow[] // every completed row, newest first (bounded — see truncated)
   truncated: number     // rows the ceiling dropped from `rows`; 0 in the normal case
   anomalies: number     // rows where # Days disagrees with the two dates, or is unusable
+  skippedNoCustomer: number // rows carrying data but no customer, not counted as projects
+}
+
+// ── Warnings ────────────────────────────────────────────────────────────────
+// Machine-readable and human-readable at once: `kind`/`table`/`column`/
+// `triedAliases` for anything that wants to act on it, plus a `message` written
+// once here so every surface renders the same sentence rather than inventing
+// its own wording for the same fault.
+export interface TrackerWarning {
+  kind: 'missing-column' | 'unknown-status'
+  table: string
+  column?: string
+  triedAliases?: string[]
+  value?: string
+  count?: number
+  message: string
 }
 
 // ── Ongoing rows ────────────────────────────────────────────────────────────
@@ -244,16 +339,21 @@ export interface OngoingRow {
   projectType: string
   started: string | null
   days: number | null
+  status: string // the sheet's own Status value, verbatim
 }
 export interface OngPayload {
-  total: number
-  dated: number
+  total: number       // real project rows in the table: active + paused
+  activeTotal: number // rows still actively in the stage — the honest "still in X"
+  pausedTotal: number // rows the tracker marks Pause: real projects, not progressing
+  dated: number       // ACTIVE rows with a readable start date
   startColumn: string | null // null when the table carries no usable start-date column
   daysColumn: string | null  // null when the expected "# Days in …" column is absent
-  byPm: { pm: string; count: number }[]
-  rows: OngoingRow[] // longest-running first (bounded — see truncated)
+  byPm: { pm: string; count: number }[] // ACTIVE rows only
+  rows: OngoingRow[]   // ACTIVE rows, longest-running first (bounded — see truncated)
+  paused: OngoingRow[] // paused rows, longest-running first (bounded)
   truncated: number
   anomalies: number // rows whose day count failed plausibleDays() and was suppressed
+  skippedNoCustomer: number // rows carrying data but no customer, not counted as projects
   notes: string[]   // column-resolution caveats, surfaced verbatim on the page
 }
 
@@ -267,6 +367,10 @@ export interface ExcelDataPayload {
   selectionsOngoing: OngPayload | null
   bidOngoing: OngPayload | null
   errors: string[]
+  // Columns the reader could not resolve, and Status values it did not
+  // recognise. Empty in the healthy case; anything in here is rendered on the
+  // page rather than absorbed into a blank cell.
+  warnings: TrackerWarning[]
 }
 
 // The five Status values actually present in PITprecon, in progression order.
@@ -317,12 +421,36 @@ export async function GET() {
     }
 
     const errors: string[] = []
+    const warnings: TrackerWarning[] = []
+
+    // Records a column that no alias could resolve. Called once per summariser
+    // with everything that summariser depends on, so one renamed header
+    // produces one precise sentence rather than a page of empty columns.
+    const recordMissing = (
+      table: string,
+      specs: [string, number, readonly string[]][],
+    ): void => {
+      for (const [label, idx, aliases] of specs) {
+        if (idx >= 0) continue
+        warnings.push({
+          kind: 'missing-column',
+          table,
+          column: label,
+          triedAliases: [...aliases],
+          message:
+            `Couldn't find the "${label}" column in the tracker's ${table} table — it may have been ` +
+            `renamed. Expected one of: ${aliases.join(', ')}.`,
+        })
+      }
+    }
+
     const fail = (msg: string): NextResponse => {
       const payload: ExcelDataPayload = {
         ok: false, source: null, nps: null, pit: null,
         selections: null, bid: null,
         selectionsOngoing: null, bidOngoing: null,
         errors: [msg, ...errors],
+        warnings,
       }
       // 200 on purpose: the page treats this as "show placeholders", not a crash.
       return NextResponse.json(payload)
@@ -645,21 +773,52 @@ export async function GET() {
     // consistent — so Date Contract Signed is the completion date. `Month KPI -PM`
     // is NOT used: its values are not month starts (e.g. 46016 = Dec 25), so it is
     // a formula output rather than a clean bucket.
-    const summarizeCompletions = (t: Table, daysHeader: string): CompPayload => {
-      const DATE_COL = 'Date Contract Signed'
-      const startCol = 'Date Permit Routed'
+    const summarizeCompletions = (t: Table, tableName: string, daysHeader: string): CompPayload => {
+      const daysAliases = [daysHeader, DAYS_FALLBACK_ALIAS]
+      const cols = {
+        customer: t.colAny(COLUMN_ALIASES.customer),
+        pm: t.colAny(COLUMN_ALIASES.pm),
+        projectType: t.colAny(COLUMN_ALIASES.projectType),
+        completed: t.colAny(COLUMN_ALIASES.completed),
+        started: t.colAny(COLUMN_ALIASES.started),
+        days: t.colAny(daysAliases),
+      }
+      recordMissing(tableName, [
+        ['Customer Name', cols.customer, COLUMN_ALIASES.customer],
+        ['PM', cols.pm, COLUMN_ALIASES.pm],
+        ['Project type', cols.projectType, COLUMN_ALIASES.projectType],
+        ['Completion date', cols.completed, COLUMN_ALIASES.completed],
+        ['Start date', cols.started, COLUMN_ALIASES.started],
+        ['Day count', cols.days, daysAliases],
+      ])
+
+      // Report the column actually read, not the one hoped for.
+      const DATE_COL = cols.completed >= 0 ? t.headers[cols.completed] : COLUMN_ALIASES.completed[0]
+      const at = (r: unknown[], i: number): unknown => (i >= 0 ? r[i] : null)
+
+      // Belt and braces with the placeholder filter in the Table constructor:
+      // that one catches the "-" template rows the sheet emits today, this one
+      // catches whatever a future formula emits instead. A row with no customer
+      // is not a project. If the customer column itself could not be resolved,
+      // nothing is dropped — the warning above is the story, and silently
+      // returning zero rows would be a worse failure than the one being fixed.
+      const projectRows = cols.customer >= 0
+        ? t.rows.filter(r => str(r[cols.customer]) !== '')
+        : t.rows
+      const skippedNoCustomer = t.rows.length - projectRows.length
+
       let anomalies = 0
       let dated = 0
       let thisMonth = 0
       const pmCounts = new Map<string, number>()
       const rows: CompletionRow[] = []
 
-      for (const r of t.rows) {
-        const iso = serialToISODate(t.cell(r, DATE_COL))
-        const startIso = serialToISODate(t.cell(r, startCol))
-        const rawDays = num(t.cell(r, daysHeader))
+      for (const r of projectRows) {
+        const iso = serialToISODate(at(r, cols.completed))
+        const startIso = serialToISODate(at(r, cols.started))
+        const rawDays = num(at(r, cols.days))
         const days = plausibleDays(rawDays)
-        const pm = str(t.cell(r, 'PM Assigned'))
+        const pm = str(at(r, cols.pm))
 
         if (iso) {
           dated += 1
@@ -679,9 +838,9 @@ export async function GET() {
         }
 
         rows.push({
-          customer: str(t.cell(r, 'Customer Name')),
+          customer: str(at(r, cols.customer)),
           pm,
-          projectType: str(t.cell(r, 'ProjectType')),
+          projectType: str(at(r, cols.projectType)),
           date: iso,
           days,
         })
@@ -695,7 +854,7 @@ export async function GET() {
       })
 
       return {
-        total: t.rows.length,
+        total: projectRows.length,
         thisMonth,
         dated,
         dateColumn: DATE_COL,
@@ -706,6 +865,7 @@ export async function GET() {
         rows: rows.slice(0, MAX_ROWS_RETURNED),
         truncated: Math.max(0, rows.length - MAX_ROWS_RETURNED),
         anomalies,
+        skippedNoCustomer,
       }
     }
 
@@ -720,36 +880,74 @@ export async function GET() {
     //     other Date* header is used instead and the actual column name is
     //     returned in `startColumn`, so the page's header reads what was really
     //     read rather than a column the sheet may not have.
-    const summarizeOngoing = (t: Table, daysHeader: string): OngPayload => {
+    //   • Status is READ here and splits the result. A row the tracker marks
+    //     `Pause` is a real project that is not moving through the stage, so it
+    //     does not belong in "still in selections" — but it does not belong in
+    //     the bin either, so it comes back separately in `paused`. Before this,
+    //     Status was never read on this path at all, and the 772-day paused
+    //     Lolli/Mekr row sat at the top of both ongoing lists driving the
+    //     "longest running" figure on each card.
+    const summarizeOngoing = (t: Table, tableName: string, daysHeader: string): OngPayload => {
       const notes: string[] = []
-      const PREFERRED_START = 'Date Permit Routed'
+      const daysAliases = [daysHeader, DAYS_FALLBACK_ALIAS]
+      const PREFERRED_START = COLUMN_ALIASES.started[0]
 
-      let startColumn: string | null = null
-      if (t.col(PREFERRED_START) >= 0) {
-        startColumn = PREFERRED_START
-      } else {
-        const alt = t.headers.find(h => /^date\b/i.test(h) && !/contract\s+signed/i.test(h))
-        startColumn = alt ?? null
-        if (alt) notes.push(`no "${PREFERRED_START}" column in this table — "${alt}" is used as the start date`)
-        else notes.push('this table carries no start-date column, so the date column is blank')
+      const cols = {
+        status: t.colAny(COLUMN_ALIASES.status),
+        customer: t.colAny(COLUMN_ALIASES.customer),
+        pm: t.colAny(COLUMN_ALIASES.pm),
+        projectType: t.colAny(COLUMN_ALIASES.projectType),
+        started: t.colAny(COLUMN_ALIASES.started),
+        days: t.colAny(daysAliases),
       }
 
-      const daysColumn = t.col(daysHeader) >= 0 ? daysHeader : null
+      // The start date keeps its last-resort heuristic ahead of the warning: if
+      // no alias resolves, the first other Date* header is used and named in
+      // `startColumn`, so the page reports the column that was really read.
+      if (cols.started < 0) {
+        const alt = t.headers.findIndex(h => /^date\b/i.test(h) && !/contract\s+signed/i.test(h))
+        if (alt >= 0) {
+          cols.started = alt
+          notes.push(`no "${PREFERRED_START}" column in this table — "${t.headers[alt]}" is used as the start date`)
+        }
+      }
+
+      recordMissing(tableName, [
+        ['Status', cols.status, COLUMN_ALIASES.status],
+        ['Customer Name', cols.customer, COLUMN_ALIASES.customer],
+        ['PM', cols.pm, COLUMN_ALIASES.pm],
+        ['Project type', cols.projectType, COLUMN_ALIASES.projectType],
+        ['Start date', cols.started, COLUMN_ALIASES.started],
+        ['Day count', cols.days, daysAliases],
+      ])
+
+      const startColumn = cols.started >= 0 ? t.headers[cols.started] : null
+      const daysColumn = cols.days >= 0 ? t.headers[cols.days] : null
+      if (!startColumn) notes.push('this table carries no start-date column, so the date column is blank')
       if (!daysColumn) notes.push(`no "${daysHeader}" column in this table, so day counts are blank`)
+
+      const at = (r: unknown[], i: number): unknown => (i >= 0 ? r[i] : null)
+
+      // Same belt-and-braces rule as the completed side — see the note there.
+      const projectRows = cols.customer >= 0
+        ? t.rows.filter(r => str(r[cols.customer]) !== '')
+        : t.rows
+      const skippedNoCustomer = t.rows.length - projectRows.length
 
       let anomalies = 0
       let dated = 0
       const pmCounts = new Map<string, number>()
       const rows: OngoingRow[] = []
+      const paused: OngoingRow[] = []
+      const unknownStatuses = new Map<string, number>()
 
-      for (const r of t.rows) {
-        const started = startColumn ? serialToISODate(t.cell(r, startColumn)) : null
-        const rawDays = daysColumn ? num(t.cell(r, daysColumn)) : null
+      for (const r of projectRows) {
+        const started = cols.started >= 0 ? serialToISODate(r[cols.started]) : null
+        const rawDays = cols.days >= 0 ? num(r[cols.days]) : null
         const days = plausibleDays(rawDays)
-        const pm = str(t.cell(r, 'PM Assigned'))
-
-        if (started) dated += 1
-        if (pm) pmCounts.set(pm, (pmCounts.get(pm) ?? 0) + 1)
+        const pm = str(at(r, cols.pm))
+        const rawStatus = str(at(r, cols.status))
+        const status = normalizeStatus(rawStatus)
 
         // Same rule the Completed tables use for the case they share: a day count
         // that had to be suppressed is itself the anomaly.
@@ -761,21 +959,61 @@ export async function GET() {
         // recalculated since Friday reports a # Days that is legitimately days
         // behind "now". Reconciling against the server clock would manufacture
         // anomalies out of staleness. Ongoing anomalies are suppressed rows only.
+        //
+        // Counted across BOTH buckets: a paused row with a broken day count is
+        // still a data-quality problem, and hiding it behind the pause would be
+        // the same silent-drop this change exists to remove.
         if (rawDays !== null && days === null) anomalies += 1
 
-        rows.push({
-          customer: str(t.cell(r, 'Customer Name')),
+        const row: OngoingRow = {
+          customer: str(at(r, cols.customer)),
           pm,
-          projectType: str(t.cell(r, 'ProjectType')),
+          projectType: str(at(r, cols.projectType)),
           started,
           days,
+          status: rawStatus,
+        }
+
+        if (status === STATUS_PAUSED) {
+          paused.push(row)
+          continue
+        }
+
+        // Anything not explicitly paused is active — including a status this
+        // code does not recognise. Counting an unknown value as active and
+        // warning about it keeps a newly-invented tracker status visible;
+        // dropping it, or guessing at it, is how a project disappears from a
+        // dashboard without anyone noticing.
+        if (!KNOWN_STATUSES.has(status)) {
+          unknownStatuses.set(rawStatus, (unknownStatuses.get(rawStatus) ?? 0) + 1)
+        }
+
+        rows.push(row)
+        if (started) dated += 1
+        if (pm) pmCounts.set(pm, (pmCounts.get(pm) ?? 0) + 1)
+      }
+
+      // Array.from, not a bare for-of over the Map: tsconfig targets ES5, where
+      // iterating a Map directly needs --downlevelIteration. Same reason the NPS
+      // and PM aggregations above go through Array.from.
+      for (const [value, count] of Array.from(unknownStatuses.entries())) {
+        warnings.push({
+          kind: 'unknown-status',
+          table: tableName,
+          column: 'Status',
+          value,
+          count,
+          message:
+            `${tableName} has ${count} row${count === 1 ? '' : 's'} with an unrecognised Status of ` +
+            `"${value}". ${count === 1 ? 'It is' : 'They are'} counted as active — check whether the ` +
+            `tracker has added a new status.`,
         })
       }
 
       // Longest-running first — the useful read on an in-flight list. A row whose
       // day count was suppressed has nothing to sort on and sorts last; the
       // anomaly count is what keeps it from disappearing quietly.
-      rows.sort((a, b) => {
+      const byLongest = (a: OngoingRow, b: OngoingRow): number => {
         if (a.days !== null && b.days !== null) return b.days - a.days
         if (a.days !== null) return -1
         if (b.days !== null) return 1
@@ -783,10 +1021,22 @@ export async function GET() {
         if (a.started) return -1
         if (b.started) return 1
         return 0
-      })
+      }
+      rows.sort(byLongest)
+      paused.sort(byLongest)
+
+      if (paused.length > MAX_ROWS_RETURNED) {
+        notes.push(`${paused.length - MAX_ROWS_RETURNED} paused row(s) are past the row ceiling and are not listed`)
+      }
 
       return {
-        total: t.rows.length,
+        // `total` is every real project in the table; `activeTotal` is the one
+        // the card's "still in X" headline is allowed to use. Paused rows are
+        // kept and returned rather than filtered away — a paused project is
+        // real information, it is just not in-flight work.
+        total: projectRows.length,
+        activeTotal: rows.length,
+        pausedTotal: paused.length,
         dated,
         startColumn,
         daysColumn,
@@ -794,8 +1044,10 @@ export async function GET() {
           .map(([pm, count]) => ({ pm, count }))
           .sort((a, b) => b.count - a.count || a.pm.localeCompare(b.pm)),
         rows: rows.slice(0, MAX_ROWS_RETURNED),
+        paused: paused.slice(0, MAX_ROWS_RETURNED),
         truncated: Math.max(0, rows.length - MAX_ROWS_RETURNED),
         anomalies,
+        skippedNoCustomer,
         notes,
       }
     }
@@ -803,7 +1055,7 @@ export async function GET() {
     let selections: CompPayload | null = null
     if (tables.selections) {
       try {
-        selections = summarizeCompletions(tables.selections, '# Days in Selections')
+        selections = summarizeCompletions(tables.selections, 'SelectionsComp', '# Days in Selections')
       } catch (e) {
         errors.push(`SelectionsComp aggregation failed: ${e instanceof Error ? e.message : 'unknown'}`)
       }
@@ -812,7 +1064,7 @@ export async function GET() {
     let bid: CompPayload | null = null
     if (tables.bid) {
       try {
-        bid = summarizeCompletions(tables.bid, '# Days in BID')
+        bid = summarizeCompletions(tables.bid, 'BidComp', '# Days in BID')
       } catch (e) {
         errors.push(`BidComp aggregation failed: ${e instanceof Error ? e.message : 'unknown'}`)
       }
@@ -823,7 +1075,7 @@ export async function GET() {
     let selectionsOngoing: OngPayload | null = null
     if (tables.selectionsOng) {
       try {
-        selectionsOngoing = summarizeOngoing(tables.selectionsOng, '# Days in Selections')
+        selectionsOngoing = summarizeOngoing(tables.selectionsOng, 'SelectionsOng', '# Days in Selections')
       } catch (e) {
         errors.push(`SelectionsOng aggregation failed: ${e instanceof Error ? e.message : 'unknown'}`)
       }
@@ -832,7 +1084,7 @@ export async function GET() {
     let bidOngoing: OngPayload | null = null
     if (tables.bidOng) {
       try {
-        bidOngoing = summarizeOngoing(tables.bidOng, '# Days in BID')
+        bidOngoing = summarizeOngoing(tables.bidOng, 'BidOng', '# Days in BID')
       } catch (e) {
         errors.push(`BidOng aggregation failed: ${e instanceof Error ? e.message : 'unknown'}`)
       }
@@ -852,6 +1104,7 @@ export async function GET() {
       selectionsOngoing,
       bidOngoing,
       errors,
+      warnings,
     }
 
     if (payload.ok) cache = { at: Date.now(), payload }
@@ -863,6 +1116,7 @@ export async function GET() {
       selections: null, bid: null,
       selectionsOngoing: null, bidOngoing: null,
       errors: ['server_error while reading the tracker'],
+      warnings: [],
     }
     return NextResponse.json(payload)
   }
