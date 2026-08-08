@@ -287,7 +287,30 @@ const PRIORITY_CONFIG: Record<PriorityStatus, { dot: string; color: string; stri
 // ── Edit Client modal config (mirrors New Client Setup) ───────────────────────
 
 const PROJECT_TYPES = ['Custom Home', 'ADU', 'Detached Garage', 'Addition', 'Other']
-const OWNERS = ['Calin', 'Jeff', 'Matteo', 'Chad']
+
+// ── Client Solution Manager options ─────────────────────────────────────────
+// Live from the people actually assigned to clients. This replaced a hardcoded
+// ['Calin', 'Jeff', 'Matteo', 'Chad'] that disagreed with the New Client Setup
+// list AND with the database — "Scott" and "Drew" are real live values that
+// appeared in neither, so opening this modal on one of their clients offered a
+// list without that client's own CSM in it.
+//
+// Deliberately identical to fetchOwnerOptions() in customers/new/page.tsx: same
+// query, same trim, same 'Unassigned' exclusion, same sort. The two are copies
+// rather than a shared import because this change was scoped to these two
+// files; if a third caller ever needs it, lift it into src/lib first.
+// PostgREST has no DISTINCT, so the column is deduped here.
+async function fetchOwnerOptions(): Promise<string[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase.from('clients').select('owner')
+  if (error || !data) return []
+  const names = new Set<string>()
+  for (const row of data) {
+    const n = ((row as { owner: string | null }).owner ?? '').trim()
+    if (n && n.toLowerCase() !== 'unassigned') names.add(n)
+  }
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+}
 const ALL_TAGS = [
   'Verbal communicator', 'Direct', 'Detail-oriented', 'Analytical',
   'Visual learner', 'Budget-focused', 'Fast decision maker',
@@ -2282,6 +2305,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // Next Step card briefing — collapsed to 2 lines by default.
   const [isNextStepExpanded, setIsNextStepExpanded] = useState(false)
   const [editForm, setEditForm] = useState<EditClientForm | null>(null)
+  // Live Client Solution Manager options for the edit modal's dropdown.
+  const [ownerOptions, setOwnerOptions] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetchOwnerOptions()
+      .then(names => { if (!cancelled) setOwnerOptions(names) })
+      .catch(err => console.error('[client-detail] owner options load failed:', err))
+    return () => { cancelled = true }
+  }, [])
   const [savingClient, setSavingClient] = useState(false)
 
   // ── Project Files state (NEW · additive · client_files table) ───────────────
@@ -2936,7 +2968,7 @@ CLIENT PROFILE:
 - Project Value: $${client.project_value.toLocaleString()}
 - Location: ${client.location}
 - Start Date: ${client.start_date}
-- Owner: ${client.owner}
+- Client Solution Manager: ${client.owner}
 - Happiness Status: ${happinessLabel}
 
 PERSONALITY & COMMUNICATION:
@@ -3347,7 +3379,7 @@ Today's date is ${today}.
                     />
                   </div>
                   <div style={editFieldStyle}>
-                    <label style={editLabelStyle}>Owner</label>
+                    <label style={editLabelStyle}>Client Solution Manager</label>
                     <select
                       value={editForm.owner}
                       onChange={e => setEditForm(f => f && { ...f, owner: e.target.value })}
@@ -3355,7 +3387,14 @@ Today's date is ${today}.
                       onFocus={editFocus}
                       onBlur={editBlur}
                     >
-                      {[...OWNERS, editForm.owner].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i).map(o => <option key={o}>{o}</option>)}
+                      {/* This client's OWN current CSM is appended before the
+                          dedupe, so it is always present as an option no matter
+                          what the live query returned — including while it is
+                          still in flight, and including a name that no longer
+                          appears on any other client. Without it the select
+                          would render blank and a save could overwrite the
+                          field with a value the user never chose. */}
+                      {[...ownerOptions, editForm.owner].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i).map(o => <option key={o}>{o}</option>)}
                     </select>
                   </div>
                 </div>
@@ -3922,7 +3961,7 @@ Today's date is ${today}.
                   const nodes: React.ReactNode[] = []
                   if (client.location) nodes.push(<span key="loc">{client.location}</span>)
                   if (clientSince) nodes.push(<span key="since">Client since <b style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 550 }}>{clientSince}</b></span>)
-                  if (client.owner) nodes.push(<span key="owner">Owner <b style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 550 }}>{client.owner}</b></span>)
+                  if (client.owner) nodes.push(<span key="owner">CSM <b style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 550 }}>{client.owner}</b></span>)
                   if (client.email) nodes.push(
                     <button
                       key="email"

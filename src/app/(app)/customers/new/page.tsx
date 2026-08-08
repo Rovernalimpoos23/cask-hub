@@ -16,7 +16,29 @@ const PROJECT_TYPE_GROUPS: { label: string; options: string[] }[] = [
   { label: '── Renovation / Remodel ──', options: ['Whole-Home Renovation', 'Residential Remodel'] },
   { label: '── Garage ──', options: ['New Garage', 'Garage Construction'] },
 ]
-const OWNERS = ['Calin', 'Jeff', 'Tim', 'Cooper', 'Kait', 'Scott']
+// ── Client Solution Manager options ─────────────────────────────────────────
+// Read live from the people actually assigned to clients, never a hardcoded
+// list. Two hardcoded lists used to exist — this one and a different one on the
+// client-detail edit modal — and they disagreed with each other AND with the
+// database: neither contained "Matteo", and "Drew" (a real, live value) was in
+// neither, having arrived through the free-text field below. Editing a client
+// whose CSM was missing from the list silently rewrote the field.
+//
+// PostgREST has no DISTINCT, so the column comes back one row per client and is
+// deduped here. "Unassigned" is the placeholder the dashboard substitutes for a
+// blank owner, so it is filtered out rather than offered as a choice.
+async function fetchOwnerOptions(): Promise<string[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase.from('clients').select('owner')
+  if (error || !data) return []
+  const names = new Set<string>()
+  for (const row of data) {
+    const n = ((row as { owner: string | null }).owner ?? '').trim()
+    if (n && n.toLowerCase() !== 'unassigned') names.add(n)
+  }
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+}
+
 const HAPPINESS_OPTIONS = [
   { value: 'green', emoji: '🟢', label: 'Happy', accent: '#16a34a', border: '#16a34a', bg: '#F0FDF4' },
   { value: 'yellow', emoji: '🟡', label: 'At Risk', accent: '#d97706', border: '#d97706', bg: '#FFFBEB' },
@@ -177,10 +199,19 @@ export default function NewClientSetupPage() {
   const [projectAddress, setProjectAddress] = useState('')
   const [startDate, setStartDate]     = useState('')
   const [owner, setOwner]             = useState('Jeff')
-  // Sales PM dropdown — session-editable option list + inline "add new" entry.
-  const [ownerOptions, setOwnerOptions] = useState<string[]>(OWNERS)
+  // Client Solution Manager dropdown — live option list + inline "add new" entry.
+  // Starts empty and fills from fetchOwnerOptions(); the free-text path below
+  // still appends session-local names for people who are genuinely new.
+  const [ownerOptions, setOwnerOptions] = useState<string[]>([])
   const [addingOwner, setAddingOwner]   = useState(false)
   const [newOwnerName, setNewOwnerName] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    fetchOwnerOptions()
+      .then(names => { if (!cancelled) setOwnerOptions(names) })
+      .catch(err => console.error('[new-client] owner options load failed:', err))
+    return () => { cancelled = true }
+  }, [])
   function commitNewOwner() {
     const trimmed = newOwnerName.trim()
     if (trimmed) {
@@ -499,7 +530,12 @@ export default function NewClientSetupPage() {
                       onFocus={focusInput}
                       onBlur={blurInput}
                     >
-                      {ownerOptions.map(o => <option key={o}>{o}</option>)}
+                      {/* The selected value is always in the list, even before
+                          the live options land or if it is not among them —
+                          otherwise this controlled select renders blank and a
+                          save would write a value the user never saw. */}
+                      {Array.from(new Set([...ownerOptions, owner].filter(Boolean)))
+                        .map(o => <option key={o}>{o}</option>)}
                       <option value="__add_new__">+ Add new…</option>
                     </select>
                   )}

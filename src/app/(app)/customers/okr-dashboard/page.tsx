@@ -274,7 +274,17 @@ const PHASE_META: Record<
   contract: { label: 'Contract executed', short: 'Contract', accent: '#22c55e', steps: range(21, 26), startStep: 21, finalStep: 26 },
 }
 
-const MONTHLY_TARGET_PER_PM = 3 // each OKR: 3 per PM per month
+// A hardcoded literal, and a WRONG one: a live read of the Precon KPI Tracker
+// (2026-08-08) showed real targets are maintained per person, per phase, per
+// month and range 0–9 — Aug 2026 team targets are Design 8 / Permit 6 /
+// Contract 6, not 3 each. The Tgt and Gap COLUMNS were removed from the two
+// per-CSM tables rather than keep printing a false number.
+//
+// The constant survives because it is still an INPUT to the pace model, which
+// drives the Status column and the KPI cards — removing it would change Status,
+// which is out of scope here and is independently correct. Do not delete it
+// without replacing what reads it. See the remaining consumers at :597 and :619.
+const MONTHLY_TARGET_PER_PM = 3 // each OKR: 3 per CSM per month
 const TOTAL_JOURNEY_STEPS = 37  // denominator for the overall journey row
 
 const PHASE_MEETING_CODES: Record<PhaseKey, Set<string>> = {
@@ -1094,7 +1104,7 @@ in the data above — never invent clients or numbers not present here.`
 
               <SectionLabel
                 title="Per Client Solution Manager"
-                hint={`monthly targets · ${MONTHLY_TARGET_PER_PM} each per OKR`}
+                hint={monthLabel}
                 action="Open full view →"
                 onAction={() => setTab('pm')}
               />
@@ -1106,7 +1116,7 @@ in the data above — never invent clients or numbers not present here.`
                       {PHASE_KEYS.map(k => (
                         <th
                           key={k}
-                          colSpan={3}
+                          colSpan={2}
                           style={{
                             ...TH_NUM,
                             ...(k === 'permit' ? {} : BAND),
@@ -1126,7 +1136,6 @@ in the data above — never invent clients or numbers not present here.`
                         const band = k === 'permit' ? {} : BAND
                         return (
                           <Fragment key={k}>
-                            <th style={{ ...TH_NUM, ...band }}>Tgt</th>
                             <th style={{ ...TH_NUM, ...band }}>Done</th>
                             <th style={{ ...TH_NUM, ...band }}>St</th>
                           </Fragment>
@@ -1136,7 +1145,7 @@ in the data above — never invent clients or numbers not present here.`
                   </thead>
                   <tbody>
                     {pmRows.length === 0 ? (
-                      <tr><td colSpan={10} style={TD_MUTED}>No Client Solution Managers found.</td></tr>
+                      <tr><td colSpan={7} style={TD_MUTED}>No Client Solution Managers found.</td></tr>
                     ) : (
                       pmRows.map(row => (
                         <tr key={row.pm} style={TR_LINE}>
@@ -1147,7 +1156,6 @@ in the data above — never invent clients or numbers not present here.`
                             const band = k === 'permit' ? {} : BAND
                             return (
                               <Fragment key={k}>
-                                <td style={{ ...TD_NUM, ...band, color: 'var(--text3)' }}>{cell.target}</td>
                                 <td style={{ ...TD_NUM, ...band, color: cell.obtained ? 'var(--text)' : 'var(--text3)' }}>
                                   {cell.obtained}
                                 </td>
@@ -1257,7 +1265,7 @@ in the data above — never invent clients or numbers not present here.`
             <section id="okr2-p-pm" role="tabpanel" aria-labelledby="okr2-t-pm" hidden={tab !== 'pm'}>
               <SectionLabel
                 title="Per Client Solution Manager breakdown"
-                hint={`${monthLabel} · ${MONTHLY_TARGET_PER_PM} per Client Solution Manager per OKR`}
+                hint={monthLabel}
               />
               <div style={CARD_FLUSH}>
                 <table style={{ ...TABLE, minWidth: 920 }}>
@@ -1267,7 +1275,7 @@ in the data above — never invent clients or numbers not present here.`
                       {PHASE_KEYS.map(k => (
                         <th
                           key={k}
-                          colSpan={4}
+                          colSpan={2}
                           style={{
                             ...TH_NUM,
                             ...(k === 'permit' ? {} : BAND),
@@ -1287,9 +1295,7 @@ in the data above — never invent clients or numbers not present here.`
                         const band = k === 'permit' ? {} : BAND
                         return (
                           <Fragment key={k}>
-                            <th style={{ ...TH_NUM, ...band }}>Tgt</th>
                             <th style={{ ...TH_NUM, ...band }}>Done</th>
-                            <th style={{ ...TH_NUM, ...band }}>Gap</th>
                             <th style={{ ...TH_NUM, ...band }}>Status</th>
                           </Fragment>
                         )
@@ -1298,7 +1304,7 @@ in the data above — never invent clients or numbers not present here.`
                   </thead>
                   <tbody>
                     {pmRows.length === 0 ? (
-                      <tr><td colSpan={13} style={TD_MUTED}>No Client Solution Managers found.</td></tr>
+                      <tr><td colSpan={7} style={TD_MUTED}>No Client Solution Managers found.</td></tr>
                     ) : (
                       pmRows.map(row => (
                         <tr key={row.pm} style={TR_LINE}>
@@ -1307,22 +1313,10 @@ in the data above — never invent clients or numbers not present here.`
                             const cell = row[k]
                             const st = pace.state(cell.target, cell.obtained, cell.inFlight)
                             const band = k === 'permit' ? {} : BAND
-                            const g = cell.obtained - cell.target
                             return (
                               <Fragment key={k}>
-                                <td style={{ ...TD_NUM, ...band, color: 'var(--text3)' }}>{cell.target}</td>
                                 <td style={{ ...TD_NUM, ...band, color: cell.obtained ? 'var(--text)' : 'var(--text3)' }}>
                                   {cell.obtained}
-                                </td>
-                                <td
-                                  style={{
-                                    ...TD_NUM,
-                                    ...band,
-                                    color: g < 0 && st === 'risk' ? 'var(--red)' : 'var(--text3)',
-                                    fontWeight: g < 0 && st === 'risk' ? 600 : 400,
-                                  }}
-                                >
-                                  {gapText(cell.obtained, cell.target)}
                                 </td>
                                 <td style={{ ...TD_NUM, ...band }}>
                                   <Pill tone={PACE_PILL[st]} dot={PACE_DOT[st]}>{PACE_LABEL[st]}</Pill>
@@ -1341,24 +1335,10 @@ in the data above — never invent clients or numbers not present here.`
                         {PHASE_KEYS.map(k => {
                           const done = obtainedThisMonth(k)
                           const st = pace.state(monthlyTeamTarget, done, inFlight(k))
-                          const g = done - monthlyTeamTarget
                           return (
                             <Fragment key={k}>
                               <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                                {monthlyTeamTarget}
-                              </td>
-                              <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
                                 {done}
-                              </td>
-                              <td
-                                style={{
-                                  ...TFOOT_TD,
-                                  textAlign: 'center',
-                                  fontVariantNumeric: 'tabular-nums',
-                                  color: g < 0 && st === 'risk' ? 'var(--red)' : 'var(--text3)',
-                                }}
-                              >
-                                {gapText(done, monthlyTeamTarget)}
                               </td>
                               <td style={{ ...TFOOT_TD, textAlign: 'center' }}>
                                 <Pill tone={PACE_PILL[st]} dot={PACE_DOT[st]}>{PACE_LABEL[st]}</Pill>
