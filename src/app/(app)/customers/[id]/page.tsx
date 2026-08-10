@@ -4,7 +4,7 @@
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import 'react-quill/dist/quill.snow.css'
 import { TopBar } from '@/components/ui'
@@ -2057,8 +2057,7 @@ interface RecapActionItem {
   done?: boolean
 }
 
-// action_items comes from client_meetings (selected with '*'); depending on the
-// column type it may be a JSON string or an already-parsed array. Parse safely.
+// Tolerant of both a JSON string and an already-parsed array.
 function parseRecapActionItems(raw: unknown): RecapActionItem[] {
   if (!raw) return []
   let value: unknown = raw
@@ -2069,6 +2068,79 @@ function parseRecapActionItems(raw: unknown): RecapActionItem[] {
   return value.filter((x): x is RecapActionItem => !!x && typeof x === 'object')
 }
 
+// The recap's action items live inside client_meetings.notes — a TEXT column holding
+// the JSON blob the Fireflies webhook writes:
+//   { summary, key_decisions, action_items: [{task, owner, due_date, done}], transcript }
+// This section previously read a `client_meetings.action_items` column, which does not
+// exist, so parseRecapActionItems(undefined) returned [] and every meeting rendered
+// "No action items in this recap." Reading notes here matches what the Meeting Detail
+// page (customers/[id]/meetings/[meetingId]) has always used.
+function parseNotesActionItems(notes: unknown): RecapActionItem[] {
+  if (typeof notes !== 'string' || notes.trim() === '') return []
+  try {
+    const parsed = JSON.parse(notes) as { action_items?: unknown }
+    return parseRecapActionItems(parsed?.action_items)
+  } catch {
+    return []
+  }
+}
+
+// ── Action-item completion state (client_meeting_action_items) ────────────────
+// Completion is stored in its own table keyed by (client_meeting_id,
+// task_text_normalized). It is NOT read from notes.action_items[].done — the
+// Fireflies webhook rewrites notes wholesale on reprocessing, which would destroy
+// anything kept inside the blob. That `done` flag is left exactly as written.
+//
+// IMPORTANT: this normalization must stay byte-identical to the copy in
+// customers/[id]/meetings/[meetingId]/page.tsx. Both views key the same table by
+// it, so any drift means a toggle in one view stops being visible in the other.
+function normalizeTaskText(raw: string): string {
+  return raw.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+// Local-map key for a (meeting, task) pair — several meetings share one map.
+function actionKey(clientMeetingId: string, taskDisplay: string): string {
+  return `${clientMeetingId}::${normalizeTaskText(taskDisplay)}`
+}
+
+// One completion row's worth of state. The display name is denormalized into
+// completed_by_name at write time — the same changed_by / changed_by_name pattern
+// agenda_audit_log uses below in this file — because users_select_own RLS stops a
+// browser client from reading anyone else's users row after the fact. completed_by
+// is still stored for referential integrity; nothing reads it for display.
+interface ActionCompletion {
+  completed: boolean
+  completed_at: string | null
+  completed_by_name: string | null
+}
+
+// Company timezone is Eastern (St. Petersburg, FL). America/New_York handles the
+// EST/EDT switch; the trailing label is the literal "ET" per the agreed format.
+// Kept byte-identical to the copy in meetings/[meetingId]/page.tsx.
+function formatCompletedAt(iso: string | null): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  const date = d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })
+  const time = d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+  return `${date} · ${time} ET`
+}
+
+// "✓ Jeff · Aug 10, 2026 · 3:45 PM ET". The name is read straight off the row, so
+// no id → name lookup is involved. Degrades gracefully:
+//  · completed_by_name null (legacy row predating the column, or the id couldn't
+//    be resolved at write time) → timestamp only
+//  · neither available → null, so the caller renders nothing at all
+function completionLabel(c: ActionCompletion | undefined): string | null {
+  if (!c || !c.completed) return null
+  const when = formatCompletedAt(c.completed_at)
+  const who  = c.completed_by_name?.trim() || undefined
+  if (who && when) return `✓ ${who} · ${when}`
+  if (who)         return `✓ ${who}`
+  if (when)        return `✓ ${when}`
+  return null
+}
+
 function CurrentStepTodos({
   currentStepNumber,
   checklistRows,
@@ -2076,6 +2148,9 @@ function CurrentStepTodos({
   onToggleChecklist,
   journeyRows,
   stepStartMap,
+  actionCompletions,
+  actionToggling,
+  onToggleActionItem,
 }: {
   currentStepNumber: number | null
   checklistRows: Map<string, ChecklistRowState>
@@ -2084,6 +2159,10 @@ function CurrentStepTodos({
   journeyRows: Map<string, ClientMeetingRow>
   // NEW (additive): step → started_at, for per-task due-date indicators.
   stepStartMap: Map<number, Date>
+  // Recap action-item completion, keyed by actionKey(client_meeting_id, task).
+  actionCompletions: Map<string, ActionCompletion>
+  actionToggling: Set<string>
+  onToggleActionItem: (clientMeetingId: string, taskDisplay: string, next: boolean) => void
 }) {
   const step = currentStepNumber != null ? WORKFLOW_STEPS.find(s => s.step === currentStepNumber) : undefined
 
@@ -2097,10 +2176,15 @@ function CurrentStepTodos({
 
   // Fireflies action items from this step's saved recap (if a recap exists).
   const recapRow = step ? journeyRows.get('step_' + step.step.toString().padStart(2, '0')) : undefined
-  const actionItems = recapRow
-    ? parseRecapActionItems((recapRow as unknown as { action_items?: unknown }).action_items)
-    : []
-  const actionsIncomplete = actionItems.filter(a => a.done !== true).length
+  const actionItems = recapRow ? parseNotesActionItems(recapRow.notes) : []
+  // Completion comes from client_meeting_action_items, not from the item's own
+  // `done` flag inside the notes blob.
+  const actionRecord = (item: RecapActionItem): ActionCompletion | undefined =>
+    recapRow && typeof item.task === 'string'
+      ? actionCompletions.get(actionKey(recapRow.id, item.task))
+      : undefined
+  const isActionDone = (item: RecapActionItem): boolean => actionRecord(item)?.completed ?? false
+  const actionsIncomplete = actionItems.filter(a => !isActionDone(a)).length
 
   // Today at local midnight, for overdue / due-soon comparisons.
   const today = new Date()
@@ -2108,7 +2192,9 @@ function CurrentStepTodos({
 
   function dueState(item: RecapActionItem): 'overdue' | 'soon' | 'normal' | null {
     if (!item.due_date) return null
-    if (item.done === true) return 'normal'
+    // Completed items never read as overdue/due-soon. Sourced from the completion
+    // table via isActionDone, not from the item's own `done` flag.
+    if (isActionDone(item)) return 'normal'
     const due = new Date(item.due_date + 'T00:00:00')
     if (isNaN(due.getTime())) return 'normal'
     const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000)
@@ -2238,7 +2324,10 @@ function CurrentStepTodos({
       ) : (
         actionItems.map((item, i) => {
           const state = dueState(item)
-          const done = item.done === true
+          const done = isActionDone(item)
+          const credit = completionLabel(actionRecord(item))
+          const taskText = typeof item.task === 'string' ? item.task : ''
+          const busy = !!recapRow && !!taskText && actionToggling.has(actionKey(recapRow.id, taskText))
           const textColor = done
             ? 'var(--text3)'
             : state === 'overdue' ? 'var(--fable-red)'
@@ -2246,8 +2335,33 @@ function CurrentStepTodos({
             : 'var(--text)'
           return (
             <div key={i} style={{ padding: '8px 20px', borderTop: '1px solid var(--border)' }}>
-              <div style={{ fontSize: 13, lineHeight: 1.45, color: textColor, textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.6 : 1 }}>
-                {item.task ?? 'Untitled task'}
+              {/* Checkbox + task text. Same checked-state tokens as the Journey tab
+                  checkboxes; the existing strikethrough/opacity treatment for a
+                  completed item is preserved, just driven by real state now. */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+                <button
+                  type="button"
+                  onClick={() => { if (!busy && recapRow && taskText) onToggleActionItem(recapRow.id, taskText, !done) }}
+                  disabled={busy || !recapRow || !taskText}
+                  aria-pressed={done}
+                  aria-label={done ? `Mark "${taskText}" not done` : `Mark "${taskText}" done`}
+                  style={{
+                    flexShrink: 0, width: 14, height: 14, borderRadius: 3, marginTop: 2, padding: 0,
+                    border: done ? '1.5px solid var(--checkbox-checked-bg, var(--charcoal))' : '1.5px solid var(--border2)',
+                    background: done ? 'var(--checkbox-checked-bg, var(--charcoal))' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: busy ? 'wait' : taskText ? 'pointer' : 'not-allowed',
+                    opacity: busy ? 0.6 : 1,
+                    transition: 'background 120ms ease, border-color 120ms ease',
+                  }}
+                >
+                  {done && (
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--checkbox-checked-fg, #fff)' }} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  )}
+                </button>
+                <div style={{ fontSize: 13, lineHeight: 1.45, color: textColor, textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.6 : 1 }}>
+                  {item.task ?? 'Untitled task'}
+                </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                 {item.owner && <span style={ownerBadgeStyle}>{item.owner}</span>}
@@ -2265,6 +2379,13 @@ function CurrentStepTodos({
                 <span style={{ fontSize: 10.5, color: 'var(--text3)', fontStyle: 'italic' }}>
                   from {recapRow.title}
                 </span>
+                {/* Who checked it + when, in ET. Omitted entirely when neither a
+                    name nor a timestamp is available. */}
+                {credit && (
+                  <span style={{ fontSize: 10.5, color: 'var(--green)' }}>
+                    {credit}
+                  </span>
+                )}
               </div>
             </div>
           )
@@ -2334,6 +2455,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [stepMarking, setStepMarking] = useState<Set<number>>(new Set())
   // NEW (additive): when each step started (journey_step_start). Drives task due dates.
   const [stepStartMap, setStepStartMap] = useState<Map<number, Date>>(new Map())
+
+  // ── Recap action-item completion (client_meeting_action_items) ───────────────
+  // Keyed by actionKey(client_meeting_id, task) so every loaded meeting's items
+  // coexist in one map. The Meeting Detail page writes the same table with the same
+  // normalization, so toggling in either view is visible in the other.
+  const [actionCompletions, setActionCompletions] = useState<Map<string, ActionCompletion>>(new Map())
+  const [actionToggling, setActionToggling] = useState<Set<string>>(new Set())
+  // The acting user's own public.users id + display name, resolved once per load.
+  // Both are stamped onto every toggle; the name is what gets displayed.
+  const actionUserIdRef = useRef<string | null>(null)
+  const actionUserNameRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -2530,6 +2662,141 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   useEffect(() => {
     fetchClient()
   }, [fetchClient])
+
+  // ── Load recap action-item completion state ──────────────────────────────────
+  // Depends on a stable joined id list rather than the journeyRows Map itself, so
+  // marking a step complete (which replaces the Map) doesn't refetch this.
+  const journeyMeetingIdKey = useMemo(
+    () => Array.from(journeyRows.values()).map(r => r.id).filter(Boolean).sort().join(','),
+    [journeyRows],
+  )
+
+  useEffect(() => {
+    if (!journeyMeetingIdKey) return
+    const ids = journeyMeetingIdKey.split(',')
+    let cancelled = false
+
+    async function loadActionCompletions() {
+      const supabase = createClient()
+
+      // completed_by must be a public.users id. supabase.auth.getUser() returns the
+      // auth.users id, a different namespace (see CLAUDE.md), so resolve by email —
+      // % and _ escaped so ILIKE wildcards can't match the wrong user. Left null if
+      // unresolvable: a wrong id would fail the FK and take the toggle down with it.
+      // Also grabs `name` in the same round-trip — it gets denormalized into
+      // completed_by_name on every toggle, which is what the UI displays.
+      {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user?.email) {
+          const { data: userRow } = await supabase
+            .from('users')
+            .select('id, name')
+            .ilike('email', user.email.replace(/[%_]/g, '\\$&'))
+            .maybeSingle()
+          const self = userRow as { id: string; name: string | null } | null
+          if (!cancelled) {
+            actionUserIdRef.current   = self?.id ?? null
+            actionUserNameRef.current = self?.name ?? null
+          }
+        }
+      }
+      if (cancelled) return
+
+      // Zero rows is the normal first-visit case — items then render unchecked.
+      // The display name comes down with each row, so no follow-up users query.
+      const { data, error } = await supabase
+        .from('client_meeting_action_items')
+        .select('client_meeting_id, task_text_normalized, completed, completed_at, completed_by_name')
+        .in('client_meeting_id', ids)
+
+      if (cancelled) return
+      if (error) {
+        console.error('[action-items] completion load failed:', error.message)
+        setToast('Could not load action-item progress. Items may show as unchecked.')
+        return
+      }
+
+      const rows = (data ?? []) as {
+        client_meeting_id: string
+        task_text_normalized: string
+        completed: boolean
+        completed_at: string | null
+        completed_by_name: string | null
+      }[]
+      const loaded = new Map<string, ActionCompletion>()
+      for (const r of rows) {
+        loaded.set(`${r.client_meeting_id}::${r.task_text_normalized}`, {
+          completed:         r.completed === true,
+          completed_at:      r.completed_at ?? null,
+          completed_by_name: r.completed_by_name ?? null,
+        })
+      }
+      setActionCompletions(loaded)
+    }
+
+    loadActionCompletions()
+    return () => { cancelled = true }
+  }, [journeyMeetingIdKey])
+
+  // ── Toggle a recap action item + persist to client_meeting_action_items ──────
+  // Upsert on the table's unique (client_meeting_id, task_text_normalized) so
+  // re-toggling the same item updates in place instead of duplicating. Optimistic,
+  // with a revert + visible toast on failure — never a silent console.warn.
+  async function toggleRecapActionItem(clientMeetingId: string, taskDisplay: string, next: boolean) {
+    const norm = normalizeTaskText(taskDisplay)
+    const key = `${clientMeetingId}::${norm}`
+    if (actionToggling.has(key)) return
+
+    setActionToggling(prev => new Set(prev).add(key))
+
+    // Stamp the same values we're about to write, so the current user's own name
+    // and timestamp appear immediately — the name is already in hand from the
+    // self-lookup above, so nothing needs resolving.
+    const completedBy   = next ? actionUserIdRef.current : null
+    const completedName = next ? actionUserNameRef.current : null
+    const completedAt   = next ? new Date().toISOString() : null
+
+    const prevValue = actionCompletions.get(key)
+    setActionCompletions(prev => new Map(prev).set(key, {
+      completed:         next,
+      completed_at:      completedAt,
+      completed_by_name: completedName,
+    }))
+
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('client_meeting_action_items')
+        .upsert(
+          {
+            client_meeting_id:    clientMeetingId,
+            task_text_normalized: norm,
+            task_text_display:    taskDisplay,
+            completed:            next,
+            completed_by:         completedBy,
+            completed_by_name:    completedName,
+            completed_at:         completedAt,
+          },
+          { onConflict: 'client_meeting_id,task_text_normalized' },
+        )
+      if (error) throw error
+    } catch (err) {
+      console.error('[action-items] toggle failed:', err)
+      setActionCompletions(prev => {
+        const m = new Map(prev)
+        if (prevValue === undefined) m.delete(key)
+        else m.set(key, prevValue)
+        return m
+      })
+      setToast('Could not save that action item. Please try again.')
+    } finally {
+      setActionToggling(prev => {
+        const s = new Set(prev)
+        s.delete(key)
+        return s
+      })
+    }
+  }
 
   // ── Toggle a checklist task on/off + persist to journey_checklists ──────────
   // Local state is the source of truth. We update it optimistically and keep it
@@ -4128,6 +4395,9 @@ Today's date is ${today}.
               onToggleChecklist={toggleChecklistTask}
               journeyRows={journeyRows}
               stepStartMap={stepStartMap}
+              actionCompletions={actionCompletions}
+              actionToggling={actionToggling}
+              onToggleActionItem={toggleRecapActionItem}
             />
 
         </div>{/* /full-width stacked layout */}
