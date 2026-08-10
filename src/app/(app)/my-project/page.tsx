@@ -819,8 +819,8 @@ export default function MyProjectPage() {
                         width: 14,
                         height: 14,
                         borderRadius: 3,
-                        border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)',
-                        background: checked ? 'var(--charcoal)' : 'transparent',
+                        border: checked ? '1.5px solid var(--checkbox-checked-bg, var(--charcoal))' : '1.5px solid var(--border2)',
+                        background: checked ? 'var(--checkbox-checked-bg, var(--charcoal))' : 'transparent',
                         display: 'grid',
                         placeItems: 'center',
                         marginTop: 1,
@@ -828,7 +828,7 @@ export default function MyProjectPage() {
                       }}
                     >
                       {checked && (
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--checkbox-checked-fg, #fff)' }} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                       )}
                     </span>
                     <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.4 }}>{cond}</span>

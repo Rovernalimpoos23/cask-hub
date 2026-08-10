@@ -373,7 +373,7 @@ export default function AddMeetingPage() {
                         type="checkbox"
                         checked={item.done}
                         onChange={e => updateItem(item.id, 'done', e.target.checked)}
-                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--charcoal)' }}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--checkbox-checked-bg, var(--charcoal))' }}
                       />
                     </div>
                     <button

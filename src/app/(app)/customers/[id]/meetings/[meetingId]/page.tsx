@@ -132,7 +132,7 @@ export default function MeetingRecapPage({ params }: { params: { id: string; mee
         {/* ── Hero ──────────────────────────────────────────────────────── */}
         <div
           className="rounded-[10px] p-7 mb-3.5 relative overflow-hidden"
-          style={{ background: 'var(--charcoal)' }}
+          style={{ background: 'var(--hero-bg, var(--charcoal))' }}
         >
           <div
             className="absolute -bottom-[60px] -right-[60px] w-[200px] h-[200px] rounded-full"
@@ -141,7 +141,7 @@ export default function MeetingRecapPage({ params }: { params: { id: string; mee
 
           <div
             className="text-[10px] font-semibold tracking-[2px] uppercase mb-2.5"
-            style={{ color: 'rgba(255,255,255,0.35)' }}
+            style={{ color: 'rgba(255,255,255,0.6)' }}
           >
             Customer Journey · CASK Construction
           </div>

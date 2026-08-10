@@ -1078,10 +1078,10 @@ function WorkflowStep({
                         >
                           <span
                             className="shrink-0"
-                            style={{ width: 14, height: 14, borderRadius: 3, border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)', background: checked ? 'var(--charcoal)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, transition: 'background 120ms ease, border-color 120ms ease' }}
+                            style={{ width: 14, height: 14, borderRadius: 3, border: checked ? '1.5px solid var(--checkbox-checked-bg, var(--charcoal))' : '1.5px solid var(--border2)', background: checked ? 'var(--checkbox-checked-bg, var(--charcoal))' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, transition: 'background 120ms ease, border-color 120ms ease' }}
                           >
                             {checked && (
-                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--checkbox-checked-fg, #fff)' }} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                             )}
                           </span>
                           <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--text)', opacity: checked ? 0.5 : 1, textDecoration: checked ? 'line-through' : 'none' }}>
@@ -1349,14 +1349,14 @@ function AgendaCheckbox({ checked }: { checked: boolean }) {
       className="shrink-0"
       style={{
         width: 14, height: 14, borderRadius: 3,
-        border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)',
-        background: checked ? 'var(--charcoal)' : 'transparent',
+        border: checked ? '1.5px solid var(--checkbox-checked-bg, var(--charcoal))' : '1.5px solid var(--border2)',
+        background: checked ? 'var(--checkbox-checked-bg, var(--charcoal))' : 'transparent',
         display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1,
         transition: 'background 120ms ease, border-color 120ms ease',
       }}
     >
       {checked && (
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--checkbox-checked-fg, #fff)' }} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
       )}
     </span>
   )
@@ -2193,10 +2193,10 @@ function CurrentStepTodos({
                 >
                   <span
                     className="shrink-0"
-                    style={{ width: 14, height: 14, borderRadius: 3, border: checked ? '1.5px solid var(--charcoal)' : '1.5px solid var(--border2)', background: checked ? 'var(--charcoal)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, transition: 'background 120ms ease, border-color 120ms ease' }}
+                    style={{ width: 14, height: 14, borderRadius: 3, border: checked ? '1.5px solid var(--checkbox-checked-bg, var(--charcoal))' : '1.5px solid var(--border2)', background: checked ? 'var(--checkbox-checked-bg, var(--charcoal))' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, transition: 'background 120ms ease, border-color 120ms ease' }}
                   >
                     {checked && (
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--checkbox-checked-fg, #fff)' }} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                     )}
                   </span>
                   {/* NEW (additive): overdue tasks render in red; default color otherwise. */}

@@ -130,6 +130,26 @@
   --btn-primary-bg:   var(--fable-red);
   --btn-primary-text: #ffffff;
 
+  /* Checked checkboxes — same --charcoal inversion as the buttons above: a checked
+     box filled with var(--charcoal) turns near-white in dark mode and its hardcoded
+     #fff checkmark vanishes into the fill. Green matches the two checkboxes that
+     already render correctly in dark mode (ActionItemCard uses var(--green), the
+     dashboard step list uses var(--fable-ok) — both #59B87E), and green-for-done is
+     the existing semantic. Referenced in components as
+     var(--checkbox-checked-bg, var(--charcoal)) / var(--checkbox-checked-fg, #fff)
+     so light mode (where these are undefined) keeps its exact current look. */
+  --checkbox-checked-bg: var(--fable-ok);
+  --checkbox-checked-fg: #ffffff;
+
+  /* Hero banner cards — same --charcoal inversion again: a hero filled with
+     var(--charcoal) turns near-white in dark mode while its foreground text stays
+     hardcoded white, so the whole card goes invisible. Reuses --sidebar (#0D0C0B),
+     which reads as an intentional dark slab against --bg (#121110) and keeps the
+     existing white text near 19:1. Referenced in components as
+     var(--hero-bg, var(--charcoal)) so light mode (where it is undefined) keeps
+     its exact current #111111 card. */
+  --hero-bg: var(--sidebar);
+
   /* Sidebar — one step darker than content */
   --sidebar:        #0D0C0B;
   --sidebar-text:   rgba(255, 255, 255, 0.55);
