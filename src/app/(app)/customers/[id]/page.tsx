@@ -892,6 +892,10 @@ function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
 // toggleChecklistTask), which is robust against RLS read-back quirks.
 interface ChecklistRowState {
   completed: boolean
+  // Attribution, denormalized at write time like client_meeting_action_items does.
+  // completed_by keeps holding the auth.users id it always has and is not read here.
+  completed_at: string | null
+  completed_by_name: string | null
 }
 
 // Workflow step data, role display names, badge styling and the stepCode /
@@ -1066,7 +1070,11 @@ function WorkflowStep({
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                     {roleBlock.tasks.map((task, ti) => {
                       const key = checklistKey(code, roleBlock.role, task)
-                      const checked = checklistRows.get(key)?.completed ?? false
+                      const row = checklistRows.get(key)
+                      const checked = row?.completed ?? false
+                      // ChecklistRowState is structurally identical to ActionCompletion,
+                      // so the existing helper is reused as-is (not redefined).
+                      const credit = completionLabel(row)
                       const busy = checklistToggling.has(key)
                       return (
                         <button
@@ -1084,8 +1092,15 @@ function WorkflowStep({
                               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--checkbox-checked-fg, #fff)' }} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                             )}
                           </span>
-                          <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--text)', opacity: checked ? 0.5 : 1, textDecoration: checked ? 'line-through' : 'none' }}>
-                            {task}
+                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                            <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--text)', opacity: checked ? 0.5 : 1, textDecoration: checked ? 'line-through' : 'none' }}>
+                              {task}
+                            </span>
+                            {/* Who checked it + when, in ET. Hidden entirely when unchecked
+                                (completionLabel returns null unless completed). */}
+                            {credit && (
+                              <span style={{ fontSize: 10, color: 'var(--green)' }}>{credit}</span>
+                            )}
                           </span>
                         </button>
                       )
@@ -2259,7 +2274,10 @@ function CurrentStepTodos({
             </div>
             {rb.tasks.map((task, ti) => {
               const key = checklistKey(stepCode(step.step), rb.role, task)
-              const checked = checklistRows.get(key)?.completed ?? false
+              const row = checklistRows.get(key)
+              const checked = row?.completed ?? false
+              // Same reused helper as the WorkflowStep site and the action items above.
+              const credit = completionLabel(row)
               const busy = checklistToggling.has(key)
               // NEW (additive): per-task due date + color state from when this step started.
               const taskDueDate = computeTaskDueDate(stepStartMap.get(step.step) ?? null, step.timeWindow, task)
@@ -2303,6 +2321,13 @@ function CurrentStepTodos({
                   {taskDue === 'ok' && taskDueDate && (
                     <span style={{ fontSize: 10.5, color: '#22c55e', marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 2 }}>
                       Due in {daysUntilDue(taskDueDate)} day{daysUntilDue(taskDueDate) === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  {/* Who checked it + when, in ET. Hidden entirely when unchecked
+                      (completionLabel returns null unless completed). */}
+                  {credit && (
+                    <span style={{ fontSize: 10.5, color: 'var(--green)', marginLeft: 6, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-start', marginTop: 2 }}>
+                      {credit}
                     </span>
                   )}
                 </button>
@@ -2462,10 +2487,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // normalization, so toggling in either view is visible in the other.
   const [actionCompletions, setActionCompletions] = useState<Map<string, ActionCompletion>>(new Map())
   const [actionToggling, setActionToggling] = useState<Set<string>>(new Set())
-  // The acting user's own public.users id + display name, resolved once per load.
-  // Both are stamped onto every toggle; the name is what gets displayed.
-  const actionUserIdRef = useRef<string | null>(null)
-  const actionUserNameRef = useRef<string | null>(null)
+  // The acting user's own public.users id + display name, resolved ONCE on mount and
+  // shared by every completed_by / completed_by_name writer on this page — recap
+  // action items AND journey checklists. Renamed from actionUser* when the journey
+  // checklists started using it, so nobody adds a third self-lookup.
+  // NOTE: distinct from checklistUserIdRef, which holds the auth.users id.
+  const selfUserIdRef = useRef<string | null>(null)
+  const selfUserNameRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -2534,7 +2562,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       const [{ data: saved }, { data: completions }, { data: stepStarts }] = await Promise.all([
         supabase
           .from('journey_checklists')
-          .select('meeting_code, role, task_text, completed')
+          .select('meeting_code, role, task_text, completed, completed_at, completed_by_name')
           .eq('client_id', params.id),
         supabase
           .from('workflow_step_completions')
@@ -2549,8 +2577,19 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
       if (saved) {
         const map = new Map<string, ChecklistRowState>()
-        for (const r of saved as { meeting_code: string; role: string; task_text: string; completed: boolean }[]) {
-          map.set(checklistKey(r.meeting_code, r.role, r.task_text), { completed: r.completed })
+        for (const r of saved as {
+          meeting_code: string
+          role: string
+          task_text: string
+          completed: boolean
+          completed_at: string | null
+          completed_by_name: string | null
+        }[]) {
+          map.set(checklistKey(r.meeting_code, r.role, r.task_text), {
+            completed:         r.completed,
+            completed_at:      r.completed_at ?? null,
+            completed_by_name: r.completed_by_name ?? null,
+          })
         }
         setChecklistRows(map)
       }
@@ -2663,6 +2702,37 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     fetchClient()
   }, [fetchClient])
 
+  // ── Resolve the acting user's own public.users id + display name ─────────────
+  // ONE lookup, shared by both completion features on this page. Lifted out of the
+  // action-items effect (which early-returns when the client has no client_meetings
+  // rows) so journey-checklist toggles can't end up writing a null name just because
+  // no meetings are loaded. supabase.auth.getUser() returns the auth.users id — a
+  // different namespace (see CLAUDE.md) — so match by email, with % and _ escaped so
+  // ILIKE wildcards can't hit the wrong user. Left null if unresolvable.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user?.email) return
+        const { data: userRow } = await supabase
+          .from('users')
+          .select('id, name')
+          .ilike('email', user.email.replace(/[%_]/g, '\\$&'))
+          .maybeSingle()
+        const self = userRow as { id: string; name: string | null } | null
+        if (!cancelled) {
+          selfUserIdRef.current   = self?.id ?? null
+          selfUserNameRef.current = self?.name ?? null
+        }
+      } catch (err) {
+        console.error('[self-user] lookup failed:', err)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   // ── Load recap action-item completion state ──────────────────────────────────
   // Depends on a stable joined id list rather than the journeyRows Map itself, so
   // marking a step complete (which replaces the Map) doesn't refetch this.
@@ -2679,28 +2749,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     async function loadActionCompletions() {
       const supabase = createClient()
 
-      // completed_by must be a public.users id. supabase.auth.getUser() returns the
-      // auth.users id, a different namespace (see CLAUDE.md), so resolve by email —
-      // % and _ escaped so ILIKE wildcards can't match the wrong user. Left null if
-      // unresolvable: a wrong id would fail the FK and take the toggle down with it.
-      // Also grabs `name` in the same round-trip — it gets denormalized into
-      // completed_by_name on every toggle, which is what the UI displays.
-      {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user?.email) {
-          const { data: userRow } = await supabase
-            .from('users')
-            .select('id, name')
-            .ilike('email', user.email.replace(/[%_]/g, '\\$&'))
-            .maybeSingle()
-          const self = userRow as { id: string; name: string | null } | null
-          if (!cancelled) {
-            actionUserIdRef.current   = self?.id ?? null
-            actionUserNameRef.current = self?.name ?? null
-          }
-        }
-      }
-      if (cancelled) return
+      // The acting user's id/name come from the shared self-lookup effect above.
 
       // Zero rows is the normal first-visit case — items then render unchecked.
       // The display name comes down with each row, so no follow-up users query.
@@ -2752,8 +2801,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     // Stamp the same values we're about to write, so the current user's own name
     // and timestamp appear immediately — the name is already in hand from the
     // self-lookup above, so nothing needs resolving.
-    const completedBy   = next ? actionUserIdRef.current : null
-    const completedName = next ? actionUserNameRef.current : null
+    const completedBy   = next ? selfUserIdRef.current : null
+    const completedName = next ? selfUserNameRef.current : null
     const completedAt   = next ? new Date().toISOString() : null
 
     const prevValue = actionCompletions.get(key)
@@ -2808,17 +2857,24 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const key = checklistKey(meetingCode, role, taskText)
     setChecklistToggling(prev => new Set(prev).add(key))
 
-    // Optimistic update so the checkbox feels instant.
+    // Optimistic update so the checkbox feels instant. Stamps the same attribution
+    // values we're about to write, so the acting user's own name and timestamp paint
+    // immediately — the name is already in hand from the shared self-lookup, so
+    // nothing needs resolving. Unchecking nulls all three, matching the existing
+    // completed_by / completed_at pattern below.
     const existed = checklistRows.has(key)
-    const prevCompleted = checklistRows.get(key)?.completed
+    const prevRow = checklistRows.get(key)
+    const completedName = next ? selfUserNameRef.current : null
+    const completedAt   = next ? new Date().toISOString() : null
     setChecklistRows(prev => {
       const m = new Map(prev)
-      m.set(key, { completed: next })
+      m.set(key, { completed: next, completed_at: completedAt, completed_by_name: completedName })
       return m
     })
 
     try {
       const supabase = createClient()
+      // Unchanged on purpose: completed_by keeps holding the auth.users id.
       const userId = checklistUserIdRef.current
 
       if (existed) {
@@ -2828,7 +2884,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           .update({
             completed: next,
             completed_by: next ? userId : null,
-            completed_at: next ? new Date().toISOString() : null,
+            completed_by_name: completedName,
+            completed_at: completedAt,
           })
           .eq('client_id', params.id)
           .eq('meeting_code', meetingCode)
@@ -2846,17 +2903,19 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             task_text: taskText,
             completed: next,
             completed_by: next ? userId : null,
-            completed_at: next ? new Date().toISOString() : null,
+            completed_by_name: completedName,
+            completed_at: completedAt,
           })
         if (error) throw error
       }
       // Success: local state already reflects `next`, so nothing more to do.
     } catch (err) {
       console.error('[journey-checklist] toggle failed:', err)
-      // Revert the optimistic change on failure.
+      // Revert the optimistic change on failure. Restores the whole prior record —
+      // completed, completed_at AND completed_by_name — not just the boolean.
       setChecklistRows(prev => {
         const m = new Map(prev)
-        if (existed) m.set(key, { completed: prevCompleted ?? false })
+        if (existed && prevRow) m.set(key, prevRow)
         else m.delete(key)
         return m
       })
