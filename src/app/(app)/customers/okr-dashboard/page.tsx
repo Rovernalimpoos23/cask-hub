@@ -274,6 +274,11 @@ const PHASE_META: Record<
   contract: { label: 'Contract executed', short: 'Contract', accent: '#22c55e', steps: range(21, 26), startStep: 21, finalStep: 26 },
 }
 
+// KNOWN GAP, deliberately not addressed here (out of scope): the three phases above
+// cover steps 6-26 only. Steps 1-5 and 27-37 belong to no OKR phase, so they count
+// toward the overall journey row but toward no phase's step or KPI-task total. That
+// is why the three phase totals sum to less than the overall journey total.
+
 // A hardcoded literal, and a WRONG one: a live read of the Precon KPI Tracker
 // (2026-08-08) showed real targets are maintained per person, per phase, per
 // month and range 0–9 — Aug 2026 team targets are Design 8 / Permit 6 /
@@ -285,7 +290,17 @@ const PHASE_META: Record<
 // which is out of scope here and is independently correct. Do not delete it
 // without replacing what reads it. See the remaining consumers at :597 and :619.
 const MONTHLY_TARGET_PER_PM = 3 // each OKR: 3 per CSM per month
-const TOTAL_JOURNEY_STEPS = 37  // denominator for the overall journey row
+
+// Denominator for the overall journey row — DERIVED, not hardcoded.
+// This was a literal `37`, and a literal `33` before the 33 -> 37 migration, which
+// means it had to be hand-edited at migration time and silently showed a stale
+// denominator until someone noticed. It now tracks WORKFLOW_STEPS the same way
+// PHASE_TOTAL_TASKS below does, so a future change to the journey is picked up
+// automatically. Uses `.length` (the count of defined steps) rather than the max
+// `step` value, so a gap in the numbering could never inflate the denominator past
+// the number of steps that actually exist. Equals 37 today — this refactor does not
+// change the displayed value.
+const TOTAL_JOURNEY_STEPS = WORKFLOW_STEPS.length
 
 const PHASE_MEETING_CODES: Record<PhaseKey, Set<string>> = {
   design: new Set(PHASE_META.design.steps.map(n => `step_${String(n).padStart(2, '0')}`)),
@@ -1811,12 +1826,25 @@ function ProjectCard({ p }: { p: ProjCard }) {
       {/* Overall journey — charcoal bar, exactly as on the live dashboard. */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)' }}>
+          {/* Tooltip (not inline text) to match this page's existing hint pattern and
+              keep the dense card layout intact. Counts reference sTotal so the label
+              stays correct if the journey length ever changes. */}
+          <span
+            style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)', cursor: 'help' }}
+            title={`All ${sTotal} meeting-level milestones across the full customer journey. Counts whole steps — not the individual checklist items inside them.`}
+          >
             Overall journey
           </span>
           <span style={{ fontSize: 10, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
             {sDone} of {sTotal} steps · {oPct}%
           </span>
+        </div>
+        {/* Visible restatement of the tooltip above — deliberately not hover-only. A
+            screenshot or copy-paste of this card has to carry the steps-vs-tasks
+            distinction with it, which is exactly how it was lost before. sTotal is
+            referenced, never hardcoded. */}
+        <div style={{ fontSize: 9.5, lineHeight: 1.4, color: 'var(--text3)', marginBottom: 6 }}>
+          All {sTotal} milestones across the full journey — whole steps, not checklist items
         </div>
         <ProgressBar value={sDone} total={sTotal} color="var(--charcoal)" />
         <div style={{ borderBottom: '1px solid var(--border)', marginTop: 14 }} />
@@ -1847,9 +1875,19 @@ function ProjectCard({ p }: { p: ProjCard }) {
                 ) : (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 4 }}>
-                      <span style={{ color: 'var(--text3)' }}>KPI tasks</span>
-                      <span style={{ color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
-                        {gTasks} of {gTasksTotal} · {taskPct}%
+                      {/* Same tooltip pattern as the overall-journey label above. Names
+                          the real reason these two numbers diverge: step completion and
+                          task completion are tracked separately and intentionally. */}
+                      <span
+                        style={{ color: 'var(--text3)', cursor: 'help' }}
+                        title={`Individual checklist items within the ${g.label} phase (${gTasksTotal} in total) — a different, more granular count than the ${g.label} step progress above. A step can be marked complete without every task under it being checked, so this figure can trail the step count.`}
+                      >
+                        KPI tasks
+                      </span>
+                      {/* nowrap so the added unit word can never break the figure onto a
+                          second line in the narrow 3-column cell. */}
+                      <span style={{ color: 'var(--text3)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        {gTasks} of {gTasksTotal} tasks · {taskPct}%
                       </span>
                     </div>
                     <div style={{ height: 3, borderRadius: 99, background: 'var(--surface2)', overflow: 'hidden' }}>
