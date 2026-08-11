@@ -198,6 +198,10 @@ export default function NewClientSetupPage() {
   const [location, setLocation]       = useState('')
   const [projectAddress, setProjectAddress] = useState('')
   const [startDate, setStartDate]     = useState('')
+  // Optional, like startDate: no default, never required. The OKR Dashboard's
+  // on-track indicator needs BOTH this and startDate, and renders nothing at all
+  // unless both are set — so leaving this blank is a supported state, not a gap.
+  const [targetCompletionDate, setTargetCompletionDate] = useState('')
   const [owner, setOwner]             = useState('Jeff')
   // Client Solution Manager dropdown — live option list + inline "add new" entry.
   // Starts empty and fills from fetchOwnerOptions(); the free-text path below
@@ -278,6 +282,7 @@ export default function NewClientSetupPage() {
         location: location.trim() || null,
         project_address: projectAddress.trim() || null,
         start_date: startDate || null,
+        target_completion_date: targetCompletionDate || null,
         owner,
         happiness,
         personality_tags: selectedTags,
@@ -325,7 +330,7 @@ export default function NewClientSetupPage() {
       setToast({ message: msg, type: 'error' })
       setSaving(false)
     }
-  }, [name, email, projectType, projectValue, location, projectAddress, startDate, owner, happiness, selectedTags, commStyle, keyInterests, priorities, router])
+  }, [name, email, projectType, projectValue, location, projectAddress, startDate, targetCompletionDate, owner, happiness, selectedTags, commStyle, keyInterests, priorities, router])
 
   return (
     <>
@@ -486,6 +491,21 @@ export default function NewClientSetupPage() {
                       onBlur={blurInput}
                     />
                   </div>
+                </div>
+
+                {/* Target Completion Date — optional, paired with Start Date above.
+                    Both are needed for the OKR Dashboard's on-track indicator; with
+                    either one blank that indicator simply does not render. */}
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Target Completion Date</label>
+                  <input
+                    type="date"
+                    value={targetCompletionDate}
+                    onChange={e => setTargetCompletionDate(e.target.value)}
+                    style={inputStyle}
+                    onFocus={focusInput}
+                    onBlur={blurInput}
+                  />
                 </div>
 
                 {/* Project Address */}

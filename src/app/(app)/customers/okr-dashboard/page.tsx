@@ -338,6 +338,11 @@ interface ClientRowDB {
   project_type: string | null
   owner: string | null
   location: string | null
+  // Both nullable and both frequently null: start_date has never been a required
+  // field, and target_completion_date is new. Every consumer must treat "either one
+  // missing" as "no timeline known" rather than substituting another date.
+  start_date: string | null
+  target_completion_date: string | null
 }
 interface CompletionRowDB {
   client_id: string
@@ -372,6 +377,10 @@ interface ClientComputed {
   contract: PhaseStatus
   designDays: number | null
   currentPhase: 'Design' | 'Permit' | 'Contract' | 'Complete'
+  // Carried through verbatim from the clients row — not parsed or defaulted here, so
+  // a null stays a null all the way to the consumer that decides to render nothing.
+  startDate: string | null
+  targetCompletionDate: string | null
 }
 
 // ── Date helpers (Eastern Time, matching the rest of the app) ──────────────
@@ -426,6 +435,54 @@ function gapText(done: number, target: number): string {
   return g > 0 ? `+${g}` : `−${Math.abs(g)}`
 }
 
+// ── Timeline pace (NEW, additive) ───────────────────────────────────────────
+// Compares a client's actual journey progress against how much of its planned
+// timeline has elapsed, and REUSES the PaceState vocabulary above rather than
+// introducing a second status language. Nothing above is modified.
+//
+// Returns null — meaning "render nothing at all" — whenever a real answer is not
+// available. That is the common case: start_date has never been a required field and
+// target_completion_date is brand new, so most clients have at least one null. There
+// is deliberately NO fallback anchor (created_at or anything else); inventing a start
+// date would produce a confident-looking indicator out of data nobody entered.
+function timelinePaceState(
+  startDate: string | null,
+  targetDate: string | null,
+  progressPct: number,
+  totalSteps: number,
+): { state: PaceState; elapsedPct: number } | null {
+  if (!startDate || !targetDate) return null
+
+  const startMs = new Date(startDate).getTime()
+  const endMs = new Date(targetDate).getTime()
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null
+  // A target on or before the start describes no usable span. Render nothing rather
+  // than divide by zero or report a nonsense "100% elapsed".
+  if (endMs <= startMs) return null
+
+  // "Today" as the Eastern-Time calendar date, parsed back to UTC midnight so it sits
+  // in the same space as the two YYYY-MM-DD endpoints. Mirrors how etYMD establishes
+  // this app's notion of the current day.
+  const todayMs = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })).getTime()
+  if (!Number.isFinite(todayMs)) return null
+
+  const elapsedPct = Math.round(Math.min(100, Math.max(0, ((todayMs - startMs) / (endMs - startMs)) * 100)))
+
+  // Precedence mirrors makePace's own ordering: target met, then on/ahead of pace,
+  // then behind. `done` stays reserved for a genuinely finished journey (the analogue
+  // of makePace's `done >= target`), so a client merely ahead of schedule reads as
+  // `go` ("In progress"), never "Target met".
+  if (progressPct >= 100) return { state: 'done', elapsedPct }
+
+  // Tolerance = one step's worth of progress, derived from the live step count instead
+  // of a magic number. Progress can only move in ~100/totalSteps jumps, so a client
+  // sitting a fraction of one step behind schedule is not meaningfully behind and
+  // should not flash red in the gap between two milestones.
+  const tolerance = totalSteps > 0 ? 100 / totalSteps : 0
+  if (progressPct >= elapsedPct - tolerance) return { state: 'go', elapsedPct }
+  return { state: 'risk', elapsedPct }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 export default function OKRDashboardV2Page() {
   // No theme hook any more: with the scoped stylesheet gone, light/dark comes
@@ -442,7 +499,7 @@ export default function OKRDashboardV2Page() {
     async function load() {
       const supabase = createClient()
       const [{ data: c }, { data: comp }, { data: st }, { data: chk }] = await Promise.all([
-        supabase.from('clients').select('id, name, project_type, owner, location'),
+        supabase.from('clients').select('id, name, project_type, owner, location, start_date, target_completion_date'),
         supabase.from('workflow_step_completions').select('client_id, step_number, completed_at'),
         supabase.from('journey_step_start').select('client_id, step_number, started_at'),
         supabase.from('journey_checklists').select('client_id, meeting_code, completed'),
@@ -577,6 +634,8 @@ export default function OKRDashboardV2Page() {
         contract,
         designDays,
         currentPhase,
+        startDate: c.start_date ?? null,
+        targetCompletionDate: c.target_completion_date ?? null,
       }
     })
   }, [clients, completions, starts])
@@ -694,6 +753,9 @@ export default function OKRDashboardV2Page() {
         tasks: [ts.completed, PHASE_TOTAL_TASKS[k]] as [number, number],
       }
     }),
+    // Passed through untouched; the card decides whether they add up to an indicator.
+    startDate: c.startDate,
+    targetCompletionDate: c.targetCompletionDate,
   }))
 
   // ── Pace banner ──────────────────────────────────────────────────────────
@@ -870,12 +932,24 @@ Today: ${now.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 
 ACTIVE CLIENTS AND OKR STATUS:
 ${computed.map(client => {
   const completedSteps = completedStepsByClient.get(client.id) ?? 0
+  // Same helper the card uses, fed the same progress figure (pct() here is the same
+  // Math.round formula as the card's oPct), so the AI and the UI can never disagree.
+  // Null unless BOTH dates are set, in which case the Timeline line is omitted
+  // entirely — deliberately not sent as "unknown", which the model would try to
+  // reason about.
+  const tl = timelinePaceState(
+    client.startDate,
+    client.targetCompletionDate,
+    pct(completedSteps, TOTAL_JOURNEY_STEPS),
+    TOTAL_JOURNEY_STEPS,
+  )
   return `
 - Client: ${client.name} | Client Solution Manager: ${client.owner} | Type: ${client.projectType}
   Overall Journey: ${completedSteps} of ${TOTAL_JOURNEY_STEPS} steps · ${pct(completedSteps, TOTAL_JOURNEY_STEPS)}%
   Design (Steps 6-13): ${client.design.completedCount} of ${client.design.total} steps ${client.design.done ? '✓ COMPLETE' : 'IN PROGRESS'}
   Permit (Steps 14-15): ${client.permit.completedCount} of ${client.permit.total} steps ${client.permit.done ? '✓ COMPLETE' : 'IN PROGRESS'}
-  Contract (Steps 16-21): ${client.contract.completedCount} of ${client.contract.total} steps ${client.contract.done ? '✓ COMPLETE' : 'IN PROGRESS'}`
+  Contract (Steps 16-21): ${client.contract.completedCount} of ${client.contract.total} steps ${client.contract.done ? '✓ COMPLETE' : 'IN PROGRESS'}${tl ? `
+  Timeline: ${client.startDate} → ${client.targetCompletionDate} · ${tl.elapsedPct}% elapsed vs ${pct(completedSteps, TOTAL_JOURNEY_STEPS)}% complete · ${PACE_LABEL[tl.state]}` : ''}`
 }).join('')}
 
 MONTHLY TARGETS (${monthLabel}):
@@ -1779,6 +1853,10 @@ interface ProjCard {
   phase: 'Design' | 'Permit' | 'Contract' | 'Complete'
   steps: [number, number]
   groups: ProjCardGroup[]
+  // Both null for any client without both dates set — the card renders no indicator
+  // in that case (see timelinePaceState).
+  startDate: string | null
+  targetCompletionDate: string | null
 }
 
 // Same four phases the live dashboard's CurrentPhaseBadge covers, in its tones.
@@ -1793,6 +1871,10 @@ function ProjectCard({ p }: { p: ProjCard }) {
   const [sDone, sTotal] = p.steps
   const oPct = sTotal > 0 ? Math.round((sDone / sTotal) * 100) : 0
   const pill = PHASE_PILL[p.phase]
+  // null unless BOTH dates are set — i.e. null for every client until someone fills
+  // them in. When null, the header row below renders exactly as it did before this
+  // indicator existed (see the else branch, which is the original markup verbatim).
+  const timeline = timelinePaceState(p.startDate, p.targetCompletionDate, oPct, sTotal)
   return (
     <div style={{ ...CARD, padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
@@ -1818,9 +1900,27 @@ function ProjectCard({ p }: { p: ProjCard }) {
           {p.pm}
         </span>
         {p.type && <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>{p.type}</span>}
-        <span style={{ marginLeft: 'auto' }}>
-          <Pill tone={pill.tone} dot={pill.dot}>{pill.label}</Pill>
-        </span>
+        {/* Right-aligned pill slot. The two branches are deliberate rather than one
+            branch with a conditional child: the else branch is the pre-existing markup
+            character-for-character, so a client without both dates renders identically
+            to before this feature. Only the timeline branch adds the flex wrapper. */}
+        {timeline ? (
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Pill tone={PACE_PILL[timeline.state]} dot={PACE_DOT[timeline.state]}>
+              <span
+                style={{ cursor: 'help' }}
+                title={`${timeline.elapsedPct}% of the planned timeline elapsed (${p.startDate} → ${p.targetCompletionDate}) vs ${oPct}% of steps complete.`}
+              >
+                {PACE_LABEL[timeline.state]}
+              </span>
+            </Pill>
+            <Pill tone={pill.tone} dot={pill.dot}>{pill.label}</Pill>
+          </span>
+        ) : (
+          <span style={{ marginLeft: 'auto' }}>
+            <Pill tone={pill.tone} dot={pill.dot}>{pill.label}</Pill>
+          </span>
+        )}
       </div>
 
       {/* Overall journey — charcoal bar, exactly as on the live dashboard. */}

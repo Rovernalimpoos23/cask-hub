@@ -51,6 +51,8 @@ interface ClientData {
   location: string
   project_address: string
   start_date: string
+  // Same shape and same optional semantics as start_date above: '' means "not set".
+  target_completion_date: string
   happiness: Happiness
   owner: string
   personality_tags: string[]
@@ -341,6 +343,7 @@ interface EditClientForm {
   location: string
   project_address: string
   start_date: string
+  target_completion_date: string
   owner: string
   happiness: Happiness
   personality_tags: string[]
@@ -2688,6 +2691,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       location: row.location ?? '',
       project_address: row.project_address ?? '',
       start_date: row.start_date ?? '',
+      target_completion_date: row.target_completion_date ?? '',
       happiness,
       owner: row.owner ?? '',
       personality_tags: Array.isArray(row.personality_tags) ? row.personality_tags : [],
@@ -3135,6 +3139,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       location: client.location ?? '',
       project_address: client.project_address ?? '',
       start_date: client.start_date ?? '',
+      target_completion_date: client.target_completion_date ?? '',
       owner: client.owner || 'Calin',
       happiness: client.happiness,
       personality_tags: [...client.personality_tags],
@@ -3165,6 +3170,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       if (editForm.location.trim() !== client.location) update.location = editForm.location.trim() || null
       if (editForm.project_address.trim() !== (client.project_address ?? '')) update.project_address = editForm.project_address.trim() || null
       if (editForm.start_date !== client.start_date) update.start_date = editForm.start_date || null
+      // Independent dirty-check, identical in form to start_date's above. Each field
+      // only contributes a key to `update` when it actually changed, so editing one
+      // date never writes the other, and clearing a field back to '' persists as null.
+      if (editForm.target_completion_date !== client.target_completion_date) {
+        update.target_completion_date = editForm.target_completion_date || null
+      }
       if (editForm.owner !== client.owner) update.owner = editForm.owner
       if (editForm.happiness !== client.happiness) update.happiness = editForm.happiness
       if (JSON.stringify(editForm.personality_tags) !== JSON.stringify(client.personality_tags)) {
@@ -3723,6 +3734,23 @@ Today's date is ${today}.
                       {[...ownerOptions, editForm.owner].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i).map(o => <option key={o}>{o}</option>)}
                     </select>
                   </div>
+                </div>
+
+                {/* Target Completion Date — optional, and the sibling of Start Date
+                    above. Placed in its own row rather than inside that grid so the
+                    existing Start Date / Client Solution Manager pairing keeps its
+                    current positions. Same input type, same nullable handling, same
+                    independent dirty-check on save as start_date. */}
+                <div style={editFieldStyle}>
+                  <label style={editLabelStyle}>Target Completion Date</label>
+                  <input
+                    type="date"
+                    value={editForm.target_completion_date}
+                    onChange={e => setEditForm(f => f && { ...f, target_completion_date: e.target.value })}
+                    style={editInputStyle}
+                    onFocus={editFocus}
+                    onBlur={editBlur}
+                  />
                 </div>
 
                 {/* Happiness */}
