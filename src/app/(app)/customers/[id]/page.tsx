@@ -1060,12 +1060,25 @@ function WorkflowStep({
 
           {/* Role columns — one card per role */}
           {/* NOTE — calendar-action placement. The inline "Create invite" button below
-              hangs off a checklist task whose text matches /schedule next meeting/i.
-              Only steps 4, 12, 28, 31 and 33 carry that task. For these meeting steps
-              no "Schedule next meeting" task exists here — calendar action has no
-              placement on this step yet: 7, 9, 15, 25, 37 (customer) and 1, 23, 27, 36
-              (internal; step 1 has no tasks at all). No button is invented for them —
-              a placement has to be decided per step rather than guessed. */}
+              hangs off a checklist task matched in the row loop below.
+              HAS a button: steps 4, 12, 28, 31, 33 (generic "Schedule next meeting")
+              and step 7 ("Schedule flag meeting & 2nd design meeting" → step 9 'Flag
+              Meeting'; the "& 2nd design meeting" half gets no separate invite).
+              Deliberately WITHOUT a button, each for a specific reason:
+              - Step 15 'Confirm final design; schedule contract review + permit
+                submission' — getNextMeetingStep(15) returns step 23, the INTERNAL
+                'Contract Review Estimator/Client Solution Manager', but the task means
+                the customer-facing step 25 'Contract Review'. Wrong target, so not wired.
+              - Step 25 — three task lines could each independently qualify, and none
+                matches the computed target (step 27): 'Discuss timeline & schedule
+                tentative kick-off (~6 weeks out)', 'Schedule selection meeting', and
+                'If they do not sign, schedule a signature meeting' (no journey step is
+                titled 'signature meeting' at all). Which line owns the button is not
+                decidable here, so none does.
+              - Steps 9, 37 (customer) and 1, 23, 27, 36 (internal) — no
+                "Schedule next meeting" task exists here — calendar action has no
+                placement on this step yet. Step 1 has no tasks at all.
+              No button is invented for any of the above. */}
           {step.roles.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
               {step.roles.map(roleBlock => (
@@ -1091,18 +1104,30 @@ function WorkflowStep({
                       // so the existing helper is reused as-is (not redefined).
                       const credit = completionLabel(row)
                       const busy = checklistToggling.has(key)
-                      // Inline calendar action, only on a "Schedule next meeting" task.
+                      // Inline calendar action. Exactly two accepted task texts, matched
+                      // narrowly on purpose: the generic phrase (steps 4, 12, 28, 31, 33)
+                      // plus step 7's specific wording, which resolves cleanly to step 9
+                      // 'Flag Meeting'. A looser pattern such as /schedule .*meeting/i
+                      // would also catch steps 15 and 25, whose scheduling tasks resolve to
+                      // the WRONG target step — see the note above the role columns.
                       // getNextMeetingStep skips work windows to find the meeting the task
                       // actually refers to; null (no later meeting step) disables the button.
-                      const isScheduleNext = /schedule next meeting/i.test(task)
+                      const isScheduleNext =
+                        /schedule next meeting/i.test(task) ||
+                        task === 'Schedule flag meeting & 2nd design meeting'
                       const nextMeetingStep = isScheduleNext ? getNextMeetingStep(step.step) : null
-                      return (
-                        <Fragment key={ti}>
+                      // The toggle is extracted to a const so the two branches below can
+                      // share it: schedule rows wrap it in a flex row alongside the badge
+                      // and button, every other row still renders it inside a bare
+                      // Fragment exactly as before — identical DOM, no wrapper added.
+                      // `flex: 1` only applies on schedule rows, and pushes the right-hand
+                      // group to the row's trailing edge.
+                      const taskToggle = (
                         <button
                           type="button"
                           onClick={() => { if (!busy) onToggleChecklist(code, roleBlock.role, task, !checked) }}
                           disabled={busy}
-                          style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.6 : 1 }}
+                          style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.6 : 1, ...(isScheduleNext ? { flex: 1, minWidth: 0 } : {}) }}
                         >
                           <span
                             className="shrink-0"
@@ -1123,33 +1148,70 @@ function WorkflowStep({
                             )}
                           </span>
                         </button>
-                        {isScheduleNext && (
-                          <button
-                            type="button"
-                            onClick={() => { if (nextMeetingStep) onCreateInvite(nextMeetingStep) }}
-                            disabled={!nextMeetingStep}
-                            title={nextMeetingStep
-                              ? `Create a Teams invite for STEP${String(nextMeetingStep.step).padStart(2, '0')} ${nextMeetingStep.title}`
-                              : 'No later meeting step exists in the journey — nothing to schedule.'}
-                            style={{
-                              ...workflowActionBtn,
-                              alignSelf: 'flex-start',
-                              marginLeft: 22,
-                              fontSize: 10.5,
-                              padding: '3px 8px',
-                              opacity: nextMeetingStep ? 1 : 0.45,
-                              cursor: nextMeetingStep ? 'pointer' : 'not-allowed',
-                            }}
-                          >
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="3" y="4" width="18" height="18" rx="2" />
-                              <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-                              <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
-                            </svg>
-                            Create invite
-                          </button>
-                        )}
-                        </Fragment>
+                      )
+                      // Non-schedule rows: unchanged DOM (bare Fragment, no wrapper div).
+                      if (!isScheduleNext) return <Fragment key={ti}>{taskToggle}</Fragment>
+                      return (
+                        <div key={ti} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {taskToggle}
+                          {/* Badge + button are hidden together when there is no later
+                              meeting step, so nothing unusable is shown on the row. The
+                              button's own disabled/tooltip branches below are deliberately
+                              left intact (now unreachable) rather than removed. */}
+                          {nextMeetingStep && (
+                            <>
+                              <span
+                                className="shrink-0"
+                                style={{
+                                  fontSize: 9.5,
+                                  fontWeight: 600,
+                                  letterSpacing: '0.03em',
+                                  color: 'var(--text3)',
+                                  background: 'var(--surface2)',
+                                  border: '1px solid var(--border)',
+                                  borderRadius: 4,
+                                  padding: '2px 5px',
+                                  whiteSpace: 'nowrap',
+                                  fontVariantNumeric: 'tabular-nums',
+                                }}
+                              >
+                                → step {String(nextMeetingStep.step).padStart(2, '0')}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => { if (nextMeetingStep) onCreateInvite(nextMeetingStep) }}
+                                disabled={!nextMeetingStep}
+                                title={nextMeetingStep
+                                  ? `Create a Teams invite for STEP${String(nextMeetingStep.step).padStart(2, '0')} ${nextMeetingStep.title}`
+                                  : 'No later meeting step exists in the journey — nothing to schedule.'}
+                                className="shrink-0"
+                                style={{
+                                  ...workflowActionBtn,
+                                  // Solid success fill. var(--green) is the app's success
+                                  // token (#166534 light / #59B87E dark) — the same one the
+                                  // checkmark credit label and the toast at line ~4174 use.
+                                  background: 'var(--green)',
+                                  borderColor: 'var(--green)',
+                                  color: '#fff',
+                                  fontSize: 10.5,
+                                  fontWeight: 600,
+                                  padding: '3px 8px',
+                                  opacity: nextMeetingStep ? 1 : 0.45,
+                                  cursor: nextMeetingStep ? 'pointer' : 'not-allowed',
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
+                                onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                                  <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+                                  <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
+                                </svg>
+                                Create invite
+                              </button>
+                            </>
+                          )}
+                        </div>
                       )
                     })}
                   </div>
