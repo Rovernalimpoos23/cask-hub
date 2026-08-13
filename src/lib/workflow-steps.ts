@@ -205,6 +205,14 @@ export const WORKFLOW_STEPS: WorkflowStepDef[] = [
 
 export const TOTAL_WORKFLOW_STEPS = WORKFLOW_STEPS.length
 
+// The next step after `currentStepNumber` that is an actual meeting rather than a
+// work period — i.e. the first later step whose type is not 'window' ('customer' or
+// 'internal'). Returns null when no later meeting step exists (e.g. from step 37, or
+// from any step followed only by work windows). Pure; reads WORKFLOW_STEPS only.
+export function getNextMeetingStep(currentStepNumber: number): WorkflowStepDef | null {
+  return WORKFLOW_STEPS.find(s => s.step > currentStepNumber && s.type !== 'window') ?? null
+}
+
 // ── Due-date / timeline helpers (NEW, additive) ──────────────────────────────
 // Shared by the customer detail page and the dashboard so both compute task due
 // dates and overdue states the same way. All pure — no side effects, no I/O.

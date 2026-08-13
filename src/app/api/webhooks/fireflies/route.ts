@@ -340,11 +340,42 @@ export async function POST(req: NextRequest) {
     }
 
     if (candidateClientName && meetingCode) {
-      const { data: matchedClient, error: matchError } = await supabase
+      // Escape ILIKE wildcards so % / _ inside a client name are matched as literal
+      // characters. Same idiom as api/auth/microsoft/callback/route.ts:104.
+      const namePattern = candidateClientName.replace(/[%_]/g, '\\$&')
+      const CLIENT_FIELDS = 'id, name, project_type, personality_tags, communication_style, key_interests, happiness, ai_tip'
+
+      // Exact (case-insensitive) match first. Every historically successful match in
+      // live data has been an exact name match, so nothing real depends on substring.
+      let { data: candidates, error: matchError } = await supabase
         .from('clients')
-        .select('id, name, project_type, personality_tags, communication_style, key_interests, happiness, ai_tip')
-        .ilike('name', `%${candidateClientName}%`)
-        .maybeSingle()
+        .select(CLIENT_FIELDS)
+        .ilike('name', namePattern)
+
+      // Widen to substring only when exact found nothing. Deliberately no
+      // .maybeSingle() on either query: it collapses "0 rows" and "2+ rows" into the
+      // same null, so an ambiguous name was indistinguishable from no match at all.
+      if (!matchError && (candidates?.length ?? 0) === 0) {
+        const fallback = await supabase
+          .from('clients')
+          .select(CLIENT_FIELDS)
+          .ilike('name', `%${namePattern}%`)
+        candidates = fallback.data
+        matchError = fallback.error
+      }
+
+      // Resolve only on exactly one row. 0 and 2+ both fall through to the unmatched
+      // `meetings` bucket below (step 6) — never guess between two clients.
+      const matchedClient = candidates?.length === 1 ? candidates[0] : null
+
+      if ((candidates?.length ?? 0) >= 2) {
+        console.warn(
+          '[fireflies] AMBIGUOUS client match — routing to meetings instead of client journey:',
+          candidateClientName,
+          '| matched:',
+          (candidates ?? []).map(c => c.name).join(' | ')
+        )
+      }
 
       console.log('[fireflies] matchedClient:', matchedClient ?? 'NO MATCH', '| matchError:', matchError?.message ?? 'none')
 

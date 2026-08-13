@@ -707,10 +707,14 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   )
 }
 
-function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+// `lockedTitle` puts the modal in locked-invite mode: the title is fixed to the
+// STEP<NN> … : <Client> string the Fireflies webhook parses, and Teams is forced on.
+// Omitted (the manual "+ Add Event" flow) everything behaves exactly as before.
+function AddEventModal({ onClose, onSuccess, lockedTitle }: { onClose: () => void; onSuccess: () => void; lockedTitle?: string }) {
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: ET })
+  const isLocked = !!lockedTitle
 
-  const [title, setTitle] = useState('')
+  const [title, setTitle] = useState(lockedTitle ?? '')
   const [isAllDay, setIsAllDay] = useState(false)
   const [date, setDate] = useState(todayStr)
   // Kept even when All Day hides them: the API requires start/end, so we still
@@ -718,7 +722,9 @@ function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
   const [startTime, setStartTime] = useState('09:00')
   const [endTime, setEndTime] = useState('09:30')
   const [location, setLocation] = useState('')
-  const [isTeamsMeeting, setIsTeamsMeeting] = useState(false)
+  // Locked-invite mode forces Teams on (Fireflies has to join the call to record it).
+  // Manual mode keeps the original default of off.
+  const [isTeamsMeeting, setIsTeamsMeeting] = useState(isLocked)
   // Recurrence — mirrors the President's Calendar Add Event modal. Like every
   // other field here, these reset on close: the modal is conditionally mounted,
   // so closing unmounts it and clears all local state.
@@ -832,13 +838,37 @@ function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
           {/* Title */}
           <div>
             <label className={LABEL_CLS}>Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="Event title"
-              className={INPUT_CLS}
-            />
+            {isLocked ? (
+              <>
+                <div className="relative" title="Required format for Fireflies to capture this meeting — not editable.">
+                  <input
+                    type="text"
+                    value={title}
+                    readOnly
+                    aria-readonly="true"
+                    className={`${INPUT_CLS} cursor-not-allowed pr-9 opacity-80`}
+                  />
+                  <svg
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text3)]"
+                    width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  >
+                    <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </div>
+                <div className="mt-1.5 text-xs text-[var(--text3)]">
+                  Required format for Fireflies to capture this meeting — not editable.
+                </div>
+              </>
+            ) : (
+              <input
+                type="text"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="Event title"
+                className={INPUT_CLS}
+              />
+            )}
           </div>
 
           {/* All Day */}
@@ -880,10 +910,35 @@ function AddEventModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
           </div>
 
           {/* Teams Meeting */}
+          {/* Locked mode renders a static on-state instead of <Toggle> so the shared
+              Toggle component (also used by All day / Recurring) needs no change. */}
           <div>
-            <Toggle checked={isTeamsMeeting} onChange={setIsTeamsMeeting} label="Teams meeting" />
-            {isTeamsMeeting && (
-              <div className="mt-2 text-xs text-[var(--text3)]">Microsoft Teams link will be auto-generated</div>
+            {isLocked ? (
+              <>
+                <div className="flex items-center gap-2.5" title="Teams is required so Fireflies can join and record this meeting.">
+                  <span className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-[var(--red)] opacity-60">
+                    <span className="inline-block h-3.5 w-3.5 translate-x-4 rounded-full bg-white" />
+                  </span>
+                  <span className="text-sm text-[var(--text2)]">Teams meeting</span>
+                  <svg
+                    aria-hidden="true"
+                    className="text-[var(--text3)]"
+                    width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  >
+                    <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </div>
+                <div className="mt-2 text-xs text-[var(--text3)]">
+                  Always on for journey meetings — Fireflies joins the Teams call to record it.
+                </div>
+              </>
+            ) : (
+              <>
+                <Toggle checked={isTeamsMeeting} onChange={setIsTeamsMeeting} label="Teams meeting" />
+                {isTeamsMeeting && (
+                  <div className="mt-2 text-xs text-[var(--text3)]">Microsoft Teams link will be auto-generated</div>
+                )}
+              </>
             )}
           </div>
 
@@ -1066,6 +1121,21 @@ export default function MyCalendarPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [successMsg, setSuccessMsg] = useState('')
   const [monthRefreshKey, setMonthRefreshKey] = useState(0)
+  // Locked-invite mode, set only when arrived at via the client-journey "Create invite"
+  // button. null for every normal visit, which is what keeps "+ Add Event" unchanged.
+  const [lockedInvite, setLockedInvite] = useState<{ title: string; returnTo: string | null } | null>(null)
+
+  // Read ?prefillTitle=…&locked=1&returnTo=… once on mount and auto-open the modal.
+  // Uses window.location rather than useSearchParams() so this page needs no Suspense
+  // boundary (same approach as dashboard/page.tsx:1081). Bails out unless BOTH locked=1
+  // and a non-empty prefillTitle are present, so a partial URL can't half-lock the form.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const prefillTitle = q.get('prefillTitle')
+    if (q.get('locked') !== '1' || !prefillTitle) return
+    setLockedInvite({ title: prefillTitle, returnTo: q.get('returnTo') })
+    setAddOpen(true)
+  }, [])
 
   const load = useCallback(async () => {
     try {
@@ -1182,6 +1252,9 @@ export default function MyCalendarPage() {
     setSuccessMsg('Event added successfully!')
     load()
     setMonthRefreshKey(k => k + 1)
+    // Locked-invite mode only: hand the user back where they came from. Without a
+    // returnTo (every manual add) behaviour is unchanged — stay on My Calendar.
+    if (lockedInvite?.returnTo) router.push(lockedInvite.returnTo)
   }
 
   return (
@@ -1297,7 +1370,15 @@ export default function MyCalendarPage() {
 
       {selected && <EventPopup event={selected} onClose={() => setSelected(null)} />}
 
-      {addOpen && <AddEventModal onClose={() => setAddOpen(false)} onSuccess={handleEventAdded} />}
+      {/* Clearing lockedInvite on close matters: without it, dismissing a locked invite
+          and then clicking "+ Add Event" would reopen the modal still locked. */}
+      {addOpen && (
+        <AddEventModal
+          onClose={() => { setAddOpen(false); setLockedInvite(null) }}
+          onSuccess={handleEventAdded}
+          lockedTitle={lockedInvite?.title}
+        />
+      )}
 
       {/* Success toast — fades after 3s (see effect above). */}
       {successMsg && (

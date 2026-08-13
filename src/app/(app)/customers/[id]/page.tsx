@@ -4,7 +4,7 @@
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from 'react'
 import ReactMarkdown from 'react-markdown'
 import 'react-quill/dist/quill.snow.css'
 import { TopBar } from '@/components/ui'
@@ -23,6 +23,7 @@ import {
   computeTaskDueDate,
   getTaskDueState,
   daysUntilDue,
+  getNextMeetingStep,
   type WorkflowStepDef,
 } from '@/lib/workflow-steps'
 
@@ -955,6 +956,7 @@ function WorkflowStep({
   onMarkComplete,
   onAction,
   hasRecap,
+  onCreateInvite,
 }: {
   step: WorkflowStepDef
   isCompleted: boolean
@@ -968,6 +970,9 @@ function WorkflowStep({
   onAction: (kind: 'agenda' | 'recap' | 'email', step: WorkflowStepDef) => void
   // True when a saved recap (client_meetings row) exists for this step.
   hasRecap: boolean
+  // Fired by the inline "Create invite" action on a "Schedule next meeting" task.
+  // Receives the step the invite is FOR (the next meeting step), not this step.
+  onCreateInvite: (targetStep: WorkflowStepDef) => void
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   // `defaultExpanded` depends on the current step, which is only known after the
@@ -1054,6 +1059,13 @@ function WorkflowStep({
           )}
 
           {/* Role columns — one card per role */}
+          {/* NOTE — calendar-action placement. The inline "Create invite" button below
+              hangs off a checklist task whose text matches /schedule next meeting/i.
+              Only steps 4, 12, 28, 31 and 33 carry that task. For these meeting steps
+              no "Schedule next meeting" task exists here — calendar action has no
+              placement on this step yet: 7, 9, 15, 25, 37 (customer) and 1, 23, 27, 36
+              (internal; step 1 has no tasks at all). No button is invented for them —
+              a placement has to be decided per step rather than guessed. */}
           {step.roles.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
               {step.roles.map(roleBlock => (
@@ -1079,9 +1091,14 @@ function WorkflowStep({
                       // so the existing helper is reused as-is (not redefined).
                       const credit = completionLabel(row)
                       const busy = checklistToggling.has(key)
+                      // Inline calendar action, only on a "Schedule next meeting" task.
+                      // getNextMeetingStep skips work windows to find the meeting the task
+                      // actually refers to; null (no later meeting step) disables the button.
+                      const isScheduleNext = /schedule next meeting/i.test(task)
+                      const nextMeetingStep = isScheduleNext ? getNextMeetingStep(step.step) : null
                       return (
+                        <Fragment key={ti}>
                         <button
-                          key={ti}
                           type="button"
                           onClick={() => { if (!busy) onToggleChecklist(code, roleBlock.role, task, !checked) }}
                           disabled={busy}
@@ -1106,6 +1123,33 @@ function WorkflowStep({
                             )}
                           </span>
                         </button>
+                        {isScheduleNext && (
+                          <button
+                            type="button"
+                            onClick={() => { if (nextMeetingStep) onCreateInvite(nextMeetingStep) }}
+                            disabled={!nextMeetingStep}
+                            title={nextMeetingStep
+                              ? `Create a Teams invite for STEP${String(nextMeetingStep.step).padStart(2, '0')} ${nextMeetingStep.title}`
+                              : 'No later meeting step exists in the journey — nothing to schedule.'}
+                            style={{
+                              ...workflowActionBtn,
+                              alignSelf: 'flex-start',
+                              marginLeft: 22,
+                              fontSize: 10.5,
+                              padding: '3px 8px',
+                              opacity: nextMeetingStep ? 1 : 0.45,
+                              cursor: nextMeetingStep ? 'pointer' : 'not-allowed',
+                            }}
+                          >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="4" width="18" height="18" rx="2" />
+                              <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+                              <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
+                            </svg>
+                            Create invite
+                          </button>
+                        )}
+                        </Fragment>
                       )
                     })}
                   </div>
@@ -3412,6 +3456,24 @@ Today's date is ${today}.
   const currentStepNumber = journey.currentStepNumber
   const currentStepDef = journey.currentStep
 
+  // "Create invite" on a "Schedule next meeting" task. Builds the title in the exact
+  // shape the Fireflies webhook parses — /^STEP(\d+)\s+(.+):\s*([^:]+)$/, so no space
+  // after STEP, two digits, and the client name after the final colon — then hands it
+  // to My Calendar prefilled and locked so the format can't be edited away.
+  // Name is captured here rather than read inside the handler: the `client` guards
+  // above narrow it in straight-line code, but that narrowing does not survive into a
+  // nested function declaration.
+  const inviteClientName = client.name
+  function handleCreateInvite(targetStep: WorkflowStepDef) {
+    const inviteTitle = `STEP${String(targetStep.step).padStart(2, '0')} ${targetStep.title}: ${inviteClientName}`
+    const query = new URLSearchParams({
+      prefillTitle: inviteTitle,
+      locked: '1',
+      returnTo: `/customers/${params.id}`,
+    })
+    router.push(`/my-workspace/calendar?${query.toString()}`)
+  }
+
   // ── Derived values for the Fable redesign ──────────────────────────────────
   const allMeetingDefs = JOURNEY_PHASES.flatMap(p => p.meetings)
 
@@ -4530,6 +4592,7 @@ Today's date is ${today}.
                 onMarkComplete={markStepComplete}
                 onAction={handleWorkflowAction}
                 hasRecap={journeyRows.has(stepCode(step.step))}
+                onCreateInvite={handleCreateInvite}
               />
             ))}
           </div>
