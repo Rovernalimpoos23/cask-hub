@@ -1063,19 +1063,23 @@ function WorkflowStep({
             className="shrink-0 self-center"
             style={{
               ...workflowActionBtn,
-              // Solid success fill, same treatment the checklist-row version used:
-              // var(--green) is the app's success token (#166534 light / #59B87E dark).
-              background: 'var(--green)',
-              borderColor: 'var(--green)',
-              color: '#fff',
-              fontSize: 10,
-              fontWeight: 600,
-              padding: '3px 8px',
+              // Ghost/outline treatment so it sits at the same visual weight as the type
+              // badge beside it: transparent fill, hairline neutral border and muted text
+              // (the 0.5px + var(--border) + var(--text2) idiom already used by the time
+              // window pill below), with padding/font size matched to the badge's
+              // '2px 7px' / 9.5px. Only the icon carries the green accent.
+              background: 'transparent',
+              border: '0.5px solid var(--border)',
+              color: 'var(--text2)',
+              fontSize: 9.5,
+              padding: '2px 7px',
             }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = '0.85' }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'transparent' }}
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {/* Stroke set via style rather than the stroke attribute — presentation
+                attributes don't resolve var(); same approach as the checkbox tick above. */}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--green)' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="4" width="18" height="18" rx="2" />
               <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
               <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
