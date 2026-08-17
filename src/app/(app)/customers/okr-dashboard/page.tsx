@@ -279,17 +279,36 @@ const PHASE_META: Record<
 // toward the overall journey row but toward no phase's step or KPI-task total. That
 // is why the three phase totals sum to less than the overall journey total.
 
-// A hardcoded literal, and a WRONG one: a live read of the Precon KPI Tracker
-// (2026-08-08) showed real targets are maintained per person, per phase, per
-// month and range 0–9 — Aug 2026 team targets are Design 8 / Permit 6 /
-// Contract 6, not 3 each. The Tgt and Gap COLUMNS were removed from the two
-// per-CSM tables rather than keep printing a false number.
+// ═══════════════════════════════════════════════════════════════════════════
+// MONTHLY OKR TARGETS — AUGUST 2026 FIGURES, HARDCODED AS A STOPGAP.
+// THIS IS NOT A PERMANENT FIX. These three numbers were read by hand from the
+// Precon KPI Tracker on 2026-08-08 and WILL NEED MANUAL UPDATING EVERY MONTH
+// until targets are read from a real source. If you are reading this in a month
+// other than August 2026, these values are stale by definition.
 //
-// The constant survives because it is still an INPUT to the pace model, which
-// drives the Status column and the KPI cards — removing it would change Status,
-// which is out of scope here and is independently correct. Do not delete it
-// without replacing what reads it. See the remaining consumers at :597 and :619.
-const MONTHLY_TARGET_PER_PM = 3 // each OKR: 3 per CSM per month
+// They are phase-level TEAM totals, not per-person targets. The tracker keeps
+// real targets per person, per phase, per month, ranging 0–9, and they are NOT
+// uniform across people — so a per-person target CANNOT be derived by dividing
+// these by headcount. That is why the per-CSM tables report activity rather than
+// pace (see ActivityState below), and why the predecessor constant
+// MONTHLY_TARGET_PER_PM = 3 was removed outright: it was a flat per-person figure
+// multiplied out to a team total, which is backwards from how the real numbers work.
+//
+// The month gate below is deliberate: outside TARGET_MONTH these targets resolve
+// to null and the UI renders "no target set" instead of silently pacing against
+// last month's numbers. Update all four constants together.
+// ═══════════════════════════════════════════════════════════════════════════
+const TARGET_MONTH = '2026-08' // ET year-month these figures describe
+const TARGET_MONTH_LABEL = 'August 2026'
+const MONTHLY_TARGET_DESIGN = 8
+const MONTHLY_TARGET_PERMIT = 6
+const MONTHLY_TARGET_CONTRACT = 6
+
+const MONTHLY_TEAM_TARGETS: Record<PhaseKey, number> = {
+  design: MONTHLY_TARGET_DESIGN,
+  permit: MONTHLY_TARGET_PERMIT,
+  contract: MONTHLY_TARGET_CONTRACT,
+}
 
 // Denominator for the overall journey row — DERIVED, not hardcoded.
 // This was a literal `37`, and a literal `33` before the 33 -> 37 migration, which
@@ -411,6 +430,34 @@ const PACE_DOT: Record<PaceState, string> = {
   risk: 'var(--red)',
 }
 const PACE_PILL: Record<PaceState, string> = { done: 'green', go: 'blue', ok: 'neutral', risk: 'red' }
+
+// ── Activity state — for per-person cells ONLY ──────────────────────────────
+// Deliberately NOT the pace model. Pace requires a target, and no per-person
+// target exists: the tracker's real per-person targets are non-uniform (0–9), so
+// dividing a team total by headcount would print a quota nobody set. Rather than
+// assert a false target, these cells report what the person actually DID this
+// month — completed / underway / nothing. No target is implied anywhere.
+// Pace judgement lives only on the Team footer row, against the real team totals.
+type ActivityState = 'completed' | 'inflight' | 'none'
+
+const ACTIVITY_LABEL: Record<ActivityState, string> = {
+  completed: 'Completed',
+  inflight: 'In flight',
+  none: 'No activity',
+}
+const ACTIVITY_DOT: Record<ActivityState, string> = {
+  completed: 'var(--green)',
+  inflight: '#3b82f6',
+  none: 'var(--text3)',
+}
+const ACTIVITY_PILL: Record<ActivityState, string> = { completed: 'green', inflight: 'blue', none: 'neutral' }
+
+const activityState = (obtained: number, inFlight: number): ActivityState =>
+  obtained > 0 ? 'completed' : inFlight > 0 ? 'inflight' : 'none'
+
+// Owner sentinel assigned in `computed` when clients.owner is null/blank. It is a
+// placeholder, not a person: it must never count toward CSM headcount.
+const UNASSIGNED_OWNER = 'Unassigned'
 
 function makePace(asOfDay: number, daysInMonth: number) {
   const expected = (target: number) => target * (asOfDay / daysInMonth)
@@ -628,7 +675,7 @@ export default function OKRDashboardV2Page() {
         id: c.id,
         name: c.name,
         projectType: c.project_type ?? '',
-        owner: c.owner?.trim() || 'Unassigned',
+        owner: c.owner?.trim() || UNASSIGNED_OWNER,
         design,
         permit,
         contract,
@@ -677,8 +724,19 @@ export default function OKRDashboardV2Page() {
     () => Array.from(new Set(computed.map(c => c.owner))).sort((a, b) => a.localeCompare(b)),
     [computed],
   )
-  const numPMs = pmNames.length
-  const monthlyTeamTarget = numPMs * MONTHLY_TARGET_PER_PM
+  // Headcount counts PEOPLE only. `pmNames` still includes the "Unassigned"
+  // sentinel so its clients keep a visible row in the per-CSM tables, but it is not
+  // a CSM: excluding it here stops it inflating the tab badge and the header copy.
+  // (Team targets no longer multiply headcount at all, so the old inflation of
+  // monthlyTeamTarget is gone by construction, not just by this filter.)
+  const numPMs = pmNames.filter(n => n !== UNASSIGNED_OWNER).length
+
+  // Real phase-level team totals, gated on the month they describe. Returns null —
+  // meaning "no target set" — rather than pacing against stale figures once
+  // TARGET_MONTH has passed. Every consumer must handle the null.
+  const targetsAreCurrent = nowYM === TARGET_MONTH
+  const teamTarget = (k: PhaseKey): number | null =>
+    targetsAreCurrent ? MONTHLY_TEAM_TARGETS[k] : null
 
   const obtainedThisMonth = (k: PhaseKey) =>
     computed.filter(c => phaseOf(c, k).done && inCurrentMonth(phaseOf(c, k).completedDate)).length
@@ -699,8 +757,9 @@ export default function OKRDashboardV2Page() {
     const group = computed.filter(c => c.owner === pm)
     const perPhase = (k: PhaseKey) => {
       const winners = group.filter(c => phaseOf(c, k).done && inCurrentMonth(phaseOf(c, k).completedDate))
+      // No `target` field: there is no per-person target to report. Consumers derive
+      // an ActivityState from obtained/inFlight instead of a PaceState.
       return {
-        target: MONTHLY_TARGET_PER_PM,
         obtained: winners.length,
         names: winners.map(c => c.name),
         inFlight: group.filter(c => !phaseOf(c, k).done && phaseOf(c, k).completedCount > 0).length,
@@ -760,10 +819,16 @@ export default function OKRDashboardV2Page() {
 
   // ── Pace banner ──────────────────────────────────────────────────────────
   const totalDone = PHASE_KEYS.reduce((s, k) => s + obtainedThisMonth(k), 0)
-  const totalTarget = monthlyTeamTarget * PHASE_KEYS.length
-  const behindPhases = PHASE_KEYS.filter(
-    k => pace.state(monthlyTeamTarget, obtainedThisMonth(k), inFlight(k)) === 'risk',
-  )
+  // Sum of the three real phase totals (8 + 6 + 6 = 20 for Aug 2026), not a headcount
+  // multiple. Null when the targets are out of month, so the banner omits "of N"
+  // rather than printing a stale or bogus denominator.
+  const totalTarget = targetsAreCurrent
+    ? PHASE_KEYS.reduce((s, k) => s + MONTHLY_TEAM_TARGETS[k], 0)
+    : null
+  const behindPhases = PHASE_KEYS.filter(k => {
+    const t = teamTarget(k)
+    return t !== null && pace.state(t, obtainedThisMonth(k), inFlight(k)) === 'risk'
+  })
   const totalInFlight = PHASE_KEYS.reduce((s, k) => s + inFlight(k), 0)
   const elapsedPct = Math.round((asOfDay / daysInMonth) * 100)
 
@@ -952,8 +1017,18 @@ ${computed.map(client => {
   Timeline: ${client.startDate} → ${client.targetCompletionDate} · ${tl.elapsedPct}% elapsed vs ${pct(completedSteps, TOTAL_JOURNEY_STEPS)}% complete · ${PACE_LABEL[tl.state]}` : ''}`
 }).join('')}
 
-MONTHLY TARGETS (${monthLabel}):
-${PHASE_KEYS.map(k => `- ${PHASE_META[k].label}: Target ${monthlyTeamTarget} | Obtained ${obtainedThisMonth(k)} | In flight ${inFlight(k)}`).join('\n')}
+MONTHLY TEAM TARGETS (${monthLabel}):
+${PHASE_KEYS.map(k => {
+  const t = teamTarget(k)
+  return `- ${PHASE_META[k].label}: Team target ${t === null ? 'NOT SET for this month' : t} | Obtained ${obtainedThisMonth(k)} | In flight ${inFlight(k)}`
+}).join('\n')}
+These are WHOLE-TEAM totals for the month, hardcoded from the ${TARGET_MONTH_LABEL} tracker read.
+There is NO per-person target available: the tracker's real per-person targets are
+non-uniform, so never divide a team total by headcount to state someone's individual
+target, and never claim an individual is ahead of or behind "their" target. Per-CSM
+figures below are activity counts only.${targetsAreCurrent ? '' : `
+WARNING: the hardcoded targets describe ${TARGET_MONTH_LABEL}, which is NOT the current
+month. Treat all target figures as unavailable and say so if asked.`}
 
 ${trackerContext}
 
@@ -1083,10 +1158,14 @@ in the data above — never invent clients or numbers not present here.`
                 {PHASE_KEYS.map(k => {
                   const done = obtainedThisMonth(k)
                   const flight = inFlight(k)
-                  const st = pace.state(monthlyTeamTarget, done, flight)
-                  const exp = Math.round(pace.expected(monthlyTeamTarget))
+                  // Per-phase team target now (8 / 6 / 6), and null once out of month.
+                  const tgt = teamTarget(k)
+                  const st = tgt === null ? null : pace.state(tgt, done, flight)
+                  const exp = tgt === null ? null : Math.round(pace.expected(tgt))
                   const foot =
-                    st === 'risk' ? `${Math.max(0, exp - done)} behind pace · ${exp} expected by ${monthShort} ${asOfDay}`
+                    st === null || exp === null
+                      ? `No target set for ${monthName} — update MONTHLY_TARGET_* constants`
+                    : st === 'risk' ? `${Math.max(0, exp - done)} behind pace · ${exp} expected by ${monthShort} ${asOfDay}`
                     : st === 'done' ? 'Target met'
                     : flight > 0 ? `${flight} in flight · on pace as of ${monthShort} ${asOfDay}`
                     : `On pace · ${exp} expected by ${monthShort} ${asOfDay}`
@@ -1095,28 +1174,34 @@ in the data above — never invent clients or numbers not present here.`
                       <div style={KPI_LABEL}>{PHASE_META[k].label}</div>
                       <div style={KPI_VALUE_ROW}>
                         <span style={KPI_VALUE}>{done}</span>
-                        <span style={KPI_DELTA}>of {monthlyTeamTarget} target</span>
+                        <span style={KPI_DELTA}>
+                          {tgt === null ? 'no target set' : `of ${tgt} team target`}
+                        </span>
                       </div>
                       {/* Progress bar with the pace marker sitting on top of it —
-                          same 4px bar the live dashboard uses everywhere. */}
-                      <div style={{ position: 'relative', marginTop: 11 }}>
-                        <ProgressBar
-                          value={done}
-                          total={monthlyTeamTarget}
-                          color={st === 'risk' ? 'var(--red)' : PHASE_META[k].accent}
-                        />
-                        <span
-                          title={`Expected pace at ${monthShort} ${asOfDay}`}
-                          style={{
-                            position: 'absolute',
-                            top: -3,
-                            left: `${Math.min(100, (asOfDay / daysInMonth) * 100)}%`,
-                            width: 1,
-                            height: 10,
-                            background: 'var(--text3)',
-                          }}
-                        />
-                      </div>
+                          same 4px bar the live dashboard uses everywhere. With no
+                          target there is nothing to draw a proportion against, so the
+                          bar and its marker are omitted rather than shown empty. */}
+                      {tgt !== null && (
+                        <div style={{ position: 'relative', marginTop: 11 }}>
+                          <ProgressBar
+                            value={done}
+                            total={tgt}
+                            color={st === 'risk' ? 'var(--red)' : PHASE_META[k].accent}
+                          />
+                          <span
+                            title={`Expected pace at ${monthShort} ${asOfDay}`}
+                            style={{
+                              position: 'absolute',
+                              top: -3,
+                              left: `${Math.min(100, (asOfDay / daysInMonth) * 100)}%`,
+                              width: 1,
+                              height: 10,
+                              background: 'var(--text3)',
+                            }}
+                          />
+                        </div>
+                      )}
                       <div style={{ ...KPI_FOOT, color: st === 'risk' ? 'var(--red)' : 'var(--text3)' }}>{foot}</div>
                     </div>
                   )
@@ -1174,7 +1259,8 @@ in the data above — never invent clients or numbers not present here.`
                   {behindPhases.length ? (
                     <>
                       <b style={{ color: 'var(--text)', fontWeight: 600 }}>
-                        {elapsedPct}% of {monthName} elapsed, {totalDone} of {totalTarget} completed.
+                        {elapsedPct}% of {monthName} elapsed, {totalDone}
+                        {totalTarget === null ? '' : ` of ${totalTarget}`} completed.
                       </b>{' '}
                       {behindPhases.length} of {PHASE_KEYS.length} OKRs {behindPhases.length === 1 ? 'is' : 'are'} behind
                       pace ({behindPhases.map(k => PHASE_META[k].short.toLowerCase()).join(', ')}).{' '}
@@ -1185,7 +1271,8 @@ in the data above — never invent clients or numbers not present here.`
                   ) : (
                     <>
                       <b style={{ color: 'var(--text)', fontWeight: 600 }}>{elapsedPct}% of {monthName} elapsed.</b>{' '}
-                      {totalDone} of {totalTarget} completed, {totalInFlight} in flight. Nothing is behind pace yet.
+                      {totalDone}{totalTarget === null ? '' : ` of ${totalTarget}`} completed, {totalInFlight} in
+                      flight. {totalTarget === null ? 'No targets set for this month.' : 'Nothing is behind pace yet.'}
                     </>
                   )}
                 </span>
@@ -1241,15 +1328,16 @@ in the data above — never invent clients or numbers not present here.`
                           <td style={{ ...TD_LEFT, fontWeight: 600, whiteSpace: 'nowrap' }}>{row.pm}</td>
                           {PHASE_KEYS.map(k => {
                             const cell = row[k]
-                            const st = pace.state(cell.target, cell.obtained, cell.inFlight)
+                            // Activity, not pace — no per-person target exists.
+                            const act = activityState(cell.obtained, cell.inFlight)
                             const band = k === 'permit' ? {} : BAND
                             return (
                               <Fragment key={k}>
                                 <td style={{ ...TD_NUM, ...band, color: cell.obtained ? 'var(--text)' : 'var(--text3)' }}>
                                   {cell.obtained}
                                 </td>
-                                <td style={{ ...TD_NUM, ...band }} title={PACE_LABEL[st]}>
-                                  <Dot color={PACE_DOT[st]} />
+                                <td style={{ ...TD_NUM, ...band }} title={ACTIVITY_LABEL[act]}>
+                                  <Dot color={ACTIVITY_DOT[act]} />
                                 </td>
                               </Fragment>
                             )
@@ -1259,7 +1347,7 @@ in the data above — never invent clients or numbers not present here.`
                     )}
                   </tbody>
                 </table>
-                <PaceLegend note="Red appears only when actual trails the expected run-rate for the day" />
+                <ActivityLegend note="Per-person cells show activity only — no individual target exists" />
               </div>
 
               <SectionLabel
@@ -1385,7 +1473,7 @@ in the data above — never invent clients or numbers not present here.`
                         return (
                           <Fragment key={k}>
                             <th style={{ ...TH_NUM, ...band }}>Done</th>
-                            <th style={{ ...TH_NUM, ...band }}>Status</th>
+                            <th style={{ ...TH_NUM, ...band }}>Activity</th>
                           </Fragment>
                         )
                       })}
@@ -1400,7 +1488,9 @@ in the data above — never invent clients or numbers not present here.`
                           <td style={{ ...TD_LEFT, fontWeight: 600, whiteSpace: 'nowrap' }}>{row.pm}</td>
                           {PHASE_KEYS.map(k => {
                             const cell = row[k]
-                            const st = pace.state(cell.target, cell.obtained, cell.inFlight)
+                            // Activity, not pace. The column header says "Activity" and the
+                            // legend says why: no per-person target exists to pace against.
+                            const act = activityState(cell.obtained, cell.inFlight)
                             const band = k === 'permit' ? {} : BAND
                             return (
                               <Fragment key={k}>
@@ -1408,7 +1498,9 @@ in the data above — never invent clients or numbers not present here.`
                                   {cell.obtained}
                                 </td>
                                 <td style={{ ...TD_NUM, ...band }}>
-                                  <Pill tone={PACE_PILL[st]} dot={PACE_DOT[st]}>{PACE_LABEL[st]}</Pill>
+                                  <Pill tone={ACTIVITY_PILL[act]} dot={ACTIVITY_DOT[act]}>
+                                    {ACTIVITY_LABEL[act]}
+                                  </Pill>
                                 </td>
                               </Fragment>
                             )
@@ -1420,17 +1512,24 @@ in the data above — never invent clients or numbers not present here.`
                   {pmRows.length > 0 && (
                     <tfoot>
                       <tr>
+                        {/* The ONLY row on this table that carries a pace judgement, because
+                            the team total is the only level at which a real target exists. */}
                         <td style={TFOOT_TD}>Team</td>
                         {PHASE_KEYS.map(k => {
                           const done = obtainedThisMonth(k)
-                          const st = pace.state(monthlyTeamTarget, done, inFlight(k))
+                          const tgt = teamTarget(k)
+                          const st = tgt === null ? null : pace.state(tgt, done, inFlight(k))
                           return (
                             <Fragment key={k}>
                               <td style={{ ...TFOOT_TD, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                                {done}
+                                {done}{tgt === null ? '' : ` of ${tgt}`}
                               </td>
                               <td style={{ ...TFOOT_TD, textAlign: 'center' }}>
-                                <Pill tone={PACE_PILL[st]} dot={PACE_DOT[st]}>{PACE_LABEL[st]}</Pill>
+                                {st === null ? (
+                                  <Pill tone="neutral" dot={ACTIVITY_DOT.none}>No target set</Pill>
+                                ) : (
+                                  <Pill tone={PACE_PILL[st]} dot={PACE_DOT[st]}>{PACE_LABEL[st]}</Pill>
+                                )}
                               </td>
                             </Fragment>
                           )
@@ -1439,8 +1538,17 @@ in the data above — never invent clients or numbers not present here.`
                     </tfoot>
                   )}
                 </table>
-                <PaceLegend />
+                <ActivityLegend note={`Team row paces against the ${TARGET_MONTH_LABEL} tracker totals (${MONTHLY_TARGET_DESIGN}/${MONTHLY_TARGET_PERMIT}/${MONTHLY_TARGET_CONTRACT})`} />
               </div>
+              <Flag>
+                <b>{targetsAreCurrent ? 'Hardcoded targets.' : 'Stale targets.'}</b> The team targets on this page
+                (Design {MONTHLY_TARGET_DESIGN} · Permit {MONTHLY_TARGET_PERMIT} · Contract {MONTHLY_TARGET_CONTRACT})
+                are <b>{TARGET_MONTH_LABEL} figures, hardcoded as a stopgap</b>, and must be updated by hand every
+                month until they are read from a real source.{' '}
+                {targetsAreCurrent
+                  ? 'They are whole-team totals, so no per-person target is shown — the tracker keeps individual targets per person, per phase, and they are not uniform. Per-CSM cells report activity only.'
+                  : `They describe ${TARGET_MONTH_LABEL}, which is NOT the current month, so all pace indicators are switched off until the MONTHLY_TARGET_* constants are updated.`}
+              </Flag>
 
               <SectionLabel title="Support teams" hint="not tracked in workflow data" />
               <div style={CARD_FLUSH}>
@@ -1704,6 +1812,26 @@ function PaceLegend({ note }: { note?: string }) {
       {item(PACE_DOT.go, 'In progress')}
       {item(PACE_DOT.risk, 'Behind pace')}
       {item(PACE_DOT.done, 'Target met')}
+      {note && <span style={{ marginLeft: 'auto', color: 'var(--text3)' }}>{note}</span>}
+    </div>
+  )
+}
+
+// Legend for the per-CSM tables. Separate from PaceLegend on purpose: those cells
+// report activity, not pace, so showing "Behind pace"/"Target met" keys under them
+// would reintroduce exactly the per-person target claim we removed.
+function ActivityLegend({ note }: { note?: string }) {
+  const item = (color: string, label: string) => (
+    <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Dot color={color} />
+      {label}
+    </span>
+  )
+  return (
+    <div style={LEGEND}>
+      {item(ACTIVITY_DOT.none, ACTIVITY_LABEL.none)}
+      {item(ACTIVITY_DOT.inflight, ACTIVITY_LABEL.inflight)}
+      {item(ACTIVITY_DOT.completed, ACTIVITY_LABEL.completed)}
       {note && <span style={{ marginLeft: 'auto', color: 'var(--text3)' }}>{note}</span>}
     </div>
   )
