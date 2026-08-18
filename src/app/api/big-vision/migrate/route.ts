@@ -3,10 +3,12 @@
 // One-time migration: back-fills hub_memory (Big Vision agent memory) from existing
 // rows in the `meetings` table. Admin-only (president / ea / ai_specialist).
 //
-// Tagging mirrors the Fireflies webhook (src/app/api/webhooks/fireflies/route.ts):
-// attendee-based tags + strategic-topic keyword tags, with word-boundary matching
-// for the short 'pit' keyword. Idempotent: rows already imported (matched by
-// source_ref = meeting id) are skipped, so it's safe to run more than once.
+// Tagging is now SHARED with the Fireflies webhook (src/app/api/webhooks/fireflies/
+// route.ts) via @/lib/big-vision-tagging, rather than mirrored by hand — the two hand-
+// written copies had drifted (this one was missing 'aihub', 'hub rollout', 'process
+// improvement' and 'personal plan', so it tagged identical content differently).
+// Idempotent: rows already imported (matched by source_ref = meeting id) are skipped,
+// so it's safe to run more than once.
 //
 // IMPORTANT — column names: the task spec referenced `transcript` and `meeting_date`,
 // but the actual `meetings` schema (see src/types Meeting + the Fireflies insert) uses
@@ -18,6 +20,7 @@ import { NextResponse } from 'next/server'
 import { createClient as createServerSupabase } from '@/lib/supabase-server'
 import { createClient as createServiceSupabase } from '@supabase/supabase-js'
 import { generateEmbeddings } from '@/lib/embeddings'
+import { attendeeTagsFromNames, matchTopicTags } from '@/lib/big-vision-tagging'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -130,62 +133,17 @@ export async function POST() {
     for (let i = 0; i < meetings.length; i++) {
       const meeting = meetings[i]
       try {
-        // ── Attendee tags — meetings.attendees is first names (e.g. ['Jeff','Calin']).
-        const attendeeTags: string[] = []
-        const attendeeList = meeting.attendees ?? []
+        // ── Attendee tags — by FIRST NAME, because meetings.attendees is first names
+        //    (e.g. ['Jeff','Calin']) and the meetings table has no email column at
+        //    all. The webhook matches by email; both read the same LEADERS roster in
+        //    @/lib/big-vision-tagging, so the addresses and the name forms can no
+        //    longer drift apart. See that file for why email matching is impossible
+        //    on this path.
+        const attendeeTags: string[] = attendeeTagsFromNames(meeting.attendees)
 
-        if (attendeeList.some((a: string) => a.toLowerCase().includes('jeff'))) attendeeTags.push('jeff')
-        if (attendeeList.some((a: string) => a.toLowerCase().includes('lamont'))) attendeeTags.push('lamont')
-        if (attendeeList.some((a: string) => a.toLowerCase().includes('chad'))) attendeeTags.push('chad')
-        if (attendeeList.some((a: string) => a.toLowerCase().includes('matteo'))) attendeeTags.push('matteo')
-        if (
-          attendeeList.some((a: string) => {
-            const name = a.toLowerCase()
-            // Kaitlyn is stored as "Kait" in the meetings table — match that plus her
-            // other name forms. startsWith('kait') catches "Kait"/"Kaitlyn"/"Kaitlyn G".
-            return (
-              name === 'kait' ||
-              name === 'kaitlyn' ||
-              name === 'kate' ||
-              name === 'kaitlyn grunenberg' ||
-              name.startsWith('kait')
-            )
-          })
-        )
-          attendeeTags.push('kaitlyn')
-
-        // ── Keyword tags — title + transcript. 'pit' uses a word boundary to avoid
-        //    matching inside "hospital"/"capital".
-        const fullText = `${meeting.title ?? ''} ${meeting.full_transcript ?? ''}`.toLowerCase()
-
-        const keywordTags: string[] = []
-        if (/\bpit\b/i.test(fullText)) keywordTags.push('pit')
-        if (fullText.includes('ai hub') || fullText.includes('ai-hub')) keywordTags.push('ai_hub')
-        // design_center: require specific context so incidental "design center"
-        // mentions (common in sales/marketing calls) don't over-tag — the migration
-        // dry-run showed a bare substring match hitting 12/20 meetings. Exceptions:
-        // a "Design Center:" title prefix always qualifies, and 'website' is a qualifier.
-        if (
-          (meeting.title ?? '').toLowerCase().startsWith('design center') ||
-          (/\bdesign center\b/i.test(fullText) &&
-            (fullText.includes('design center launch') ||
-              fullText.includes('design center rollout') ||
-              fullText.includes('design center timeline') ||
-              fullText.includes('design center meeting') ||
-              fullText.includes('design center update') ||
-              fullText.includes('design center brand') ||
-              fullText.includes('design center concept') ||
-              fullText.includes('design center website') ||
-              /\bdesign center\b.{0,50}\b(launch|rollout|timeline|brand|concept|2027|website)\b/i.test(fullText)))
-        )
-          keywordTags.push('design_center')
-        if (
-          fullText.includes('department alignment') ||
-          fullText.includes('dept alignment') ||
-          fullText.includes('dev plan') ||
-          fullText.includes('development plan')
-        )
-          keywordTags.push('alignment')
+        // ── Topic tags — the SAME shared matcher the webhook uses: title first
+        //    (word-boundary / phrase), transcript body only as a fallback.
+        const keywordTags = matchTopicTags(meeting.title, meeting.full_transcript).tags
 
         // Combine + de-dupe (Array.from, not [...set], for TS target compatibility).
         const allTags = Array.from(new Set([...attendeeTags, ...keywordTags]))

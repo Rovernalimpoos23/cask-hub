@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { AGENDAS, type AgendaContent, type AgendaItem } from '@/app/(app)/customers/_agendaData'
 import { generateEmbeddings } from '@/lib/embeddings'
+import { attendeeTagsFromEmails, matchTopicTags } from '@/lib/big-vision-tagging'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -824,91 +825,27 @@ Return ONLY the email body HTML. No subject line in the body.`
     }
 
     // ── 7. Mirror the meeting into hub_memory for Big Vision agents ──────
-    // Tags come from (a) leader attendees and (b) strategic-topic keywords in the
-    // title/transcript. Reuses the SAME `supabase` client constructed at step 4 —
+    // Tags come from (a) leader attendees and (b) strategic-topic matching on the
+    // TITLE, falling back to the transcript body only when the title matches nothing
+    // (see @/lib/big-vision-tagging). Reuses the SAME `supabase` client from step 4 —
     // which is now genuinely service-role, as this comment already claimed. Fully
     // isolated in its own try/catch so any failure here can't affect the meetings
     // save above or the webhook response. Variables reused from the existing code:
     //   fullTranscript (plain text), transcript.meeting_attendees, sessionTitle,
     //   insertedMeeting (for source_ref).
     try {
-      const ATTENDEE_TAG_MAP: Record<string, string> = {
-        'j.azcona@caskconstruction.com': 'jeff',
-        'l.gilyot@caskconstruction.com': 'lamont',
-        'c.holman@caskconstruction.com': 'chad',
-        'm.carpani@caskconstruction.com': 'matteo',
-        'k.grunenberg@caskconstruction.com': 'kaitlyn',
-      }
-      // NOTE: Unlike the migrate route (which matches meetings.attendees first-name
-      // strings, where Kaitlyn appears as "Kait"), this webhook matches attendees by
-      // EMAIL. Kaitlyn is already reliably tagged via her k.grunenberg@ address
-      // regardless of display name, so no "Kait" first-name fix is needed here.
+      // Attendee tags — matched by EMAIL (Fireflies sends { displayName, email } on
+      // transcript.meeting_attendees). Matching is unchanged; the roster and the
+      // skip list moved to @/lib/big-vision-tagging so this route and the migrate
+      // backfill read one source of truth for personnel.
+      const attendeeTags: string[] = attendeeTagsFromEmails(transcript.meeting_attendees)
 
-      // These attend everything — presence shouldn't tag the meeting.
-      const SKIP_ATTENDEES = [
-        'c.noonan@caskconstruction.com',
-        'k.mapoy@caskconstruction.com',
-        'r.alimpoos@caskconstruction.com',
-      ]
-
-      // Fireflies sends attendees as { displayName, email } on transcript.meeting_attendees.
-      const attendeeTags: string[] = (transcript.meeting_attendees ?? [])
-        .map((a: { email?: string }) => a.email?.toLowerCase().trim())
-        .filter(
-          (email: string | undefined): email is string =>
-            !!email && !SKIP_ATTENDEES.includes(email) && !!ATTENDEE_TAG_MAP[email],
-        )
-        .map((email: string) => ATTENDEE_TAG_MAP[email])
-
-      // Keyword tags from title + transcript text.
-      const titleText = (sessionTitle ?? '').toLowerCase()
-      const transcriptText = (fullTranscript ?? '').toLowerCase()
-      const fullText = `${titleText} ${transcriptText}`
-
-      // NOTE: design_center is handled separately below (needs specific context),
-      // so it's intentionally not in this generic substring-matched map.
-      const KEYWORD_TAG_MAP: Array<{ keywords: string[]; tag: string }> = [
-        { keywords: ['ai hub', 'ai-hub', 'aihub', 'hub rollout'], tag: 'ai_hub' },
-        { keywords: ['pit', 'process improvement', 'process improvement team'], tag: 'pit' },
-        {
-          keywords: ['department alignment', 'dept alignment', 'dev plan', 'development plan', 'personal plan'],
-          tag: 'alignment',
-        },
-      ]
-
-      // Short single-word keywords (≤4 chars, e.g. 'pit') use word-boundary
-      // matching so they don't match inside longer words ("hospital", "capital").
-      // Longer / multi-word keywords are distinctive enough for a substring check.
-      const matchesKeyword = (kw: string): boolean => {
-        if (kw.length <= 4) {
-          const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          return new RegExp(`\\b${escaped}\\b`, 'i').test(fullText)
-        }
-        return fullText.includes(kw)
-      }
-
-      const keywordTags = KEYWORD_TAG_MAP
-        .filter(({ keywords }) => keywords.some(matchesKeyword))
-        .map(({ tag }) => tag)
-
-      // design_center: require specific context so incidental "design center"
-      // mentions don't over-tag (matches the migrate route's tightened rule). A
-      // "Design Center:" title prefix always qualifies, and 'website' is a qualifier.
-      if (
-        titleText.startsWith('design center') ||
-        (/\bdesign center\b/i.test(fullText) &&
-          (fullText.includes('design center launch') ||
-            fullText.includes('design center rollout') ||
-            fullText.includes('design center timeline') ||
-            fullText.includes('design center meeting') ||
-            fullText.includes('design center update') ||
-            fullText.includes('design center brand') ||
-            fullText.includes('design center concept') ||
-            fullText.includes('design center website') ||
-            /\bdesign center\b.{0,50}\b(launch|rollout|timeline|brand|concept|2027|website)\b/i.test(fullText)))
-      ) {
-        keywordTags.push('design_center')
-      }
+      // Topic tags — TITLE first (word-boundary / phrase match), with the previous
+      // title+transcript keyword scan kept only as a fallback for when the title
+      // matches nothing. The fallback log and the ambiguous-title warning both live in
+      // @/lib/big-vision-tagging, shared with the migrate backfill so the two writers
+      // can no longer tag identical input differently.
+      const keywordTags = matchTopicTags(sessionTitle, fullTranscript).tags
 
       // De-duplicate the combined tag set. (Array.from — not [...set] — so it
       // compiles regardless of the project's TS target/downlevelIteration setting.)
