@@ -14,6 +14,10 @@
 // `files` array, a "fed X ago" header segment, and the composer footer line.
 // Both derive from data already in state — no new fetch, no new endpoint.
 //
+// Also additive: the DISC quick-action buttons above the composer (leader pages
+// only). They call the existing sendMessage() with a preset prompt — no new
+// endpoint, no new retrieval path. See DiscQuickActions below.
+//
 // Scoping note: the mockup's CSS variable names (--bg, --card, --line, --ink…)
 // collide with the Hub's own tokens in globals.css, so every rule below is
 // prefixed with `.bva-root` and the variables are redefined on that div.
@@ -262,6 +266,11 @@ const AGENT_CSS = `
 .bva-root .chips .att b{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
 .bva-root .chips .att button{border:0;background:transparent;color:var(--coral);cursor:pointer;
   font-size:13px;line-height:1;padding:0 0 0 2px}
+
+/* DISC quick-action row — LAYOUT ONLY (same shape as .chips above). The buttons
+   inside reuse the existing .ghost pattern, so this rule introduces no new colour,
+   border or type treatment. Sits directly above the composer box. */
+.bva-root .disc-acts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 
 @media (max-width:980px){
   .bva-root .page{padding:22px 18px 18px}
@@ -682,6 +691,63 @@ function renderMarkdown(text: string): string {
     .replace(/\n/g, '<br/>')
 
   return `<p>${html}</p>`
+}
+
+// ── DISC quick actions ───────────────────────────────────────────────
+// Two buttons that submit a FIXED, pre-written prompt through the same
+// sendMessage() path a typed question uses. Nothing about retrieval changes: the
+// chat route still scopes to this agent's category, and the reply renders through
+// the same markdown + "Drawn from N files" citation path as any other answer.
+// Only the prompt text is preset.
+//
+// One parameterized component rather than five hand-coded copies — `leaderName` is
+// interpolated into both prompts, so every leader page renders identically.
+//
+// The buttons reuse the page's existing `.ghost` class (already used by the panel
+// head/footer actions) so no new visual style is introduced. `.ghost` is the
+// closest text-label button on the page; the composer's own send control is
+// `.send`, an icon-only coral square that cannot carry a label.
+const DISC_ACTIONS: ReadonlyArray<{
+  key: string
+  label: string
+  icon: string
+  artifact: string
+}> = [
+  { key: 'agenda', label: 'Create agenda', icon: 'ti-list-check', artifact: 'an agenda' },
+  { key: 'email', label: 'Create email', icon: 'ti-mail', artifact: 'an email' },
+]
+
+// The exact prompt both buttons send. Kept as one function so the two prompts can
+// never drift apart in wording.
+function discPrompt(artifact: string, leaderName: string): string {
+  return `Create ${artifact} based on ${leaderName}'s DISC profile and key motivators.`
+}
+
+function DiscQuickActions({
+  leaderName,
+  disabled,
+  onSend,
+}: {
+  leaderName: string
+  disabled: boolean
+  onSend: (prompt: string) => void
+}) {
+  return (
+    <div className="disc-acts">
+      {DISC_ACTIONS.map((a) => (
+        <button
+          key={a.key}
+          className="ghost"
+          onClick={() => onSend(discPrompt(a.artifact, leaderName))}
+          disabled={disabled}
+          title={discPrompt(a.artifact, leaderName)}
+        >
+          <i className={`ti ${a.icon}`} aria-hidden="true" />
+          {a.label}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 export default function AgentPage({ params }: { params: { agent: string } }) {
@@ -1544,6 +1610,21 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                       </span>
                     ))}
                   </div>
+                )}
+
+                {/* ── DISC quick actions (leader pages only) ──────────
+                    Fires a fixed prompt into sendMessage() — identical to the user
+                    typing it and hitting send. Gated on isLeader because the four
+                    category agents (PIT, AI Hub, Design Center, Dept Alignment) are
+                    not people and have no DISC profile. Always rendered on a leader
+                    page, unlike the `.starter` pills which disappear after the first
+                    message. */}
+                {agent.isLeader && (
+                  <DiscQuickActions
+                    leaderName={agent.name}
+                    disabled={chatLoading}
+                    onSend={(prompt) => sendMessage(prompt)}
+                  />
                 )}
 
                 {/* Kept as <input> (not the mockup's <textarea>) so inputRef stays
