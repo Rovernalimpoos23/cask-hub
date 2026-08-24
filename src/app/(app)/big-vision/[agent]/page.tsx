@@ -272,6 +272,13 @@ const AGENT_CSS = `
    border or type treatment. Sits directly above the composer box. */
 .bva-root .disc-acts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 
+/* "Open in Compose" row under an AI reply — LAYOUT ONLY, same precedent as
+   .disc-acts above: no new colour, border or type treatment. The link inside reuses
+   the existing .ghost pattern; text-decoration:none is needed only because .ghost
+   was written for <button> and this is an <a>. Margin matches .cite. */
+.bva-root .draft-open{margin-top:10px}
+.bva-root .draft-open .ghost{text-decoration:none}
+
 @media (max-width:980px){
   .bva-root .page{padding:22px 18px 18px}
   .bva-root .starters{grid-template-columns:1fr}
@@ -717,10 +724,84 @@ const DISC_ACTIONS: ReadonlyArray<{
   { key: 'email', label: 'Create email', icon: 'ti-mail', artifact: 'an email' },
 ]
 
-// The exact prompt both buttons send. Kept as one function so the two prompts can
-// never drift apart in wording.
+// The prompt "Create agenda" sends. Unchanged and deliberately free-form: only the
+// email reply is machine-read, so only the email prompt carries a format contract.
 function discPrompt(artifact: string, leaderName: string): string {
   return `Create ${artifact} based on ${leaderName}'s DISC profile and key motivators.`
+}
+
+// Delimiters fencing the sendable email inside the reply. Shared by the prompt that
+// asks for them and the parser that reads them back, so the two cannot drift apart.
+const EMAIL_DRAFT_START = '---EMAIL DRAFT START---'
+const EMAIL_DRAFT_END = '---EMAIL DRAFT END---'
+
+// The "Create email" prompt. Opens with the same sentence discPrompt() produces, so
+// retrieval, scope and tone are untouched — all this adds is a format contract that
+// fences the sendable draft off from the commentary. The commentary itself is
+// unchanged: it still gets written, just outside the block instead of tangled through
+// it, which is what makes parseEmailDraft() below reliable.
+function discEmailPrompt(leaderName: string): string {
+  return [
+    `Create an email based on ${leaderName}'s DISC profile and key motivators.`,
+    '',
+    'Structure your reply in two parts:',
+    '',
+    '1. Your commentary — any caveats, and why the email is built this way. Keep all',
+    '   of that OUTSIDE the block below, written exactly as you normally would.',
+    '2. The email itself, wrapped in a block delimited exactly like this:',
+    '',
+    EMAIL_DRAFT_START,
+    'Subject: <the subject line>',
+    '<the email body>',
+    EMAIL_DRAFT_END,
+    '',
+    'Rules for that block: include it exactly once; put each delimiter on its own',
+    'line; make the first line inside it a single "Subject:" line; everything after',
+    'that line up to the end delimiter is the email body, ready to send as-is. Put no',
+    'commentary, notes, headings or placeholders inside the block.',
+  ].join('\n')
+}
+
+// Pull the fenced draft out of an assistant reply, or null when there is no complete
+// block — which is every agenda reply and every reply predating this change.
+// Returning null is what keeps the "Open in Compose" button hidden for those.
+//
+// Tolerances, since the reply is model-generated markdown: the Subject label may come
+// back bolded (**Subject:** …), and blank lines at the block edges are trimmed. If no
+// Subject line is found the whole block becomes the body and the subject is left
+// empty rather than dropping the button — the user can type one in Compose.
+function parseEmailDraft(text: string): { subject: string; body: string } | null {
+  const startAt = text.indexOf(EMAIL_DRAFT_START)
+  if (startAt === -1) return null
+  const from = startAt + EMAIL_DRAFT_START.length
+  const endAt = text.indexOf(EMAIL_DRAFT_END, from)
+  if (endAt === -1) return null
+
+  const lines = text.slice(from, endAt).split('\n')
+  while (lines.length > 0 && lines[0].trim() === '') lines.shift()
+  while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+  if (lines.length === 0) return null
+
+  const subjectMatch = lines[0].match(/^\s*\**\s*subject\s*\**\s*:\s*\**\s*(.*?)\s*$/i)
+  let subject = ''
+  let bodyLines = lines
+  if (subjectMatch) {
+    subject = subjectMatch[1].replace(/\*+$/, '').trim()
+    bodyLines = lines.slice(1)
+  }
+  while (bodyLines.length > 0 && bodyLines[0].trim() === '') bodyLines.shift()
+  const body = bodyLines.join('\n').trim()
+
+  if (subject === '' && body === '') return null
+  return { subject, body }
+}
+
+// Which prompt each quick action sends. "Create agenda" keeps discPrompt() exactly as
+// it was; only "Create email" gets the delimited variant.
+function actionPrompt(action: { key: string; artifact: string }, leaderName: string): string {
+  return action.key === 'email'
+    ? discEmailPrompt(leaderName)
+    : discPrompt(action.artifact, leaderName)
 }
 
 function DiscQuickActions({
@@ -738,7 +819,7 @@ function DiscQuickActions({
         <button
           key={a.key}
           className="ghost"
-          onClick={() => onSend(discPrompt(a.artifact, leaderName))}
+          onClick={() => onSend(actionPrompt(a, leaderName))}
           disabled={disabled}
           title={discPrompt(a.artifact, leaderName)}
         >
@@ -1546,6 +1627,30 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                               Drawn from {m.filesUsed} files
                             </div>
                           )}
+                          {/* Open in Compose — shown only for replies carrying a
+                              complete ---EMAIL DRAFT--- block, so agenda replies and
+                              every reply predating this change render untouched. This
+                              is additive: the markdown bubble above still shows the
+                              whole reply, commentary included. Deep-links to My Emails,
+                              which opens Compose prefilled; a <Link> is used because
+                              that is how this page already navigates. */}
+                          {(() => {
+                            const draft = parseEmailDraft(m.content)
+                            if (!draft) return null
+                            const href =
+                              '/my-workspace/email?prefillSubject=' +
+                              encodeURIComponent(draft.subject) +
+                              '&prefillBody=' +
+                              encodeURIComponent(draft.body)
+                            return (
+                              <div className="draft-open">
+                                <Link className="ghost" href={href}>
+                                  <i className="ti ti-mail" aria-hidden="true" />
+                                  Open in Compose
+                                </Link>
+                              </div>
+                            )
+                          })()}
                         </div>
                       ),
                     )}
