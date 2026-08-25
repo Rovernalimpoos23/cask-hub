@@ -5552,6 +5552,54 @@ function canSeeCjPreview(email: string | null | undefined): boolean {
   return (email ?? '').trim().toLowerCase() === CJ_PREVIEW_EMAIL
 }
 
+// ── Construction Journey ─ step-type filter ───────────────────────────
+
+type CjFilter = 'all' | CjStepType
+
+// 'All' carries the live total; the other four are plain labels. The count is
+// derived from CJ_STEPS.length rather than written as a literal 19, so it follows
+// the data if the ported step list ever changes.
+//
+// NOTE: the 'window' pill reads "Work window" here, while the type badge on each
+// step row reads "Work Window" (from CJ_STEP_TYPE_CONFIG, which is ported data and
+// off-limits). One character of casing; left as specified rather than reconciled.
+const CJ_FILTERS: { id: CjFilter; label: string }[] = [
+  { id: 'all',      label: `All ${CJ_STEPS.length}` },
+  { id: 'customer', label: 'Customer' },
+  { id: 'email',    label: 'Email' },
+  { id: 'internal', label: 'Internal' },
+  { id: 'window',   label: 'Work window' },
+]
+
+// Ghost/outline pills. Shape (type size, padding, radius, gap, font family) is
+// inherited by spreading cjActionBtn, so these sit in the same visual family as
+// the inert action buttons inside each step row; only background, border, colour
+// and weight vary by state. Inactive is fully transparent with a hairline border;
+// active takes the same subtle --surface2 fill the panel already uses for its
+// recessed surfaces (the sub-tab track, the demo-controls card).
+//
+// aria-pressed, not role="tab": these are toggle filters over one list, not tabs
+// selecting between panels.
+function CjFilterBtn({ label, active, onSelect }: { label: string; active: boolean; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onSelect}
+      style={{
+        ...cjActionBtn,
+        background: active ? 'var(--surface2)' : 'transparent',
+        border: `1px solid ${active ? 'var(--border2)' : 'var(--border)'}`,
+        color: active ? 'var(--text)' : 'var(--text3)',
+        fontWeight: active ? 600 : 500,
+        transition: 'background 150ms ease, color 150ms ease',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
 // ── Construction Journey panel (PREVIEW ONLY) ────────────────────────────────
 //
 // Ported from (app)/construction-journey-preview/page.tsx, which stays in the repo
@@ -5569,6 +5617,7 @@ function ConstructionJourneyPanel() {
   const [preComplete, setPreComplete] = useState(false)
   const [cjView, setCjView] = useState<CjView>('steps')
   const [checked, setChecked] = useState<Set<string>>(cjSeedChecked)
+  const [filter, setFilter] = useState<CjFilter>('all')
 
   function toggle(key: string) {
     setChecked(prev => {
@@ -5582,6 +5631,11 @@ function ConstructionJourneyPanel() {
   const locked = !preComplete
   const doneCount = CJ_STEPS.filter(s => s.status === 'done').length
   const pct = Math.round((doneCount / CJ_STEPS.length) * 100)
+
+  // Presentational filter only: doneCount and pct above deliberately stay on the
+  // full set, so the progress bar keeps meaning "progress through the whole
+  // journey" instead of rebasing itself every time the filter changes.
+  const visibleSteps = filter === 'all' ? CJ_STEPS : CJ_STEPS.filter(s => s.type === filter)
 
   return (
     <div className="flex flex-col gap-5">
@@ -5719,11 +5773,36 @@ function ConstructionJourneyPanel() {
                   <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
                 </div>
 
+                {/* Filter by step type */}
+                <div
+                  role="group"
+                  aria-label="Filter steps by type"
+                  style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '11px 20px', borderBottom: '1px solid var(--border)' }}
+                >
+                  {CJ_FILTERS.map(f => (
+                    <CjFilterBtn
+                      key={f.id}
+                      label={f.label}
+                      active={filter === f.id}
+                      onSelect={() => setFilter(f.id)}
+                    />
+                  ))}
+                </div>
+
                 {/* Steps */}
                 <div>
-                  {CJ_STEPS.map(step => (
-                    <CjStepRow key={step.n} step={step} checked={checked} onToggle={toggle} />
-                  ))}
+                  {visibleSteps.length === 0 ? (
+                    // Unreachable with the current data (all four types are
+                    // populated), but the count is derived precisely because the
+                    // data may change.
+                    <div style={{ padding: '28px 20px', textAlign: 'center', fontSize: 11.5, color: 'var(--text3)' }}>
+                      No steps of this type.
+                    </div>
+                  ) : (
+                    visibleSteps.map(step => (
+                      <CjStepRow key={step.n} step={step} checked={checked} onToggle={toggle} />
+                    ))
+                  )}
                 </div>
               </>
             ) : (
