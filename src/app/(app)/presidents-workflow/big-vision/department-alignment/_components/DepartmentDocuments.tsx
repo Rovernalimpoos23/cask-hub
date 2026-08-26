@@ -15,13 +15,52 @@ import { createClient } from '@/lib/supabase'
 interface FileRow {
   id: string
   name: string
+  // Storage PATH inside VISION_DOCS_BUCKET — despite the column name. Rows written
+  // before the bucket went private hold a full public URL instead; both shapes are
+  // normalised by storagePathFromUrlColumn() below, so no backfill is needed.
   url: string | null
   uploaded_at: string
   uploaded_by: string | null
 }
 
+// A row plus the short-lived signed URL minted for it at load time. Null when the row
+// has no path, or when signing failed — e.g. the metadata row outlived the object it
+// points at.
+interface FileRowWithUrl extends FileRow {
+  signedUrl: string | null
+}
+
 // Reused existing Supabase Storage bucket (shared with the Big Vision Documents page).
 const VISION_DOCS_BUCKET = 'cask-vision-docs'
+
+// How long a "View" link stays valid. Matches the 1-hour expiry the client-files
+// download path already uses.
+const SIGNED_URL_TTL_SECONDS = 3600
+
+// Normalise whatever is in the `url` column down to a storage path.
+//
+// The bucket was public until 2026-08-26, so rows written before then hold a permanent
+// public URL (…/storage/v1/object/public/cask-vision-docs/<path>). Those URLs stopped
+// resolving the moment the bucket went private. Rows written from now on hold the bare
+// <path>. Handling both here is what lets existing rows keep working without a backfill.
+//
+// Duplicated from the Big Vision Documents page rather than shared, matching how these
+// two files already duplicate VISION_DOCS_BUCKET, FileRow, formatFileDate, FileIcon and
+// UPLOAD_ACCEPT. If a third copy is ever needed, extract all of it at once.
+function storagePathFromUrlColumn(value: string | null): string | null {
+  if (!value) return null
+  const marker = `/object/public/${VISION_DOCS_BUCKET}/`
+  const i = value.indexOf(marker)
+  const raw = (i === -1 ? value : value.slice(i + marker.length)).split('?')[0].trim()
+  if (!raw) return null
+  // Bare paths are written pre-sanitised, so only the legacy URL form can be encoded.
+  if (i === -1) return raw
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10MB
 
@@ -104,7 +143,7 @@ export interface DepartmentDocumentsProps {
 }
 
 export default function DepartmentDocuments({ department }: DepartmentDocumentsProps) {
-  const [files, setFiles] = useState<FileRow[]>([])
+  const [files, setFiles] = useState<FileRowWithUrl[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
@@ -127,9 +166,43 @@ export default function DepartmentDocuments({ department }: DepartmentDocumentsP
       .order('uploaded_at', { ascending: false })
     if (fetchError) {
       setError(true)
-    } else {
-      setFiles((data as FileRow[]) ?? [])
+      setLoading(false)
+      return
     }
+
+    const rows = (data as FileRow[]) ?? []
+
+    // Mint the view links HERE, at read time, rather than storing them on upload.
+    // A signed URL expires, so persisting one in the table would leave every row with
+    // a link that silently 400s an hour later. One batched call covers the whole list.
+    const paths = Array.from(
+      new Set(rows.map(r => storagePathFromUrlColumn(r.url)).filter((p): p is string => !!p)),
+    )
+
+    const signedByPath = new Map<string, string>()
+    if (paths.length > 0) {
+      const { data: signed, error: signError } = await supabase.storage
+        .from(VISION_DOCS_BUCKET)
+        .createSignedUrls(paths, SIGNED_URL_TTL_SECONDS)
+      if (signError) {
+        // Non-fatal: the list still renders, with "View" disabled.
+        console.error('[department-documents] createSignedUrls failed:', signError.message)
+      }
+      // Per-entry errors are normal — an orphaned metadata row whose object is gone
+      // comes back with `error` set and no signedUrl. Key by path rather than trusting
+      // array order.
+      for (const entry of signed ?? []) {
+        if (entry.error || !entry.signedUrl || !entry.path) continue
+        signedByPath.set(entry.path, entry.signedUrl)
+      }
+    }
+
+    setFiles(
+      rows.map(r => {
+        const path = storagePathFromUrlColumn(r.url)
+        return { ...r, signedUrl: path ? signedByPath.get(path) ?? null : null }
+      }),
+    )
     setLoading(false)
   }, [department])
 
@@ -156,13 +229,14 @@ export default function DepartmentDocuments({ department }: DepartmentDocumentsP
       const { error: uploadErr } = await supabase.storage.from(VISION_DOCS_BUCKET).upload(path, file)
       if (uploadErr) throw uploadErr
 
-      const { data: pub } = supabase.storage.from(VISION_DOCS_BUCKET).getPublicUrl(path)
-      const url = pub?.publicUrl ?? null
-
+      // Persist the PATH, not a URL. getPublicUrl() used to go here, but the bucket is
+      // private now so a public URL would never resolve — and a signed URL would expire
+      // an hour after upload and stay broken forever. The link is minted at read time
+      // in loadFiles() instead; the await below re-signs the list including this file.
       const { error: insertErr } = await supabase.from('cask_department_files').insert({
         department,
         name: file.name,
-        url,
+        url: path,
         uploaded_at: new Date().toISOString(),
         uploaded_by: 'Calin Noonan',
       })
@@ -268,9 +342,9 @@ export default function DepartmentDocuments({ department }: DepartmentDocumentsP
                     {f.uploaded_by ? ` · ${f.uploaded_by}` : ''}
                   </div>
                 </div>
-                {f.url ? (
+                {f.signedUrl ? (
                   <a
-                    href={f.url}
+                    href={f.signedUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
