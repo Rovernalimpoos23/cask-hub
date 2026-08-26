@@ -5262,28 +5262,6 @@ function cjTaskKey(n: number, role: string, ti: number) {
   return `${n}||${role}||${ti}`
 }
 
-// Small uppercase field label used by the mock scheduling modal below. Same
-// treatment as the "Objective" label inside an expanded step row.
-const cjFieldLabel: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontWeight: 700,
-  letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 5,
-}
-
-// Mock invite title for the preview's Schedule-meeting modal.
-//
-// Mirrors the real handleCreateInvite() title shape exactly — the one the Fireflies
-// webhook parses with /^STEP(\d+)\s+(.+):\s*([^:]+)$/, i.e. no space after the prefix,
-// two digits, and the client name after the final colon — so the locked field in the
-// mock shows the same format an operator sees on the live Journey tab.
-//
-// CSTEP, not STEP: the two journeys number independently (both have a step 6), so a
-// shared prefix would leave a construction step indistinguishable from a pre-con one
-// if this data model is ever wired up for real. The client name is the literal
-// "Sample Client" because this panel reads no client data at all.
-function cjMeetingTitle(step: CjStep): string {
-  return `CSTEP${String(step.n).padStart(2, '0')} ${step.title}: Sample Client`
-}
-
 function cjSeedChecked(): Set<string> {
   const s = new Set<string>()
   for (const step of CJ_STEPS) {
@@ -5300,10 +5278,16 @@ function CjStepRow({
   step,
   checked,
   onToggle,
+  clientId,
 }: {
   step: CjStep
   checked: Set<string>
   onToggle: (key: string) => void
+  // Threaded down from ConstructionJourneyPanel's own prop (the route's params.id) so
+  // the per-step upload panel scopes to the same real client every other tab uses. Not
+  // re-fetched and not defaulted: a blank value makes cjFolderPrefix() return null and
+  // CjFilesFolder refuse to read or write, rather than fall back to a shared prefix.
+  clientId: string
 }) {
   const [expanded, setExpanded] = useState(step.status === 'current')
   const cfg = CJ_STEP_TYPE_CONFIG[step.type]
@@ -5312,38 +5296,21 @@ function CjStepRow({
   const showAgenda = step.type === 'customer'
   const showRecap = step.type === 'customer' || step.type === 'internal'
 
-  // Schedule-meeting gate. INCLUSION-based on purpose, and deliberately NOT the real
-  // component's `step.type !== 'window'`: this journey has four step types where
-  // pre-con has three, so an exclusion would wrongly also match 'email'. An email step
-  // is a recap sent after the fact, not a meeting, so it gets no invite button — and
-  // nor does a 'window', which has no meeting to schedule at all. 10 of the 19 steps
-  // qualify (7 customer + 3 internal); the other 9 do not (7 email + 2 window).
-  const showSchedule = step.type === 'customer' || step.type === 'internal'
+  // Attach-files gate. Inherited verbatim from the removed Schedule-meeting button so
+  // the affordance lands on exactly the same 10 steps: INCLUSION-based on purpose, and
+  // deliberately NOT the real component's `step.type !== 'window'` — this journey has
+  // four step types where pre-con has three, so an exclusion would wrongly also match
+  // 'email'. An email step is a recap sent after the fact and a 'window' is a date
+  // range, so neither is a place a photo or a marked-up sheet belongs. 10 of the 19
+  // steps qualify (7 customer + 3 internal); the other 9 do not (7 email + 2 window).
+  const showAttach = step.type === 'customer' || step.type === 'internal'
 
-  // Mock modal + its post-"Create" acknowledgement. Both are local, inert, and reset
-  // when the tab is left, like every other piece of state in this preview.
-  const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [createNotice, setCreateNotice] = useState(false)
-
-  // Self-dismissing acknowledgement, cleared on unmount so no timer outlives the row
-  // (the filter pills unmount these rows on every change).
-  useEffect(() => {
-    if (!createNotice) return
-    const t = setTimeout(() => setCreateNotice(false), 2800)
-    return () => clearTimeout(t)
-  }, [createNotice])
-
-  // Escape closes the mock modal. The page's existing real modals predate this and do
-  // not do it; added here rather than left out because the button is keyboard-reachable
-  // from the header row, and a dialog you cannot dismiss from the keyboard is a trap.
-  useEffect(() => {
-    if (!scheduleOpen) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setScheduleOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [scheduleOpen])
+  // Upload-panel disclosure. Deliberately its OWN state, not folded into `expanded`:
+  // opening files must not expand the checklist and expanding the checklist must not
+  // open files, so the two never move together. Mounted only while open, so the
+  // folder's listing re-fetches on each open — correct, since another operator may
+  // have uploaded to this step in the meantime.
+  const [attachOpen, setAttachOpen] = useState(false)
 
   return (
     <div
@@ -5403,27 +5370,31 @@ function CjStepRow({
           </span>
         )}
 
-        {/* Schedule meeting — 'customer' and 'internal' steps only. Placed here,
-            between the status badge and the chevron, to match where the real button
-            sits on the Journey tab's step header. Ghost/outline treatment at badge
-            weight — the same transparent + hairline idiom CjFilterBtn's inactive state
-            uses. stopPropagation keeps the click from also toggling expand/collapse. */}
-        {showSchedule && (
+        {/* Attach files — 'customer' and 'internal' steps only, in the exact header
+            slot the removed mock Schedule-meeting button occupied (between the status
+            badge and the chevron) with the same ghost/outline treatment at badge
+            weight. Unlike its predecessor this one is real: it toggles the inline
+            upload panel below, which reads and writes this client's storage prefix.
+            stopPropagation keeps the click from also toggling expand/collapse — the
+            two disclosures are independent by design. */}
+        {showAttach && (
           <button
             type="button"
-            onClick={e => { e.stopPropagation(); setScheduleOpen(true) }}
-            title="Preview only — opens a mock scheduling dialog; no invite is created"
+            onClick={e => { e.stopPropagation(); setAttachOpen(v => !v) }}
+            aria-expanded={attachOpen}
+            aria-label={`${attachOpen ? 'Hide' : 'Show'} files for step ${step.n}`}
+            title="Upload and view files for this step"
             className="shrink-0 self-center"
             style={{
               ...cjActionBtn,
-              background: 'transparent',
+              background: attachOpen ? 'var(--surface2)' : 'transparent',
               border: '0.5px solid var(--border)',
-              color: 'var(--text2)',
+              color: attachOpen ? 'var(--text)' : 'var(--text2)',
               fontSize: 9.5,
               padding: '2px 7px',
             }}
           >
-            📅 Schedule meeting
+            📎 Attach files
           </button>
         )}
 
@@ -5432,6 +5403,23 @@ function CjStepRow({
           ▾
         </span>
       </div>
+
+      {/* Per-step files — its own disclosure, rendered between the header row and
+          the checklist body so it reads as attached to the step that opened it. Gated
+          on `attachOpen` alone, never on `expanded`, which is what keeps the two
+          independent. The card inside is the same CjFilesFolder the Reference Files
+          sub-tab uses, handed a per-step folder def — no upload, listing, signing,
+          thumbnail or delete logic is duplicated here. Left padding matches the
+          expanded body so both align to the same gutter, and the wrapper stays
+          background-free so the card sits on the row's own surface exactly as it does
+          on the Reference Files tab. */}
+      {showAttach && attachOpen && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '13px 15px 13px 43px' }}>
+          <div style={{ maxWidth: 560 }}>
+            <CjFilesFolder folder={cjStepFolderDef(step)} clientId={clientId} />
+          </div>
+        </div>
+      )}
 
       {/* Expanded body */}
       {expanded && (
@@ -5524,183 +5512,6 @@ function CjStepRow({
               {isDone ? '✓ Completed' : 'Mark Complete'}
             </button>
           </div>
-        </div>
-      )}
-
-      {/* ── Mock scheduling modal (PREVIEW ONLY) ──────────────────────────────
-          Built fresh in this component and completely inert: no router.push, no
-          window.location, no href, no Graph call, no Supabase call, no fetch. It
-          exists to show the SHAPE of the real "Schedule meeting" dialog — locked
-          title, Teams forced on — not to do any part of its job.
-
-          Overlay geometry is copied from this page's existing modals (fixed inset 0 /
-          rgba(0,0,0,0.6) / zIndex 10000 / centred, click-backdrop-to-close with
-          stopPropagation on the card) so the preview sits in the same visual family as
-          the real dialogs it will eventually stand in for. */}
-      {scheduleOpen && (
-        <div
-          onClick={() => setScheduleOpen(false)}
-          style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Schedule meeting for step ${step.n} — preview only`}
-            onClick={e => e.stopPropagation()}
-            style={{ width: '100%', maxWidth: 520, maxHeight: '86vh', background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-          >
-            {/* Header */}
-            <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
-              <div style={{ minWidth: 0 }}>
-                <h2 style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 17, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3 }}>
-                  Schedule meeting
-                </h2>
-                <p style={{ fontSize: 11.5, color: 'var(--text3)', margin: '4px 0 0' }}>
-                  Step {String(step.n).padStart(2, '0')} · {cfg.label} · preview only — no invite is created
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setScheduleOpen(false)}
-                aria-label="Close"
-                style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-              >×</button>
-            </div>
-
-            {/* Body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-              {/* Title — read-only and locked, carrying the CSTEP<NN> format */}
-              <div>
-                <div style={cjFieldLabel}>
-                  <CjLockIcon />
-                  Title — locked
-                </div>
-                <div
-                  title="Required format for Fireflies to capture this meeting — not editable"
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 10px' }}
-                >
-                  <input
-                    readOnly
-                    value={cjMeetingTitle(step)}
-                    aria-label="Meeting title (locked)"
-                    title="Required format for Fireflies to capture this meeting — not editable"
-                    style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontSize: 11.5, color: 'var(--text2)', fontFamily: 'inherit', cursor: 'not-allowed' }}
-                  />
-                  <span aria-hidden="true" style={{ color: 'var(--text3)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                    <CjLockIcon />
-                  </span>
-                </div>
-                <p style={{ fontSize: 10.5, color: 'var(--text3)', margin: '5px 0 0', lineHeight: 1.45 }}>
-                  Required format for Fireflies to capture this meeting — not editable.
-                </p>
-              </div>
-
-              {/* Teams meeting — locked on. Deliberately NOT a toggle: the switch is a
-                  pair of spans permanently in the on position, so there is nothing to
-                  click and no state behind it. */}
-              <div
-                title="Teams meeting is always on for journey meetings — not editable"
-                style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: '10px 12px' }}
-              >
-                <span aria-hidden="true" style={{ width: 30, height: 17, borderRadius: 99, background: 'var(--green)', position: 'relative', flexShrink: 0, display: 'inline-block' }}>
-                  <span style={{ position: 'absolute', top: 2, left: 15, width: 13, height: 13, borderRadius: '50%', background: '#fff' }} />
-                </span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: 'var(--text)' }}>
-                  Teams meeting: <b style={{ fontWeight: 700 }}>on</b>
-                </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text3)', flexShrink: 0 }}>
-                  <CjLockIcon />
-                  Locked
-                </span>
-              </div>
-
-              {/* Date / time — present so the dialog reads as a real form, but disabled
-                  rather than merely un-wired, so there is no way to type into them and
-                  believe something was saved. */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                <div style={{ flex: '1 1 150px', minWidth: 138 }}>
-                  <div style={cjFieldLabel}>Date</div>
-                  <input
-                    type="date"
-                    defaultValue="2026-09-08"
-                    disabled
-                    title="Preview only — not functional"
-                    style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 10px', fontSize: 11.5, color: 'var(--text3)', fontFamily: 'inherit', cursor: 'not-allowed' }}
-                  />
-                </div>
-                <div style={{ flex: '1 1 110px', minWidth: 104 }}>
-                  <div style={cjFieldLabel}>Start</div>
-                  <input
-                    type="time"
-                    defaultValue="10:00"
-                    disabled
-                    title="Preview only — not functional"
-                    style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 10px', fontSize: 11.5, color: 'var(--text3)', fontFamily: 'inherit', cursor: 'not-allowed' }}
-                  />
-                </div>
-                <div style={{ flex: '1 1 110px', minWidth: 104 }}>
-                  <div style={cjFieldLabel}>Duration</div>
-                  <input
-                    type="text"
-                    defaultValue="60 minutes"
-                    disabled
-                    title="Preview only — not functional"
-                    style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: '8px 10px', fontSize: 11.5, color: 'var(--text3)', fontFamily: 'inherit', cursor: 'not-allowed' }}
-                  />
-                </div>
-              </div>
-
-              {/* Standing reminder inside the dialog itself, matching the panel's own
-                  amber preview notice. */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 11px', borderRadius: 7, background: 'var(--amber-bg)', border: '1px solid var(--badge-open-border)' }}>
-                <span style={{ fontSize: 12, lineHeight: 1.3 }}>⚠️</span>
-                <span style={{ fontSize: 10.5, lineHeight: 1.5, color: 'var(--text2)' }}>
-                  Preview only. This dialog is not connected to Outlook, Teams or this
-                  client — nothing is scheduled and no invite is sent.
-                </span>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div style={{ padding: '13px 22px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setScheduleOpen(false)}
-                style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', background: 'transparent', border: '1px solid var(--border)', padding: '7px 14px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => { setScheduleOpen(false); setCreateNotice(true) }}
-                title="Preview only — no invite created"
-                style={{ fontSize: 12, fontWeight: 600, color: 'var(--btn-primary-text, #fff)', background: 'var(--btn-primary-bg, var(--charcoal))', border: '1px solid var(--btn-primary-bg, var(--charcoal))', padding: '7px 14px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Post-"Create" acknowledgement. Same geometry as this page's success toast, in
-          neutral charcoal rather than green so it does not read as a confirmation that
-          anything actually happened. pointerEvents none — it is never interactive. */}
-      {createNotice && (
-        <div
-          role="status"
-          style={{
-            position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-            zIndex: 10002, background: 'var(--charcoal)', color: '#fff',
-            padding: '10px 20px', borderRadius: 9, fontSize: 13, fontWeight: 600,
-            boxShadow: '0 4px 24px rgba(0,0,0,0.22)',
-            whiteSpace: 'nowrap', pointerEvents: 'none',
-          }}
-        >
-          Preview only — no invite created
         </div>
       )}
     </div>
@@ -5841,6 +5652,29 @@ function cjFolderPrefix(clientId: string, folderKey: string): string | null {
   const id = (clientId ?? '').trim()
   if (!id) return null
   return `${CJ_PREVIEW_ROOT}/${id}/${folderKey}`
+}
+
+// A CjFolderDef for one step's own attachments, consumed by the same CjFilesFolder
+// the Reference Files sub-tab renders. `key` is a TWO-segment path fragment, which is
+// the whole reason no refactor was needed: cjFolderPrefix() interpolates the key as
+// given, so 'steps/7' yields `construction-preview/<clientId>/steps/7` and every
+// object below it inherits the same per-client isolation Drawings and Selections
+// already have. Nothing about the two existing folders changes — they keep passing
+// their own single-segment keys ('drawings', 'selections') and resolve to byte-for-byte
+// the same prefixes as before.
+//
+// The segment is String(step.n) — unpadded, so step 7 is `steps/7`, matching the
+// `steps/<stepNumber>` shape this was specified as. The trade-off is that a storage
+// browser sorts these lexicographically (1, 10, 11 … 19, 2, 3), which is cosmetic;
+// zero-padding would sort better but would not match the spec, and changing it later
+// orphans anything already uploaded, so it is called out rather than quietly chosen.
+function cjStepFolderDef(step: CjStep): CjFolderDef {
+  return {
+    key: `steps/${step.n}`,
+    icon: '📎',
+    title: `Step ${String(step.n).padStart(2, '0')} files`,
+    note: 'Photos, marked-up sheets and PDFs for this step only. Scoped to this client and this step — not shared with other steps.',
+  }
 }
 
 // Still a placeholder on purpose: the Scheduling folder depends on the open
@@ -6627,7 +6461,7 @@ function ConstructionJourneyPanel({ clientId }: { clientId: string }) {
                     </div>
                   ) : (
                     visibleSteps.map(step => (
-                      <CjStepRow key={step.n} step={step} checked={checked} onToggle={toggle} />
+                      <CjStepRow key={step.n} step={step} checked={checked} onToggle={toggle} clientId={clientId} />
                     ))
                   )}
                 </div>
