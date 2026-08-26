@@ -5642,6 +5642,18 @@ const CJ_FILE_FOLDERS: CjFolderDef[] = [
     title: 'Selections',
     note: 'The selections packet referenced from the finishes and rough-in walkthroughs.',
   },
+  // Was CJ_SCHEDULING_CARD, an inert placeholder card with a dead "Open folder"
+  // button. Now a real folder on the same footing as the two above — icon, title and
+  // note are its original copy, carried over verbatim. The open DOMO / BuilderTrend
+  // question it was waiting on was never about whether this folder should exist; it is
+  // about whether BT exports land here automatically. Until that is settled they are
+  // uploaded by hand, which the bucket's existing PDF allowance already covers.
+  {
+    key: 'scheduling',
+    icon: '📅',
+    title: 'Scheduling',
+    note: 'BT schedule exports and stage timelines the crew works off during construction.',
+  },
 ]
 
 // The per-client prefix for one folder. clientId is the route's params.id (a real
@@ -5677,17 +5689,11 @@ function cjStepFolderDef(step: CjStep): CjFolderDef {
   }
 }
 
-// Still a placeholder on purpose: the Scheduling folder depends on the open
-// DOMO / BuilderTrend integration question, so it stays inert until that is
-// settled. Do not give this one an upload zone as a side effect of other work.
-const CJ_SCHEDULING_CARD = {
-  icon: '📅',
-  title: 'Scheduling',
-  note: 'BT schedule exports and stage timelines the crew works off during construction.',
-}
-
-// Count shown in the section head: the two real folders plus the inert one.
-const CJ_FOLDER_COUNT = CJ_FILE_FOLDERS.length + 1
+// Count shown in the section head. Every folder is real now, so this is the array
+// length with nothing added — the `+ 1` it used to carry was the inert Scheduling
+// card, which is now the array's third entry. Kept as a named const so the head has a
+// single thing to read and cannot drift from the array again.
+const CJ_FOLDER_COUNT = CJ_FILE_FOLDERS.length
 
 interface CjStoredFile {
   // Raw object name, including the `<epoch>_` prefix. This is the storage
@@ -6149,22 +6155,6 @@ function CjReferenceFilesPanel({ clientId }: { clientId: string }) {
         {CJ_FILE_FOLDERS.map(f => (
           <CjFilesFolder key={f.key} folder={f} clientId={clientId} />
         ))}
-      </div>
-
-      {/* Unchanged inert placeholder — Scheduling stays a mock until the DOMO /
-          BuilderTrend integration question is settled. */}
-      <div
-        style={{
-          maxWidth: 420, background: 'var(--surface2)', border: '1px solid var(--border)',
-          borderRadius: 10, padding: '14px 15px',
-        }}
-      >
-        <div style={{ fontSize: 20, marginBottom: 8 }}>{CJ_SCHEDULING_CARD.icon}</div>
-        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 5 }}>{CJ_SCHEDULING_CARD.title}</div>
-        <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--text3)', marginBottom: 11 }}>{CJ_SCHEDULING_CARD.note}</div>
-        <button type="button" title="Preview only — this button does nothing" style={cjActionBtn}>
-          📎 Open folder
-        </button>
       </div>
     </div>
   )
