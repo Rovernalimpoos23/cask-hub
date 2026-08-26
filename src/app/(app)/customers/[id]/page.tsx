@@ -5053,7 +5053,7 @@ Today's date is ${today}.
             trade-off is that its local demo state resets when you leave the tab. */}
         {canSeeCjPreview(userEmail) && activeTab === 'construction' && (
           <section id="client-p-construction" role="tabpanel" aria-labelledby="client-t-construction">
-            <ConstructionJourneyPanel />
+            <ConstructionJourneyPanel clientId={params.id} />
           </section>
         )}
 
@@ -5773,16 +5773,27 @@ function CjSubTabBtn({ label, active, onSelect }: { label: string; active: boole
 // than the UI gate — every call below runs through the cookie-backed browser
 // client, so it is the signed-in user's own role that decides the outcome.
 //
-// PATHING — deliberate placeholder:
-// Construction Journey is not yet wired to real client records (this panel is
-// still driven by hardcoded "Sample Client" data), so there is no real
-// client_id to scope object paths by. Rather than invent a fake one, both
-// folders write under a fixed `preview/` prefix. Re-pathing these to
-// `clients/<client_id>/...` is a required follow-up once Construction Journey
-// is connected to actual client records — existing objects will need moving at
-// that point.
+// PATHING — scoped per client, but still under a preview umbrella:
+//
+// Objects live at `construction-preview/<clientId>/<folder>/<key>`, where
+// clientId is the route's real `params.id` — the same clients.id every other tab
+// on this page uses as `client_id`, and the same identifier the client-files
+// upload path already keys on. So these files are correctly isolated per client:
+// uploading on one client's page no longer surfaces on every other client's page.
+//
+// The `construction-preview/` root is deliberate and is NOT the same claim as
+// "wired to production construction data". The Construction Journey panel around
+// these folders is still structurally a preview — its 19 steps are hardcoded
+// CJ_STEPS, not per-client records — so these uploads are real, correctly scoped
+// files hanging off a panel whose surrounding data is not yet client-driven.
+// Connecting the journey itself to real per-client construction records remains a
+// future step; when it lands, this root is the thing to revisit, not the scoping.
 
 const CJ_FILES_BUCKET = 'construction-files'
+
+// Root prefix for every object this panel writes. See the PATHING note above for
+// why this is `construction-preview` rather than something production-sounding.
+const CJ_PREVIEW_ROOT = 'construction-preview'
 
 // Mirrors the bucket's own configured ceiling. Checked client-side purely so the
 // user gets an immediate, specific message instead of a failed request — the
@@ -5800,12 +5811,11 @@ const CJ_THUMB_TTL_SECONDS = 3600
 const CJ_OPEN_TTL_SECONDS = 60
 
 interface CjFolderDef {
+  // Also the trailing path segment for this folder inside a client's prefix.
   key: string
   icon: string
   title: string
   note: string
-  // Path prefix inside CJ_FILES_BUCKET. Placeholder — see PATHING note above.
-  prefix: string
 }
 
 const CJ_FILE_FOLDERS: CjFolderDef[] = [
@@ -5814,16 +5824,24 @@ const CJ_FILE_FOLDERS: CjFolderDef[] = [
     icon: '📐',
     title: 'Drawings',
     note: 'Permitted set plus the marked-up field set carried through every stage meeting.',
-    prefix: 'preview/drawings',
   },
   {
     key: 'selections',
     icon: '🎨',
     title: 'Selections',
     note: 'The selections packet referenced from the finishes and rough-in walkthroughs.',
-    prefix: 'preview/selections',
   },
 ]
+
+// The per-client prefix for one folder. clientId is the route's params.id (a real
+// clients.id UUID), so it needs no sanitising — but it is guarded anyway, because
+// an empty value here would silently collapse every client back onto one shared
+// prefix, which is exactly the cross-client leak this scoping exists to prevent.
+function cjFolderPrefix(clientId: string, folderKey: string): string | null {
+  const id = (clientId ?? '').trim()
+  if (!id) return null
+  return `${CJ_PREVIEW_ROOT}/${id}/${folderKey}`
+}
 
 // Still a placeholder on purpose: the Scheduling folder depends on the open
 // DOMO / BuilderTrend integration question, so it stays inert until that is
@@ -5838,7 +5856,11 @@ const CJ_SCHEDULING_CARD = {
 const CJ_FOLDER_COUNT = CJ_FILE_FOLDERS.length + 1
 
 interface CjStoredFile {
+  // Raw object name, including the `<epoch>_` prefix. This is the storage
+  // identity — never render it; render displayName instead.
   name: string
+  // The original filename as the user chose it, for display only.
+  displayName: string
   path: string
   size: number
   isPdf: boolean
@@ -5865,14 +5887,35 @@ function cjFileIsAllowed(file: File): boolean {
 // Object keys are ASCII-safe and collision-free. The timestamp prefix means two
 // uploads of the same filename coexist instead of one silently winning, which is
 // why upsert stays false on the upload call.
+//
+// Long names are trimmed on the BASE name only, keeping the extension attached.
+// An earlier version sliced the tail of the whole string, which chopped the front
+// of a long filename instead — the extension survived but the name it belonged to
+// did not.
 function cjStorageKey(prefix: string, fileName: string): string {
   const safe = fileName
     .normalize('NFKD')
     .replace(/[^\w.\-]+/g, '_')
     .replace(/_{2,}/g, '_')
     .replace(/^[_.]+/, '')
-    .slice(-120)
-  return `${prefix}/${Date.now()}_${safe || 'file'}`
+  const dot = safe.lastIndexOf('.')
+  const ext = dot > 0 ? safe.slice(dot, dot + 12) : ''
+  const base = (dot > 0 ? safe.slice(0, dot) : safe).slice(0, 100)
+  return `${prefix}/${Date.now()}_${base || 'file'}${ext}`
+}
+
+// The `<epoch>_` prefix in a storage key is an implementation detail for collision
+// avoidance — it should never be what the user reads. Stripping it is what turns
+// a tile label from "1787726648077_baby-photo.jpg" (which the tile's ellipsis then
+// cuts down to just the digits) into "baby-photo.jpg".
+//
+// Requires 10+ digits so a legitimately numeric filename like "2024_budget.pdf"
+// is left alone; Date.now() is 13 digits and will be for centuries. Anything that
+// does not match falls through unchanged, which also covers objects uploaded
+// before this scheme existed.
+function cjDisplayName(objectName: string): string {
+  const m = objectName.match(/^\d{10,}_(.+)$/)
+  return m ? m[1] : objectName
 }
 
 // First-page PDF thumbnail, rendered client-side to a canvas. Same pdf.js setup
@@ -5959,7 +6002,7 @@ function CjUploadIcon() {
 
 // One real folder: drop zone + live listing off Supabase Storage. Fully
 // self-contained — all state is local to this component instance.
-function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
+function CjFilesFolder({ folder, clientId }: { folder: CjFolderDef; clientId: string }) {
   const [files, setFiles] = useState<CjStoredFile[]>([])
   const [listing, setListing] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -5968,12 +6011,22 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
+  // Null only if clientId is somehow blank. Every storage call below refuses to
+  // run in that case rather than falling back to an unscoped prefix.
+  const prefix = cjFolderPrefix(clientId, folder.key)
+
   const loadFiles = useCallback(async () => {
+    if (!prefix) {
+      setError('No client is in scope for this page, so files cannot be listed.')
+      setFiles([])
+      setListing(false)
+      return
+    }
     setListing(true)
     const supabase = createClient()
     const { data, error: listErr } = await supabase.storage
       .from(CJ_FILES_BUCKET)
-      .list(folder.prefix, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } })
+      .list(prefix, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } })
 
     if (listErr) {
       // A denied read surfaces here rather than as an empty folder, so an RLS
@@ -5993,7 +6046,7 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
       return
     }
 
-    const paths = rows.map(r => `${folder.prefix}/${r.name}`)
+    const paths = rows.map(r => `${prefix}/${r.name}`)
     const { data: signed } = await supabase.storage
       .from(CJ_FILES_BUCKET)
       .createSignedUrls(paths, CJ_THUMB_TTL_SECONDS)
@@ -6001,6 +6054,7 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
     setFiles(
       rows.map((r, i) => ({
         name: r.name,
+        displayName: cjDisplayName(r.name),
         path: paths[i],
         size: (r.metadata as { size?: number } | null)?.size ?? 0,
         isPdf: r.name.toLowerCase().endsWith('.pdf'),
@@ -6008,7 +6062,7 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
       })),
     )
     setListing(false)
-  }, [folder.prefix])
+  }, [prefix])
 
   useEffect(() => {
     void loadFiles()
@@ -6018,6 +6072,11 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
     const chosen = picked ? Array.from(picked) : []
     if (chosen.length === 0) return
     setError(null)
+
+    if (!prefix) {
+      setError('No client is in scope for this page, so files cannot be uploaded.')
+      return
+    }
 
     // Validate everything up front so a bad file in the middle of a multi-file
     // drop does not leave a half-finished upload behind.
@@ -6037,7 +6096,7 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
     for (const f of chosen) {
       const { error: upErr } = await supabase.storage
         .from(CJ_FILES_BUCKET)
-        .upload(cjStorageKey(folder.prefix, f.name), f, {
+        .upload(cjStorageKey(prefix, f.name), f, {
           cacheControl: '3600',
           upsert: false,
           contentType: f.type || undefined,
@@ -6062,21 +6121,21 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
       .from(CJ_FILES_BUCKET)
       .createSignedUrl(file.path, CJ_OPEN_TTL_SECONDS)
     if (signErr || !data?.signedUrl) {
-      setError(`Could not open "${file.name}": ${signErr?.message ?? 'no signed URL returned'}`)
+      setError(`Could not open "${file.displayName}": ${signErr?.message ?? 'no signed URL returned'}`)
       return
     }
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
   async function deleteFile(file: CjStoredFile) {
-    if (!window.confirm(`Delete "${file.name}" from ${folder.title}?\n\nThis removes it from storage and cannot be undone.`)) {
+    if (!window.confirm(`Delete "${file.displayName}" from ${folder.title}?\n\nThis removes it from storage and cannot be undone.`)) {
       return
     }
     setError(null)
     setDeleting(file.path)
     const supabase = createClient()
     const { error: delErr } = await supabase.storage.from(CJ_FILES_BUCKET).remove([file.path])
-    if (delErr) setError(`Delete failed for "${file.name}": ${delErr.message}`)
+    if (delErr) setError(`Delete failed for "${file.displayName}": ${delErr.message}`)
     setDeleting(null)
     await loadFiles()
   }
@@ -6168,7 +6227,7 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
                 <button
                   type="button"
                   onClick={() => void openFile(f)}
-                  title={`${f.name} · ${cjFormatBytes(f.size)}`}
+                  title={`${f.displayName} · ${cjFormatBytes(f.size)}`}
                   style={{
                     display: 'block', width: '100%', padding: 0, borderRadius: 8, overflow: 'hidden',
                     border: '1px solid var(--border)', background: 'var(--surface)',
@@ -6182,14 +6241,14 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
                     }}
                   >
                     {f.isPdf ? (
-                      <CjPdfThumb url={f.thumbUrl} label={f.name} />
+                      <CjPdfThumb url={f.thumbUrl} label={f.displayName} />
                     ) : f.thumbUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element -- signed
                       // storage URL with a short TTL; next/image would need the host
                       // allowlisted and would proxy/cache a private object.
                       <img
                         src={f.thumbUrl}
-                        alt={f.name}
+                        alt={f.displayName}
                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                       />
                     ) : (
@@ -6221,15 +6280,15 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
                       textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}
                   >
-                    {f.name}
+                    {f.displayName}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => void deleteFile(f)}
                   disabled={deleting === f.path}
-                  aria-label={`Delete ${f.name}`}
-                  title={`Delete ${f.name}`}
+                  aria-label={`Delete ${f.displayName}`}
+                  title={`Delete ${f.displayName}`}
                   style={{
                     position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 5,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -6249,12 +6308,12 @@ function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
   )
 }
 
-function CjReferenceFilesPanel() {
+function CjReferenceFilesPanel({ clientId }: { clientId: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 20 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
         {CJ_FILE_FOLDERS.map(f => (
-          <CjFilesFolder key={f.key} folder={f} />
+          <CjFilesFolder key={f.key} folder={f} clientId={clientId} />
         ))}
       </div>
 
@@ -6356,9 +6415,16 @@ function CjFilterBtn({ label, active, onSelect }: { label: string; active: boole
 // scroll container, no breadcrumb, and no main tab row (this page's own tab row
 // replaces it). One deliberate behavioural change is called out below.
 //
-// ZERO data: no Supabase client, no fetch, no effect. Every step is hardcoded in
-// CJ_STEPS. The only state is local and resets when the tab is left.
-function ConstructionJourneyPanel() {
+// The Steps sub-tab is still ZERO data: no Supabase client, no fetch, no effect.
+// Every step is hardcoded in CJ_STEPS and its only state is local, resetting when
+// the tab is left.
+//
+// The Reference Files sub-tab is NOT: it makes real Supabase Storage calls against
+// the construction-files bucket, scoped by clientId. (This comment used to claim
+// the whole panel was data-free — that stopped being true when Reference Files
+// became functional.) clientId is threaded through purely so those calls can be
+// scoped per client; nothing in the Steps sub-tab reads it.
+function ConstructionJourneyPanel({ clientId }: { clientId: string }) {
   // The demo switch. Off by default, so the locked state is what a viewer sees first.
   const [preComplete, setPreComplete] = useState(false)
   const [cjView, setCjView] = useState<CjView>('steps')
@@ -6552,7 +6618,7 @@ function ConstructionJourneyPanel() {
                 </div>
               </>
             ) : (
-              <CjReferenceFilesPanel />
+              <CjReferenceFilesPanel clientId={clientId} />
             )}
           </div>
         </div>
