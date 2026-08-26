@@ -6343,18 +6343,33 @@ type CjView = 'steps' | 'files'
 
 // ── Construction Journey — access gate ───────────────────────────────────────
 //
-// While this panel is a preview it is visible to exactly one operator. The tab
+// While this panel is a preview it is visible to exactly three operators. The tab
 // button and the panel are BOTH wrapped in this check, so for everyone else
 // neither exists in the DOM at all — not hidden, not disabled, absent.
-const CJ_PREVIEW_EMAIL = 'r.alimpoos@caskconstruction.com'
+//
+// Deliberately still an email allowlist, not a role check: this component has no
+// role / current_user_role() fetch today and a preview gate does not justify adding
+// one. Calin's address is written as a literal here because the repo's four
+// `CALIN_EMAIL` constants all live in server API routes as module-local,
+// non-exported consts — there is nothing importable for a client component to reuse.
+// Entries must stay lower-case: the comparison below normalises only its input,
+// not this list.
+const CJ_PREVIEW_EMAILS = [
+  'r.alimpoos@caskconstruction.com',
+  'c.noonan@caskconstruction.com',
+  'k.mapoy@caskconstruction.com',
+] as const
 
 // Trimmed + lower-cased rather than a bare ===, per CLAUDE.md's rule about
 // comparing auth emails. Also returns false for the '' that `userEmail` holds
 // before supabase.auth.getUser() resolves, which is what keeps the tab out of the
 // first paint entirely — it appears only once a real matching email is confirmed,
-// so there is no visible-then-hidden flash.
+// so there is no visible-then-hidden flash. Widening the list does not weaken that:
+// '' equals no entry, so for all three operators the tab mounts only after a
+// confirmed match, never before.
 function canSeeCjPreview(email: string | null | undefined): boolean {
-  return (email ?? '').trim().toLowerCase() === CJ_PREVIEW_EMAIL
+  const normalized = (email ?? '').trim().toLowerCase()
+  return CJ_PREVIEW_EMAILS.some(allowed => allowed === normalized)
 }
 
 // ── Construction Journey ─ step-type filter ───────────────────────────
