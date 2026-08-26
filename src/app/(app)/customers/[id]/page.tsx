@@ -4275,9 +4275,7 @@ Today's date is ${today}.
           style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 24 }}
         >
           <ClientTabBtn id="overview" cur={activeTab} set={setActiveTab}>Overview</ClientTabBtn>
-          <ClientTabBtn id="journey" cur={activeTab} set={setActiveTab}>Journey</ClientTabBtn>
-          <ClientTabBtn id="communication" cur={activeTab} set={setActiveTab}>Communication</ClientTabBtn>
-          <ClientTabBtn id="files" cur={activeTab} set={setActiveTab}>Files &amp; Agenda</ClientTabBtn>
+          <ClientTabBtn id="journey" cur={activeTab} set={setActiveTab}>Precon Journey</ClientTabBtn>
           {/* 5th tab — preview, gated to one operator. Rendered only once userEmail
               has resolved AND matches; while it is still '' this is false, so the tab
               never mounts and never flashes. For everyone else the row above is
@@ -4285,6 +4283,8 @@ Today's date is ${today}.
           {canSeeCjPreview(userEmail) && (
             <ClientTabBtn id="construction" cur={activeTab} set={setActiveTab}>Construction Journey</ClientTabBtn>
           )}
+          <ClientTabBtn id="communication" cur={activeTab} set={setActiveTab}>Communication</ClientTabBtn>
+          <ClientTabBtn id="files" cur={activeTab} set={setActiveTab}>Files &amp; Agenda</ClientTabBtn>
         </div>
 
         {/* ══════════════ OVERVIEW ══════════════ */}
@@ -5609,7 +5609,7 @@ const CJ_PREVIEW_ROOT = 'construction-preview'
 // Mirrors the bucket's own configured ceiling. Checked client-side purely so the
 // user gets an immediate, specific message instead of a failed request — the
 // bucket limit remains the authority.
-const CJ_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+const CJ_MAX_UPLOAD_BYTES = 40 * 1024 * 1024
 
 // Must stay a subset of the bucket's allowed_mime_types.
 const CJ_ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
@@ -5926,7 +5926,7 @@ function CjFilesFolder({ folder, clientId }: { folder: CjFolderDef; clientId: st
         return
       }
       if (f.size > CJ_MAX_UPLOAD_BYTES) {
-        setError(`"${f.name}" is ${cjFormatBytes(f.size)} — over the 10 MB limit.`)
+        setError(`"${f.name}" is ${cjFormatBytes(f.size)} — over the 40 MB limit.`)
         return
       }
     }
@@ -6024,7 +6024,7 @@ function CjFilesFolder({ folder, clientId }: { folder: CjFolderDef; clientId: st
         <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text2)' }}>
           {uploading ? 'Uploading…' : 'Drop files here or click to browse'}
         </span>
-        <span style={{ fontSize: 10, color: 'var(--text3)' }}>JPG, PNG, WEBP or PDF · up to 10 MB</span>
+        <span style={{ fontSize: 10, color: 'var(--text3)' }}>JPG, PNG, WEBP or PDF · up to 40 MB</span>
       </button>
 
       <input
