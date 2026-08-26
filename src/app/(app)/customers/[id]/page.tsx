@@ -5756,33 +5756,523 @@ function CjSubTabBtn({ label, active, onSelect }: { label: string; active: boole
   )
 }
 
-// ── Reference-file placeholder cards ─────────────────────────────────────────
+// ── Reference Files — real Supabase Storage folders ──────────────────────────
+//
+// This is the FIRST functional feature inside the Construction Journey panel.
+// Everything else in this panel (the Steps sub-tab, the mock Schedule-meeting
+// modal, the demo lock switch) stays exactly as inert as before. Nothing here
+// shares state or handlers with any of it — each folder below owns its own
+// state, so leaving the Reference Files sub-tab simply unmounts it.
+//
+// SECURITY — read this before changing anything here:
+// The page-level `canSeeCjPreview(userEmail)` gate is a UI-layer convenience
+// only. The real enforcement for these files is the RLS on the
+// `construction-files` bucket, which restricts SELECT/INSERT/UPDATE/DELETE to
+// current_user_role() IN ('president','ea','ai_specialist'). This is the first
+// feature on this page where the actual security boundary is the RLS rather
+// than the UI gate — every call below runs through the cookie-backed browser
+// client, so it is the signed-in user's own role that decides the outcome.
+//
+// PATHING — deliberate placeholder:
+// Construction Journey is not yet wired to real client records (this panel is
+// still driven by hardcoded "Sample Client" data), so there is no real
+// client_id to scope object paths by. Rather than invent a fake one, both
+// folders write under a fixed `preview/` prefix. Re-pathing these to
+// `clients/<client_id>/...` is a required follow-up once Construction Journey
+// is connected to actual client records — existing objects will need moving at
+// that point.
 
-const CJ_REFERENCE_FILES: { icon: string; title: string; note: string }[] = [
-  { icon: '📅', title: 'Scheduling', note: 'BT schedule exports and stage timelines the crew works off during construction.' },
-  { icon: '📐', title: 'Drawings',   note: 'Permitted set plus the marked-up field set carried through every stage meeting.' },
-  { icon: '🎨', title: 'Selections', note: 'The selections packet referenced from the finishes and rough-in walkthroughs.' },
+const CJ_FILES_BUCKET = 'construction-files'
+
+// Mirrors the bucket's own configured ceiling. Checked client-side purely so the
+// user gets an immediate, specific message instead of a failed request — the
+// bucket limit remains the authority.
+const CJ_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+// Must stay a subset of the bucket's allowed_mime_types.
+const CJ_ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+const CJ_ALLOWED_EXT = ['.jpg', '.jpeg', '.png', '.webp', '.pdf']
+const CJ_FILE_ACCEPT = [...CJ_ALLOWED_EXT, ...CJ_ALLOWED_MIME].join(',')
+
+// Thumbnails are minted once per list; the open-in-new-tab link is minted fresh
+// at click time and never stored, so a stale tile cannot hand out a live URL.
+const CJ_THUMB_TTL_SECONDS = 3600
+const CJ_OPEN_TTL_SECONDS = 60
+
+interface CjFolderDef {
+  key: string
+  icon: string
+  title: string
+  note: string
+  // Path prefix inside CJ_FILES_BUCKET. Placeholder — see PATHING note above.
+  prefix: string
+}
+
+const CJ_FILE_FOLDERS: CjFolderDef[] = [
+  {
+    key: 'drawings',
+    icon: '📐',
+    title: 'Drawings',
+    note: 'Permitted set plus the marked-up field set carried through every stage meeting.',
+    prefix: 'preview/drawings',
+  },
+  {
+    key: 'selections',
+    icon: '🎨',
+    title: 'Selections',
+    note: 'The selections packet referenced from the finishes and rough-in walkthroughs.',
+    prefix: 'preview/selections',
+  },
 ]
+
+// Still a placeholder on purpose: the Scheduling folder depends on the open
+// DOMO / BuilderTrend integration question, so it stays inert until that is
+// settled. Do not give this one an upload zone as a side effect of other work.
+const CJ_SCHEDULING_CARD = {
+  icon: '📅',
+  title: 'Scheduling',
+  note: 'BT schedule exports and stage timelines the crew works off during construction.',
+}
+
+// Count shown in the section head: the two real folders plus the inert one.
+const CJ_FOLDER_COUNT = CJ_FILE_FOLDERS.length + 1
+
+interface CjStoredFile {
+  name: string
+  path: string
+  size: number
+  isPdf: boolean
+  // Signed URL used only to paint the tile (an <img> src, or the bytes pdf.js
+  // renders). Null when signing failed for this row.
+  thumbUrl: string | null
+}
+
+function cjFormatBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0 KB'
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function cjFileIsAllowed(file: File): boolean {
+  const name = file.name.toLowerCase()
+  const extOk = CJ_ALLOWED_EXT.some(e => name.endsWith(e))
+  // file.type is empty for some OS/browser combinations, so the extension is
+  // the fallback rather than the other way round.
+  const mimeOk = file.type ? CJ_ALLOWED_MIME.includes(file.type) : true
+  return extOk && mimeOk
+}
+
+// Object keys are ASCII-safe and collision-free. The timestamp prefix means two
+// uploads of the same filename coexist instead of one silently winning, which is
+// why upsert stays false on the upload call.
+function cjStorageKey(prefix: string, fileName: string): string {
+  const safe = fileName
+    .normalize('NFKD')
+    .replace(/[^\w.\-]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^[_.]+/, '')
+    .slice(-120)
+  return `${prefix}/${Date.now()}_${safe || 'file'}`
+}
+
+// First-page PDF thumbnail, rendered client-side to a canvas. Same pdf.js setup
+// the dashboard's PDF text extraction already uses: dynamic import (pdf.js
+// touches `document` at import time) plus the worker served from /public.
+function CjPdfThumb({ url, label }: { url: string | null; label: string }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [state, setState] = useState<'loading' | 'ok' | 'failed'>('loading')
+
+  useEffect(() => {
+    let cancelled = false
+    if (!url) {
+      setState('failed')
+      return
+    }
+    setState('loading')
+    void (async () => {
+      try {
+        const pdfjs = await import('pdfjs-dist')
+        // Worker served as a static asset from /public (copied from pdfjs-dist/build).
+        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.arrayBuffer()
+        if (cancelled) return
+        const pdf = await pdfjs.getDocument({ data }).promise
+        const page = await pdf.getPage(1)
+        const canvas = canvasRef.current
+        if (!canvas || cancelled) return
+        // Fit the tile width, capped so a huge sheet does not allocate a giant canvas.
+        const base = page.getViewport({ scale: 1 })
+        const scale = Math.min(2, Math.max(0.2, 320 / base.width))
+        const viewport = page.getViewport({ scale })
+        canvas.width = Math.ceil(viewport.width)
+        canvas.height = Math.ceil(viewport.height)
+        await page.render({ canvas, viewport }).promise
+        if (!cancelled) setState('ok')
+      } catch {
+        if (!cancelled) setState('failed')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [url])
+
+  return (
+    <>
+      <canvas
+        ref={canvasRef}
+        aria-label={`First page of ${label}`}
+        style={{
+          width: '100%', height: '100%', objectFit: 'cover',
+          display: state === 'ok' ? 'block' : 'none',
+        }}
+      />
+      {state !== 'ok' && (
+        <span
+          style={{
+            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontSize: 10.5, color: 'var(--text3)', textAlign: 'center', padding: 8,
+          }}
+        >
+          {state === 'loading' ? 'Rendering…' : 'No preview'}
+        </span>
+      )}
+    </>
+  )
+}
+
+function CjUploadIcon() {
+  return (
+    <svg
+      width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+      style={{ color: 'var(--text3)', opacity: 0.75 }}
+    >
+      <path d="M16 16l-4-4-4 4" />
+      <path d="M12 12v9" />
+      <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+    </svg>
+  )
+}
+
+// One real folder: drop zone + live listing off Supabase Storage. Fully
+// self-contained — all state is local to this component instance.
+function CjFilesFolder({ folder }: { folder: CjFolderDef }) {
+  const [files, setFiles] = useState<CjStoredFile[]>([])
+  const [listing, setListing] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  const loadFiles = useCallback(async () => {
+    setListing(true)
+    const supabase = createClient()
+    const { data, error: listErr } = await supabase.storage
+      .from(CJ_FILES_BUCKET)
+      .list(folder.prefix, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } })
+
+    if (listErr) {
+      // A denied read surfaces here rather than as an empty folder, so an RLS
+      // problem never looks like "no files yet".
+      setError(`Could not load files: ${listErr.message}`)
+      setFiles([])
+      setListing(false)
+      return
+    }
+
+    // Rows without an id are folder entries; Supabase also parks a hidden
+    // placeholder object in otherwise-empty prefixes.
+    const rows = (data ?? []).filter(o => o.id && o.name !== '.emptyFolderPlaceholder')
+    if (rows.length === 0) {
+      setFiles([])
+      setListing(false)
+      return
+    }
+
+    const paths = rows.map(r => `${folder.prefix}/${r.name}`)
+    const { data: signed } = await supabase.storage
+      .from(CJ_FILES_BUCKET)
+      .createSignedUrls(paths, CJ_THUMB_TTL_SECONDS)
+
+    setFiles(
+      rows.map((r, i) => ({
+        name: r.name,
+        path: paths[i],
+        size: (r.metadata as { size?: number } | null)?.size ?? 0,
+        isPdf: r.name.toLowerCase().endsWith('.pdf'),
+        thumbUrl: signed?.[i]?.signedUrl ?? null,
+      })),
+    )
+    setListing(false)
+  }, [folder.prefix])
+
+  useEffect(() => {
+    void loadFiles()
+  }, [loadFiles])
+
+  async function handleFiles(picked: FileList | File[] | null) {
+    const chosen = picked ? Array.from(picked) : []
+    if (chosen.length === 0) return
+    setError(null)
+
+    // Validate everything up front so a bad file in the middle of a multi-file
+    // drop does not leave a half-finished upload behind.
+    for (const f of chosen) {
+      if (!cjFileIsAllowed(f)) {
+        setError(`"${f.name}" is not an accepted file type. Use JPG, PNG, WEBP or PDF.`)
+        return
+      }
+      if (f.size > CJ_MAX_UPLOAD_BYTES) {
+        setError(`"${f.name}" is ${cjFormatBytes(f.size)} — over the 10 MB limit.`)
+        return
+      }
+    }
+
+    setUploading(true)
+    const supabase = createClient()
+    for (const f of chosen) {
+      const { error: upErr } = await supabase.storage
+        .from(CJ_FILES_BUCKET)
+        .upload(cjStorageKey(folder.prefix, f.name), f, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: f.type || undefined,
+        })
+      if (upErr) {
+        setError(`Upload failed for "${f.name}": ${upErr.message}`)
+        break
+      }
+    }
+    setUploading(false)
+    // Refresh regardless: earlier files in the batch may have landed before the
+    // failure, and the listing is the source of truth for what actually exists.
+    await loadFiles()
+  }
+
+  // Minted at click time and never stored, so the URL a tile can hand out is
+  // always short-lived.
+  async function openFile(file: CjStoredFile) {
+    setError(null)
+    const supabase = createClient()
+    const { data, error: signErr } = await supabase.storage
+      .from(CJ_FILES_BUCKET)
+      .createSignedUrl(file.path, CJ_OPEN_TTL_SECONDS)
+    if (signErr || !data?.signedUrl) {
+      setError(`Could not open "${file.name}": ${signErr?.message ?? 'no signed URL returned'}`)
+      return
+    }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  async function deleteFile(file: CjStoredFile) {
+    if (!window.confirm(`Delete "${file.name}" from ${folder.title}?\n\nThis removes it from storage and cannot be undone.`)) {
+      return
+    }
+    setError(null)
+    setDeleting(file.path)
+    const supabase = createClient()
+    const { error: delErr } = await supabase.storage.from(CJ_FILES_BUCKET).remove([file.path])
+    if (delErr) setError(`Delete failed for "${file.name}": ${delErr.message}`)
+    setDeleting(null)
+    await loadFiles()
+  }
+
+  return (
+    <div
+      style={{
+        background: 'var(--surface2)', border: '1px solid var(--border)',
+        borderRadius: 10, padding: '14px 15px',
+      }}
+    >
+      <div className="flex items-baseline justify-between" style={{ gap: 10, marginBottom: 5 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>
+          <span style={{ fontSize: 15, marginRight: 6 }}>{folder.icon}</span>
+          {folder.title}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          {listing ? 'Loading…' : `${files.length} ${files.length === 1 ? 'file' : 'files'}`}
+        </span>
+      </div>
+      <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--text3)', marginBottom: 11 }}>{folder.note}</div>
+
+      {/* Drop zone — also clickable, and keyboard-reachable as a real button. */}
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragEnter={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => {
+          e.preventDefault()
+          setDragOver(false)
+          void handleFiles(e.dataTransfer?.files ?? null)
+        }}
+        disabled={uploading}
+        style={{
+          width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center',
+          gap: 6, padding: '18px 12px', borderRadius: 9,
+          border: `1.5px dashed ${dragOver ? 'var(--red)' : 'var(--border)'}`,
+          background: dragOver ? 'var(--surface)' : 'transparent',
+          cursor: uploading ? 'progress' : 'pointer', fontFamily: 'inherit',
+          transition: 'border-color 120ms ease, background 120ms ease',
+        }}
+      >
+        <CjUploadIcon />
+        <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--text2)' }}>
+          {uploading ? 'Uploading…' : 'Drop files here or click to browse'}
+        </span>
+        <span style={{ fontSize: 10, color: 'var(--text3)' }}>JPG, PNG, WEBP or PDF · up to 10 MB</span>
+      </button>
+
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={CJ_FILE_ACCEPT}
+        style={{ display: 'none' }}
+        onChange={e => {
+          void handleFiles(e.target.files)
+          // Clear so re-picking the same file still fires a change event.
+          e.target.value = ''
+        }}
+      />
+
+      {error && (
+        <div
+          role="alert"
+          style={{
+            marginTop: 10, padding: '8px 10px', borderRadius: 7, fontSize: 11, lineHeight: 1.45,
+            color: 'var(--red)', background: 'var(--red-soft)', border: '1px solid var(--red-border)',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {/* Listing */}
+      <div style={{ marginTop: 12 }}>
+        {listing ? (
+          <div style={{ fontSize: 11, color: 'var(--text3)', padding: '10px 0' }}>Loading files…</div>
+        ) : files.length === 0 ? (
+          <div style={{ fontSize: 11, color: 'var(--text3)', padding: '10px 0' }}>
+            {error ? 'Nothing to show.' : 'No files uploaded yet.'}
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 9 }}>
+            {files.map(f => (
+              <div key={f.path} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => void openFile(f)}
+                  title={`${f.name} · ${cjFormatBytes(f.size)}`}
+                  style={{
+                    display: 'block', width: '100%', padding: 0, borderRadius: 8, overflow: 'hidden',
+                    border: '1px solid var(--border)', background: 'var(--surface)',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  <span
+                    style={{
+                      position: 'relative', display: 'block', width: '100%', aspectRatio: '1 / 1',
+                      overflow: 'hidden', background: 'var(--surface2)',
+                    }}
+                  >
+                    {f.isPdf ? (
+                      <CjPdfThumb url={f.thumbUrl} label={f.name} />
+                    ) : f.thumbUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- signed
+                      // storage URL with a short TTL; next/image would need the host
+                      // allowlisted and would proxy/cache a private object.
+                      <img
+                        src={f.thumbUrl}
+                        alt={f.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                    ) : (
+                      <span
+                        style={{
+                          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', fontSize: 10.5, color: 'var(--text3)',
+                        }}
+                      >
+                        No preview
+                      </span>
+                    )}
+                    {f.isPdf && (
+                      <span
+                        style={{
+                          position: 'absolute', left: 5, bottom: 5, fontSize: 8.5, fontWeight: 700,
+                          letterSpacing: '0.05em', padding: '2px 5px', borderRadius: 4,
+                          background: 'rgba(17,17,17,0.82)', color: '#fff',
+                        }}
+                      >
+                        PDF
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    style={{
+                      display: 'block', padding: '5px 6px', fontSize: 9.5, lineHeight: 1.3,
+                      color: 'var(--text2)', textAlign: 'left', overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {f.name}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteFile(f)}
+                  disabled={deleting === f.path}
+                  aria-label={`Delete ${f.name}`}
+                  title={`Delete ${f.name}`}
+                  style={{
+                    position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 5,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: '1px solid var(--border)', background: 'var(--surface)',
+                    color: 'var(--text3)', fontSize: 11, lineHeight: 1,
+                    cursor: deleting === f.path ? 'progress' : 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  {deleting === f.path ? '…' : '✕'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function CjReferenceFilesPanel() {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: 20 }}>
-      {CJ_REFERENCE_FILES.map(f => (
-        <div
-          key={f.title}
-          style={{
-            flex: '1 1 240px', minWidth: 220, background: 'var(--surface2)',
-            border: '1px solid var(--border)', borderRadius: 10, padding: '14px 15px',
-          }}
-        >
-          <div style={{ fontSize: 20, marginBottom: 8 }}>{f.icon}</div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 5 }}>{f.title}</div>
-          <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--text3)', marginBottom: 11 }}>{f.note}</div>
-          <button type="button" title="Preview only — this button does nothing" style={cjActionBtn}>
-            📎 Open folder
-          </button>
-        </div>
-      ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+        {CJ_FILE_FOLDERS.map(f => (
+          <CjFilesFolder key={f.key} folder={f} />
+        ))}
+      </div>
+
+      {/* Unchanged inert placeholder — Scheduling stays a mock until the DOMO /
+          BuilderTrend integration question is settled. */}
+      <div
+        style={{
+          maxWidth: 420, background: 'var(--surface2)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '14px 15px',
+        }}
+      >
+        <div style={{ fontSize: 20, marginBottom: 8 }}>{CJ_SCHEDULING_CARD.icon}</div>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', marginBottom: 5 }}>{CJ_SCHEDULING_CARD.title}</div>
+        <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--text3)', marginBottom: 11 }}>{CJ_SCHEDULING_CARD.note}</div>
+        <button type="button" title="Preview only — this button does nothing" style={cjActionBtn}>
+          📎 Open folder
+        </button>
+      </div>
     </div>
   )
 }
@@ -6012,7 +6502,7 @@ function ConstructionJourneyPanel() {
                 {cjView === 'steps' ? 'Construction Journey' : 'Reference Files'}
               </h2>
               <span style={{ fontSize: 12, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
-                {cjView === 'steps' ? `${doneCount} of ${CJ_STEPS.length} steps` : `${CJ_REFERENCE_FILES.length} folders`}
+                {cjView === 'steps' ? `${doneCount} of ${CJ_STEPS.length} steps` : `${CJ_FOLDER_COUNT} folders`}
               </span>
             </div>
 
