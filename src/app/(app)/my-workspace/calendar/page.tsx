@@ -1260,14 +1260,46 @@ export default function MyCalendarPage() {
     if (!lockedInvite?.returnTo) return
 
     // The authoritative scheduled time is the one GRAPH confirmed, not the form input:
-    // the service can normalise or shift what it was sent. parseGraphDate is this
-    // page's existing Graph parser (Graph returns a naive UTC string with no offset,
-    // which it handles by appending the Z) — no new date logic is introduced here.
-    const rawStart = (createdEvent as { start?: { dateTime?: string } } | null | undefined)
-      ?.start?.dateTime
+    // the service can normalise or shift what it was sent.
+    //
+    // TIMEZONE — the subtle part, and the source of a real 4-hour bug:
+    // parseGraphDate assumes a naive (offset-less) datetime is UTC. That is correct for
+    // the GET /me/calendarView responses it was written for, but WRONG here: the
+    // POST /me/events response echoes start back in whatever timeZone the request
+    // supplied, and add-event/route.ts submits 'Eastern Standard Time'. Blindly
+    // appending 'Z' to those wall-clock digits stamped 9:00 AM ET as 09:00 UTC, i.e.
+    // four hours early in EDT (five in EST). So the sibling `timeZone` is read here and
+    // parseGraphDate is only used when it is actually safe to.
+    const start = (createdEvent as { start?: { dateTime?: string; timeZone?: string } } | null | undefined)
+      ?.start
+    const rawStart = start?.dateTime
+
+    // TEMPORARY — remove after confirming Graph's actual response shape.
+    console.log('[add-event] raw Graph start:', { dateTime: rawStart, timeZone: start?.timeZone })
+
     let startIso: string | null = null
     if (typeof rawStart === 'string' && rawStart) {
-      const d = parseGraphDate(rawStart)
+      const trimmed = rawStart.replace(/(\.\d{3})\d+/, '$1')
+      const hasOffset = /(Z|[+-]\d{2}:\d{2})$/.test(trimmed)
+      const isUtc = (start?.timeZone ?? '').toUpperCase() === 'UTC'
+      let d: Date
+      if (hasOffset || isUtc) {
+        // Unambiguous — the existing parser is exactly right, and is left untouched.
+        d = parseGraphDate(trimmed)
+      } else {
+        // Naive digits that are NOT UTC: treat them as ET wall-clock and resolve to a
+        // true instant. Guess UTC, ask what that instant reads as in ET vs UTC, and
+        // shift by the difference. DST-correct because the offset is derived from the
+        // event's own date rather than hard-coded.
+        const guess = new Date(`${trimmed}Z`)
+        if (isNaN(guess.getTime())) {
+          d = guess
+        } else {
+          const shownEt = new Date(guess.toLocaleString('en-US', { timeZone: ET }))
+          const shownUtc = new Date(guess.toLocaleString('en-US', { timeZone: 'UTC' }))
+          d = new Date(guess.getTime() + (shownUtc.getTime() - shownEt.getTime()))
+        }
+      }
       if (!isNaN(d.getTime())) startIso = d.toISOString()
     }
 
