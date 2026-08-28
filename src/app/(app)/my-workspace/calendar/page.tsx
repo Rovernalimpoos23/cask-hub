@@ -710,7 +710,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 // `lockedTitle` puts the modal in locked-invite mode: the title is fixed to the
 // STEP<NN> … : <Client> string the Fireflies webhook parses, and Teams is forced on.
 // Omitted (the manual "+ Add Event" flow) everything behaves exactly as before.
-function AddEventModal({ onClose, onSuccess, lockedTitle }: { onClose: () => void; onSuccess: () => void; lockedTitle?: string }) {
+function AddEventModal({ onClose, onSuccess, lockedTitle }: { onClose: () => void; onSuccess: (createdEvent?: unknown) => void; lockedTitle?: string }) {
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: ET })
   const isLocked = !!lockedTitle
 
@@ -804,7 +804,10 @@ function AddEventModal({ onClose, onSuccess, lockedTitle }: { onClose: () => voi
         return
       }
       // Success — parent closes this modal (unmount resets the form) and refetches.
-      onSuccess()
+      // The created Graph event is handed up so the locked-invite return can quote the
+      // time the service actually confirmed rather than the raw form input. The manual
+      // "+ Add Event" path ignores the argument entirely, so its behaviour is unchanged.
+      onSuccess(json.event)
     } catch {
       setFormError('Network error. Please try again.')
       setSubmitting(false)
@@ -1247,14 +1250,39 @@ export default function MyCalendarPage() {
 
   // After an event is added: close the modal, refresh today/week data, and force
   // the calendar grid's month fetch to re-run (a no-op while the list view is up).
-  function handleEventAdded() {
+  function handleEventAdded(createdEvent?: unknown) {
     setAddOpen(false)
     setSuccessMsg('Event added successfully!')
     load()
     setMonthRefreshKey(k => k + 1)
     // Locked-invite mode only: hand the user back where they came from. Without a
     // returnTo (every manual add) behaviour is unchanged — stay on My Calendar.
-    if (lockedInvite?.returnTo) router.push(lockedInvite.returnTo)
+    if (!lockedInvite?.returnTo) return
+
+    // The authoritative scheduled time is the one GRAPH confirmed, not the form input:
+    // the service can normalise or shift what it was sent. parseGraphDate is this
+    // page's existing Graph parser (Graph returns a naive UTC string with no offset,
+    // which it handles by appending the Z) — no new date logic is introduced here.
+    const rawStart = (createdEvent as { start?: { dateTime?: string } } | null | undefined)
+      ?.start?.dateTime
+    let startIso: string | null = null
+    if (typeof rawStart === 'string' && rawStart) {
+      const d = parseGraphDate(rawStart)
+      if (!isNaN(d.getTime())) startIso = d.toISOString()
+    }
+
+    // Resolving against the origin keeps this a same-origin push even if returnTo ever
+    // carried an absolute URL, and preserves whatever `tab` the caller already put on
+    // it. searchParams.set handles the encoding, including the `?` vs `&` join.
+    const url = new URL(lockedInvite.returnTo, window.location.origin)
+    url.searchParams.set('created', '1')
+    url.searchParams.set('createdTitle', lockedInvite.title)
+    // Carried as the raw ISO instant, not a pre-formatted string: the receiving page
+    // formats it with its own existing formatCompletedAt helper, so no second
+    // date-formatting function exists anywhere. Omitted rather than guessed if Graph's
+    // start can't be parsed — the toast then simply renders without the when-line.
+    if (startIso) url.searchParams.set('createdWhen', startIso)
+    router.push(`${url.pathname}${url.search}`)
   }
 
   return (

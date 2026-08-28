@@ -2501,6 +2501,20 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [confirmSendDraft, setConfirmSendDraft] = useState<EmailDraft | null>(null)
   const [viewSentEmail, setViewSentEmail] = useState<EmailDraft | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  // Confirmation shown after returning from the My Calendar locked-invite flow. `when`
+  // is already formatted (or null when Graph's start couldn't be parsed / wasn't sent).
+  const [createdToast, setCreatedToast] = useState<{ title: string; when: string | null } | null>(null)
+  // Construction-only. Captured on mount from the return URL, then written once the
+  // self-lookup has settled — at mount the identity refs are still null, and this row's
+  // scheduled_by is a real FK to public.users, so writing immediately would persist an
+  // unattributed schedule.
+  const [pendingSchedule, setPendingSchedule] = useState<
+    { stepNumber: number; scheduledAt: string; title: string } | null
+  >(null)
+  // Bumped after a schedule write lands so the Construction panel re-reads. The panel
+  // mounts in parallel with that write, so without this the badge would only show up
+  // after the tab was closed and reopened.
+  const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0)
   // Collapse state for the moved-to-bottom info sections (collapsed by default).
   const [isPersonalityExpanded, setIsPersonalityExpanded] = useState(false)
   const [isPrioritiesExpanded, setIsPrioritiesExpanded] = useState(false)
@@ -2550,6 +2564,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // NOTE: distinct from checklistUserIdRef, which holds the auth.users id.
   const selfUserIdRef = useRef<string | null>(null)
   const selfUserNameRef = useRef<string | null>(null)
+  // True once the lookup below has SETTLED — resolved or not. The refs above can't
+  // drive a re-render, so anything that needs to gate UI on attribution being known
+  // (the Construction Journey checkboxes) keys off this instead. Deliberately set on
+  // every exit path including failure: a user whose row can't be resolved must still
+  // be able to click, taking the documented name-less degradation rather than being
+  // left with a permanently dead checkbox.
+  const [selfUserReady, setSelfUserReady] = useState(false)
 
   useEffect(() => {
     if (containerRef.current) {
@@ -2759,6 +2780,113 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     fetchClient()
   }, [fetchClient])
 
+  // ── Return from the My Calendar locked-invite flow ───────────────────────────
+  // Reads ?tab=…&created=1&createdTitle=…&createdWhen=… once on mount. Shared by BOTH
+  // journeys' Schedule-meeting buttons — the only difference between them is the `tab`
+  // value each puts on its returnTo, so there is one reader here, not two.
+  //
+  // window.location rather than useSearchParams() so this page needs no Suspense
+  // boundary — the same approach the calendar page uses to read these params.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const tab = q.get('tab')
+    const created = q.get('created') === '1'
+
+    // Only the two journey tabs are accepted. Compared against literals rather than a
+    // list so TypeScript narrows to ClientTab without a cast.
+    if (tab === 'journey' || tab === 'construction') setActiveTab(tab)
+
+    if (created) {
+      setCreatedToast({
+        title: q.get('createdTitle') ?? '',
+        // Formatted with this page's EXISTING helper — the URL carries the raw ISO
+        // instant Graph confirmed, so no second date formatter is introduced. Returns
+        // null for a missing or unparseable value, which the toast renders without.
+        when: formatCompletedAt(q.get('createdWhen')),
+      })
+    }
+
+    // ── Construction-only branch ──────────────────────────────────────────────
+    // createdStep is written by handleCjCreateInvite and by nothing else, so its
+    // presence is the discriminator. Absent → this was pre-con → nothing here runs and
+    // pre-con's behaviour is exactly what it was before this change.
+    const stepRaw = q.get('createdStep')
+    const whenRaw = q.get('createdWhen')
+    if (created && stepRaw && /^\d+$/.test(stepRaw) && whenRaw) {
+      // scheduled_at is NOT NULL on the table, so an unparseable timestamp must not be
+      // written at all — better no badge than a broken row.
+      const validWhen = !isNaN(new Date(whenRaw).getTime())
+      if (validWhen) {
+        setPendingSchedule({
+          stepNumber: Number(stepRaw),
+          scheduledAt: whenRaw,
+          title: q.get('createdTitle') ?? '',
+        })
+      }
+    }
+
+    // Strip all five so a refresh can't re-fire the toast, re-force the tab, or write
+    // the schedule a second time. history.replaceState, NOT router.replace: no
+    // navigation, no refetch, no scroll reset, and no re-run of route-keyed effects.
+    if (tab || created) {
+      q.delete('tab')
+      q.delete('created')
+      q.delete('createdTitle')
+      q.delete('createdWhen')
+      q.delete('createdStep')
+      const qs = q.toString()
+      window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`)
+    }
+  }, [])
+
+  // Auto-dismiss the created-meeting confirmation. Mirrors the plain `toast` timer
+  // above; the × in the toast dismisses it immediately.
+  useEffect(() => {
+    if (!createdToast) return
+    const timer = setTimeout(() => setCreatedToast(null), 5000)
+    return () => clearTimeout(timer)
+  }, [createdToast])
+
+  // ── Persist a Construction step's scheduled meeting ──────────────────────────
+  // Gated on selfUserReady, not run inline in the effect above, because at mount the
+  // identity refs are still null and scheduled_by is a real FK to public.users. Waiting
+  // one tick is what makes the row attributed. The upsert's UNIQUE (client_id,
+  // step_number) is what turns a reschedule into an overwrite rather than a duplicate.
+  useEffect(() => {
+    if (!pendingSchedule || !selfUserReady) return
+    let cancelled = false
+    ;(async () => {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('construction_step_schedules')
+        .upsert(
+          {
+            client_id:         params.id,
+            step_number:       pendingSchedule.stepNumber,
+            scheduled_at:      pendingSchedule.scheduledAt,
+            scheduled_title:   pendingSchedule.title,
+            scheduled_by:      selfUserIdRef.current,
+            scheduled_by_name: selfUserNameRef.current,
+            // Sent explicitly: a column default only fires on INSERT, so without this
+            // an overwriting reschedule would keep the original updated_at.
+            updated_at:        new Date().toISOString(),
+          },
+          { onConflict: 'client_id,step_number' },
+        )
+      if (cancelled) return
+      if (error) {
+        // The Outlook event itself was created regardless — say so, rather than letting
+        // a missing badge imply the meeting didn't happen.
+        console.error('[cj-step-schedule] upsert failed:', error)
+        setToast('Meeting created, but the schedule badge could not be saved.')
+      } else {
+        setScheduleRefreshKey(k => k + 1)
+      }
+      setPendingSchedule(null)
+    })()
+    return () => { cancelled = true }
+  }, [pendingSchedule, selfUserReady, params.id])
+
   // ── Resolve the acting user's own public.users id + display name ─────────────
   // ONE lookup, shared by both completion features on this page. Lifted out of the
   // action-items effect (which early-returns when the client has no client_meetings
@@ -2785,6 +2913,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         }
       } catch (err) {
         console.error('[self-user] lookup failed:', err)
+      } finally {
+        // Additive: unblocks consumers gated on the lookup being settled. Runs on the
+        // no-email early return and the catch too, on purpose — see selfUserReady.
+        if (!cancelled) setSelfUserReady(true)
       }
     })()
     return () => { cancelled = true }
@@ -3478,7 +3610,28 @@ Today's date is ${today}.
     const query = new URLSearchParams({
       prefillTitle: inviteTitle,
       locked: '1',
-      returnTo: `/customers/${params.id}`,
+      // ?tab= is what fixes the old "always came back to Overview" gap. It rides on
+      // returnTo, so the calendar page needs no knowledge of tabs at all — it just
+      // preserves whatever it was handed and appends its own created* params.
+      returnTo: `/customers/${params.id}?tab=journey`,
+    })
+    router.push(`/my-workspace/calendar?${query.toString()}`)
+  }
+
+  // Construction Journey's "Schedule meeting". Deliberately separate from
+  // handleCreateInvite above rather than a shared generic: that one is the pre-con
+  // STEP handler and is not being touched. This owns only the navigation — the CSTEP
+  // title itself is built by cjInviteTitle in the CJ section, where the step data
+  // lives. Same locked-invite mechanism, so the calendar page needs no changes.
+  function handleCjCreateInvite(inviteTitle: string, stepNumber: number) {
+    const query = new URLSearchParams({
+      prefillTitle: inviteTitle,
+      locked: '1',
+      // Same mechanism as the pre-con handler above — only the tab value differs, plus
+      // createdStep. That param is added HERE ONLY: construction_step_schedules is a
+      // Construction-only table, so its presence on the way back is exactly what tells
+      // the return handler this was a Construction invite and not a pre-con one.
+      returnTo: `/customers/${params.id}?tab=construction&createdStep=${stepNumber}`,
     })
     router.push(`/my-workspace/calendar?${query.toString()}`)
   }
@@ -4167,6 +4320,71 @@ Today's date is ${today}.
           }}
         >
           {toast}
+        </div>
+      )}
+
+      {/* Meeting-created confirmation — shown once after returning from the locked
+          invite flow, then the URL params are stripped so a refresh won't repeat it.
+          Sits above the plain toast's slot; pointerEvents are ON here (unlike that
+          one) because this card carries a dismiss button. */}
+      {createdToast && (
+        <div
+          role="status"
+          style={{
+            position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 10003, background: 'var(--surface)', color: 'var(--text)',
+            border: '1px solid var(--border)', borderLeft: '3px solid var(--green)',
+            padding: '11px 13px 11px 14px', borderRadius: 9,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.22)',
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            maxWidth: 420, minWidth: 260,
+          }}
+        >
+          {/* Green check, same 9x9 polyline the checkboxes use, in a filled circle. */}
+          <span
+            className="shrink-0"
+            style={{
+              width: 18, height: 18, borderRadius: '50%', background: 'var(--green)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1,
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" style={{ stroke: '#fff' }} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </span>
+
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Meeting created</span>
+            {createdToast.title && (
+              <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--text3)', wordBreak: 'break-word' }}>
+                {createdToast.title}
+              </span>
+            )}
+            {/* Confirmed start time, in the page's standard ET format. Omitted entirely
+                when Graph didn't return a parseable start. */}
+            {createdToast.when && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--green)' }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--green)' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+                {createdToast.when}
+              </span>
+            )}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setCreatedToast(null)}
+            aria-label="Dismiss"
+            className="shrink-0"
+            style={{
+              background: 'transparent', border: 'none', padding: 0, marginLeft: 2,
+              color: 'var(--text3)', fontSize: 15, lineHeight: 1, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -5047,13 +5265,26 @@ Today's date is ${today}.
         {/* ══════════════ CONSTRUCTION JOURNEY (preview, gated) ══════════════ */}
         {/* NOT AN INCONSISTENCY: the four panels above are always mounted and hidden
             via the `hidden` attribute, deliberately, so a tab switch never unmounts
-            their fetches and effects. This panel is conditionally rendered instead —
-            it has no fetches or effects to protect (all content is static), and the
-            gate requires it to be absent from the DOM rather than merely hidden. The
-            trade-off is that its local demo state resets when you leave the tab. */}
+            their fetches and effects. This panel is conditionally rendered instead,
+            because the gate requires it to be absent from the DOM rather than merely
+            hidden. It DOES now own a fetch (per-task step completions), so leaving and
+            re-entering the tab re-reads them — which is the behaviour we want, since
+            another operator may have ticked a box in the meantime. What still resets
+            on tab exit is only the mock lock/filter/expand state.
+            selfUserIdRef / selfUserNameRef are threaded down rather than re-resolved:
+            the lookup above is the page's single copy and its declaration comment
+            explicitly warns against adding another. */}
         {canSeeCjPreview(userEmail) && activeTab === 'construction' && (
           <section id="client-p-construction" role="tabpanel" aria-labelledby="client-t-construction">
-            <ConstructionJourneyPanel clientId={params.id} />
+            <ConstructionJourneyPanel
+              clientId={params.id}
+              clientName={client.name}
+              onCreateInvite={handleCjCreateInvite}
+              scheduleRefreshKey={scheduleRefreshKey}
+              selfUserIdRef={selfUserIdRef}
+              selfUserNameRef={selfUserNameRef}
+              selfUserReady={selfUserReady}
+            />
           </section>
         )}
 
@@ -5096,7 +5327,10 @@ type CjStepStatus = 'done' | 'current' | 'pending'
 interface CjRoleBlock {
   r: string
   tasks: string[]
-  // Indices into `tasks` that start out checked. Seeds local state only.
+  // NO LONGER READ. This used to seed the mock checkbox state; per-task completion now
+  // comes from construction_step_completions, so what renders is whatever the database
+  // holds for this client. Left in the data rather than stripped from all 19 steps,
+  // which would be a large unrelated diff — but nothing consumes it.
   done: number[]
 }
 
@@ -5257,32 +5491,81 @@ const cjBadgeBase: React.CSSProperties = {
   padding: '2px 7px', borderRadius: 5, whiteSpace: 'nowrap',
 }
 
-// One key per (step, role, task index) for the local checkbox state.
-function cjTaskKey(n: number, role: string, ti: number) {
-  return `${n}||${role}||${ti}`
+// One key per (step, role, task text) — exactly the natural key of a
+// construction_step_completions row, so the same helper keys both the local Map and
+// the database row and there is no second key format to keep in sync.
+//
+// Keyed on the task TEXT, not its array index, matching the existing precedent in
+// journey_checklists and client_meeting_action_items: index keying silently
+// misattributes completion state if tasks are ever reordered or edited, whereas
+// text keying only fails visibly — a reworded task simply shows unchecked again,
+// which is the known and accepted trade-off.
+//
+// The `||` separator is safe: no CJ_STEPS task string contains it (verified across
+// all 85 task strings, which are plain ASCII apart from an em dash).
+function cjTaskKey(n: number, role: string, task: string) {
+  return `${n}||${role}||${task}`
 }
 
-function cjSeedChecked(): Set<string> {
-  const s = new Set<string>()
-  for (const step of CJ_STEPS) {
-    for (const rb of step.roles) {
-      for (const ti of rb.done) s.add(cjTaskKey(step.n, rb.r, ti))
-    }
-  }
-  return s
+// Invite title for a Construction Journey step. Mirrors the shape the pre-con
+// handleCreateInvite builds, but with a CSTEP prefix instead of STEP: Construction
+// steps are numbered 1-19 and pre-con 1-37, so a bare STEP01 would be ambiguous
+// between the two journeys.
+//
+// NOT YET PARSED ON INGESTION: the Fireflies webhook matches
+// /^STEP(\d+)\s+(.+):\s*([^:]+)$/ and does not recognise a CSTEP prefix. Teaching it
+// to is a separate, later task — until then these invites carry the right format but
+// are not auto-linked back to a step when the meeting is recorded.
+//
+// Same caveat the real handler documents: a client name containing a colon would
+// break the trailing ([^:]+)$ shape. Not a concern for real CASK client names.
+function cjInviteTitle(n: number, title: string, clientName: string): string {
+  return `CSTEP${String(n).padStart(2, '0')} ${title}: ${clientName}`
+}
+
+// One construction_step_schedules row, reduced to what the header badge needs.
+// `at` is the raw timestamptz — formatting happens at render via formatCompletedAt.
+interface CjSchedule {
+  at: string
+  title: string | null
 }
 
 // ── CjStep row ─────────────────────────────────────────────────────────────────
 
 function CjStepRow({
   step,
-  checked,
+  completions,
+  toggling,
+  attributionReady,
   onToggle,
+  clientName,
+  onCreateInvite,
+  schedule,
   clientId,
 }: {
   step: CjStep
-  checked: Set<string>
-  onToggle: (key: string) => void
+  // Real per-task completion state from construction_step_completions, keyed by
+  // cjTaskKey. Values use the same 3-field shape as ActionCompletion so the existing
+  // completionLabel() helper is reused verbatim rather than re-implemented here.
+  completions: Map<string, ActionCompletion>
+  // Keys with a write in flight — those checkboxes are busy, not disabled-for-identity.
+  toggling: Set<string>
+  // False while the completions fetch OR the page's self-lookup is still settling.
+  // Checkboxes stay disabled until then so a click can't persist a null attribution
+  // that a moment's wait would have supplied.
+  attributionReady: boolean
+  onToggle: (stepNumber: number, role: string, taskText: string, next: boolean) => void
+  // The real client's display name, threaded down the same path as clientId. Needed
+  // here because the CSTEP title format belongs with the step data; navigation stays
+  // in ClientDetailPage, which is what onCreateInvite below is for.
+  clientName: string
+  // Hands a finished invite title back up to the page, which owns the router. Same
+  // callback-passed-down shape the pre-con WorkflowStep uses for onCreateInvite.
+  // The step number rides along so the return URL can carry createdStep.
+  onCreateInvite: (inviteTitle: string, stepNumber: number) => void
+  // This step's scheduled meeting, or null when none exists. Drives both the header
+  // badge and whether the button reads "Schedule meeting" or "Reschedule".
+  schedule: CjSchedule | null
   // Threaded down from ConstructionJourneyPanel's own prop (the route's params.id) so
   // the per-step upload panel scopes to the same real client every other tab uses. Not
   // re-fetched and not defaulted: a blank value makes cjFolderPrefix() return null and
@@ -5304,6 +5587,11 @@ function CjStepRow({
   // range, so neither is a place a photo or a marked-up sheet belongs. 10 of the 19
   // steps qualify (7 customer + 3 internal); the other 9 do not (7 email + 2 window).
   const showAttach = step.type === 'customer' || step.type === 'internal'
+
+  // Reuses the page's existing ET formatter — no second date function. Null when there
+  // is no schedule, or when the stored timestamp won't parse, in which case the badge
+  // is skipped entirely rather than rendering an empty pill.
+  const scheduleLabel = schedule ? formatCompletedAt(schedule.at) : null
 
   // Upload-panel disclosure. Deliberately its OWN state, not folded into `expanded`:
   // opening files must not expand the checklist and expanding the checklist must not
@@ -5368,6 +5656,79 @@ function CjStepRow({
           <span className="shrink-0 self-center" style={{ ...cjBadgeBase, color: 'var(--text3)', border: '1px solid var(--border)' }}>
             Pending
           </span>
+        )}
+
+        {/* Scheduled-meeting badge — rendered only when a construction_step_schedules
+            row exists for this step. Date/time comes from the page's existing
+            formatCompletedAt, so it reads identically to every other timestamp here.
+            cjBadgeBase is reused for shape, but its uppercase/letter-spacing is undone:
+            a date set in caps with tracking reads badly. */}
+        {scheduleLabel && (
+          <span
+            className="shrink-0 self-center"
+            style={{
+              ...cjBadgeBase,
+              textTransform: 'none',
+              letterSpacing: 0,
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              background: 'rgba(29,158,117,0.1)',
+              border: '1px solid rgba(29,158,117,0.35)',
+              color: '#5dcaa5',
+            }}
+            title={schedule?.title ?? undefined}
+          >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: '#5dcaa5' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            {scheduleLabel}
+          </span>
+        )}
+
+        {/* Schedule meeting — real. Lands on exactly the same 10 steps as Attach
+            files by reusing that same `showAttach` boolean rather than restating the
+            condition, so the two can never drift apart. Builds the CSTEP-prefixed
+            title and hands it up to the page, which pushes My Calendar with the invite
+            prefilled and locked — the identical mechanism the pre-con button already
+            proves, so the calendar page needs no changes. stopPropagation keeps the
+            click from also toggling the header's expand/collapse. */}
+        {showAttach && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onCreateInvite(cjInviteTitle(step.n, step.title, clientName), step.n) }}
+            title={
+              schedule
+                ? `Reschedule CSTEP${String(step.n).padStart(2, '0')} ${step.title} — currently ${scheduleLabel}`
+                : `Create a Teams invite for CSTEP${String(step.n).padStart(2, '0')} ${step.title}`
+            }
+            className="shrink-0 self-center"
+            style={{
+              // cjActionBtn plus the real WorkflowStep button's exact overrides, so
+              // this sits at badge weight next to the type badge.
+              ...cjActionBtn,
+              background: 'transparent',
+              border: '0.5px solid var(--border)',
+              color: 'var(--text2)',
+              fontSize: 9.5,
+              padding: '2px 7px',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.background = 'var(--surface2)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'transparent' }}
+          >
+            {/* Stroke set via style rather than the stroke attribute — presentation
+                attributes don't resolve var(); same approach as the checkbox tick. */}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--green)' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+              <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
+            </svg>
+            {/* Same button, handler and gate either way — only the label changes once a
+                schedule exists. Re-clicking overwrites the row via the upsert. */}
+            {schedule ? 'Reschedule' : 'Schedule meeting'}
+          </button>
         )}
 
         {/* Attach files — 'customer' and 'internal' steps only, in the exact header
@@ -5456,14 +5817,25 @@ function CjStepRow({
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                     {rb.tasks.map((task, ti) => {
-                      const key = cjTaskKey(step.n, rb.r, ti)
-                      const on = checked.has(key)
+                      // `ti` is the React list key only — never the identity of the
+                      // completion row, which is the task text itself.
+                      const key = cjTaskKey(step.n, rb.r, task)
+                      const row = completions.get(key)
+                      const on = row?.completed ?? false
+                      // The same completionLabel() the three Journey-tab sites use —
+                      // reused as-is, not redefined. ActionCompletion is structurally
+                      // what `row` already is, so no adapter is needed.
+                      const credit = completionLabel(row)
+                      const busy = toggling.has(key)
+                      const disabled = busy || !attributionReady
                       return (
                         <button
                           key={ti}
                           type="button"
-                          onClick={() => onToggle(key)}
-                          style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}
+                          onClick={() => { if (!disabled) onToggle(step.n, rb.r, task, !on) }}
+                          disabled={disabled}
+                          title={!attributionReady ? 'Loading task progress…' : undefined}
+                          style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: disabled ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.6 : 1 }}
                         >
                           <span
                             className="shrink-0"
@@ -5475,8 +5847,19 @@ function CjStepRow({
                               </svg>
                             )}
                           </span>
-                          <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--text)', opacity: on ? 0.5 : 1, textDecoration: on ? 'line-through' : 'none' }}>
-                            {task}
+                          {/* Site A layout (WorkflowStep): task text with the credit
+                              line stacked beneath it in a column/gap-2 wrapper. */}
+                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                            <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--text)', opacity: on ? 0.5 : 1, textDecoration: on ? 'line-through' : 'none' }}>
+                              {task}
+                            </span>
+                            {/* Who checked it + when, in ET. Hidden entirely when
+                                unchecked (completionLabel returns null unless
+                                completed), and degrades to timestamp-only when the
+                                name is missing. */}
+                            {credit && (
+                              <span style={{ fontSize: 10, color: 'var(--green)' }}>{credit}</span>
+                            )}
                           </span>
                         </button>
                       )
@@ -6263,20 +6646,203 @@ function CjFilterBtn({ label, active, onSelect }: { label: string; active: boole
 // the whole panel was data-free — that stopped being true when Reference Files
 // became functional.) clientId is threaded through purely so those calls can be
 // scoped per client; nothing in the Steps sub-tab reads it.
-function ConstructionJourneyPanel({ clientId }: { clientId: string }) {
+function ConstructionJourneyPanel({
+  clientId,
+  clientName,
+  onCreateInvite,
+  scheduleRefreshKey,
+  selfUserIdRef,
+  selfUserNameRef,
+  selfUserReady,
+}: {
+  clientId: string
+  // Pass-through only — the panel itself never reads these; CjStepRow does. Threaded
+  // the same way clientId already is, rather than re-fetched or re-derived.
+  clientName: string
+  onCreateInvite: (inviteTitle: string, stepNumber: number) => void
+  // Incremented by the page after a post-invite schedule write lands, so the fetch
+  // below re-runs and the new badge appears without reopening the tab.
+  scheduleRefreshKey: number
+  // Threaded from ClientDetailPage rather than re-resolved here. That lookup is the
+  // page's single copy and its declaration comment explicitly warns against a third.
+  // These hold a public.users id + display name — the namespace
+  // construction_step_completions.completed_by has its foreign key against.
+  selfUserIdRef: React.MutableRefObject<string | null>
+  selfUserNameRef: React.MutableRefObject<string | null>
+  selfUserReady: boolean
+}) {
   // The demo switch. Off by default, so the locked state is what a viewer sees first.
   const [preComplete, setPreComplete] = useState(false)
   const [cjView, setCjView] = useState<CjView>('steps')
-  const [checked, setChecked] = useState<Set<string>>(cjSeedChecked)
+  // Real per-task completion state, keyed by cjTaskKey. Starts EMPTY and is filled by
+  // the fetch below — the old cjSeedChecked() seed off CJ_STEPS' hardcoded `done`
+  // arrays is gone, so what renders is what the database actually holds.
+  const [completions, setCompletions] = useState<Map<string, ActionCompletion>>(new Map())
+  const [cjLoading, setCjLoading] = useState(true)
+  const [cjToggling, setCjToggling] = useState<Set<string>>(new Set())
+  const [cjError, setCjError] = useState<string | null>(null)
+  // Scheduled meetings, keyed by step_number. UNIQUE (client_id, step_number) on the
+  // table guarantees at most one per step, which is what makes a Map the right shape.
+  const [schedules, setSchedules] = useState<Map<number, CjSchedule>>(new Map())
   const [filter, setFilter] = useState<CjFilter>('all')
 
-  function toggle(key: string) {
-    setChecked(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+  // Deliberately its OWN effect, not folded into the completions fetch: a reschedule
+  // bumps scheduleRefreshKey, and that must not force the larger completions read to
+  // re-run. Same mount/tab-open timing as that fetch otherwise.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!clientId) return
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('construction_step_schedules')
+        .select('step_number, scheduled_at, scheduled_title')
+        .eq('client_id', clientId)
+      if (cancelled) return
+      if (error) {
+        // Surfaced rather than swallowed, so a denied read never just looks like
+        // "nothing scheduled yet". Shares the panel's one error slot.
+        setCjError(`Could not load scheduled meetings: ${error.message}`)
+        return
+      }
+      const rows = (data ?? []) as {
+        step_number: number
+        scheduled_at: string | null
+        scheduled_title: string | null
+      }[]
+      const m = new Map<number, CjSchedule>()
+      for (const r of rows) {
+        if (!r.scheduled_at) continue
+        m.set(r.step_number, { at: r.scheduled_at, title: r.scheduled_title })
+      }
+      setSchedules(m)
+    })()
+    return () => { cancelled = true }
+  }, [clientId, scheduleRefreshKey])
+
+  // Load this client's real per-task completions. Runs on panel mount, which is also
+  // tab-open (the panel is conditionally rendered), so re-entering the tab re-reads —
+  // correct, since another operator may have ticked a box in the meantime.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!clientId) {
+        // Mirrors CjFilesFolder: refuse rather than fall back to an unscoped read.
+        setCjError('No client is in scope for this page, so step progress cannot be loaded.')
+        setCjLoading(false)
+        return
+      }
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('construction_step_completions')
+        .select('step_number, role, task_text, completed, completed_at, completed_by_name')
+        .eq('client_id', clientId)
+      if (cancelled) return
+      if (error) {
+        // A denied read surfaces here rather than as an all-unchecked journey, so an
+        // RLS problem never looks like "nothing has been done yet".
+        setCjError(`Could not load step progress: ${error.message}`)
+        setCjLoading(false)
+        return
+      }
+      const rows = (data ?? []) as {
+        step_number: number
+        role: string | null
+        task_text: string | null
+        completed: boolean | null
+        completed_at: string | null
+        completed_by_name: string | null
+      }[]
+      // Keyed by task TEXT, identical to the write path below and to what the
+      // checkbox renderer looks up — one key format, three call sites.
+      const m = new Map<string, ActionCompletion>()
+      for (const r of rows) {
+        m.set(cjTaskKey(r.step_number, r.role ?? '', r.task_text ?? ''), {
+          completed: r.completed ?? false,
+          completed_at: r.completed_at ?? null,
+          // Model/legacy rows can hold a non-string here; normalise at the fetch
+          // boundary so completionLabel() only ever sees string | null.
+          completed_by_name: typeof r.completed_by_name === 'string' ? r.completed_by_name : null,
+        })
+      }
+      setCompletions(m)
+      setCjLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  // Persist one task's checkbox. Optimistic, with a full revert on failure.
+  async function toggleCjTask(stepNumber: number, role: string, taskText: string, next: boolean) {
+    const key = cjTaskKey(stepNumber, role, taskText)
+    setCjToggling(prev => new Set(prev).add(key))
+    setCjError(null)
+
+    // Stamp exactly what we're about to write so the acting user's own name and time
+    // paint immediately — the name is already in hand from the threaded self-lookup,
+    // so nothing needs resolving. Unchecking nulls all three, matching the
+    // journey_checklists pattern this mirrors.
+    const completedName = next ? selfUserNameRef.current : null
+    const completedAt   = next ? new Date().toISOString() : null
+    const prevRow = completions.get(key)
+    setCompletions(prev => new Map(prev).set(key, {
+      completed: next,
+      completed_at: completedAt,
+      completed_by_name: completedName,
+    }))
+
+    try {
+      const supabase = createClient()
+      if (next) {
+        // Insert-or-revive. The table's UNIQUE (client_id, step_number, role,
+        // task_text) is what makes this idempotent — without it every re-check would
+        // append a duplicate row. Stored verbatim, not normalized: see the note on
+        // cjTaskKey, and journey_checklists' matching exact-match convention.
+        const { error } = await supabase
+          .from('construction_step_completions')
+          .upsert(
+            {
+              client_id:         clientId,
+              step_number:       stepNumber,
+              role,
+              task_text:         taskText,
+              completed:         true,
+              completed_by:      selfUserIdRef.current,
+              completed_by_name: completedName,
+              completed_at:      completedAt,
+            },
+            { onConflict: 'client_id,step_number,role,task_text' },
+          )
+        if (error) throw error
+      } else {
+        // Unchecking is an UPDATE, never a DELETE — there is no DELETE policy on this
+        // table by design, so a delete would be silently refused under RLS.
+        const { error } = await supabase
+          .from('construction_step_completions')
+          .update({ completed: false, completed_by: null, completed_by_name: null, completed_at: null })
+          .eq('client_id', clientId)
+          .eq('step_number', stepNumber)
+          .eq('role', role)
+          .eq('task_text', taskText)
+        if (error) throw error
+      }
+    } catch (err) {
+      console.error('[cj-step-completion] toggle failed:', err)
+      // Restore the whole prior record — completed, completed_at AND
+      // completed_by_name — not just the boolean.
+      setCompletions(prev => {
+        const m = new Map(prev)
+        if (prevRow) m.set(key, prevRow)
+        else m.delete(key)
+        return m
+      })
+      setCjError(`Could not save that task: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setCjToggling(prev => {
+        const s = new Set(prev)
+        s.delete(key)
+        return s
+      })
+    }
   }
 
   const locked = !preComplete
@@ -6440,6 +7006,21 @@ function ConstructionJourneyPanel({ clientId }: { clientId: string }) {
                   ))}
                 </div>
 
+                {/* Step-progress read/write errors. Same inline treatment the
+                    Reference Files card uses, so a failure reads the same way on
+                    both sub-tabs. */}
+                {cjError && (
+                  <div
+                    role="alert"
+                    style={{
+                      margin: '0 0 10px', padding: '8px 10px', borderRadius: 7, fontSize: 11, lineHeight: 1.45,
+                      color: 'var(--red)', background: 'var(--red-soft)', border: '1px solid var(--red-border)',
+                    }}
+                  >
+                    {cjError}
+                  </div>
+                )}
+
                 {/* Steps */}
                 <div>
                   {visibleSteps.length === 0 ? (
@@ -6451,7 +7032,20 @@ function ConstructionJourneyPanel({ clientId }: { clientId: string }) {
                     </div>
                   ) : (
                     visibleSteps.map(step => (
-                      <CjStepRow key={step.n} step={step} checked={checked} onToggle={toggle} clientId={clientId} />
+                      <CjStepRow
+                        key={step.n}
+                        step={step}
+                        completions={completions}
+                        toggling={cjToggling}
+                        // Both gates in one flag: rows still loading, or the page's
+                        // self-lookup not settled yet.
+                        attributionReady={selfUserReady && !cjLoading}
+                        onToggle={toggleCjTask}
+                        clientName={clientName}
+                        onCreateInvite={onCreateInvite}
+                        schedule={schedules.get(step.n) ?? null}
+                        clientId={clientId}
+                      />
                     ))
                   )}
                 </div>
