@@ -5338,6 +5338,11 @@ interface CjStep {
   n: number
   type: CjStepType
   title: string
+  // NO LONGER READ. Step-level completion now comes from construction_step_marks, and
+  // "current" is derived as the lowest-numbered unmarked step — so the badge, the
+  // progress bar and the default-expanded row are all per-client data, not this
+  // literal. Left in the data rather than stripped from all 19 steps (a large diff for
+  // no behaviour change), following the same precedent as CjRoleBlock.done above.
   status: CjStepStatus
   objective: string
   who: string
@@ -5542,6 +5547,12 @@ function CjStepRow({
   onCreateInvite,
   schedule,
   clientId,
+  isDone,
+  isCurrent,
+  mark,
+  marking,
+  markReady,
+  onMarkComplete,
 }: {
   step: CjStep
   // Real per-task completion state from construction_step_completions, keyed by
@@ -5571,11 +5582,44 @@ function CjStepRow({
   // re-fetched and not defaulted: a blank value makes cjFolderPrefix() return null and
   // CjFilesFolder refuse to read or write, rather than fall back to a shared prefix.
   clientId: string
+  // ── Step-level completion (construction_step_marks) ────────────────────────
+  // All four arrive as props rather than being derived from `step.status`, which is
+  // now dead for this purpose (see the note on CjStep.status). The panel owns the
+  // marks Map because the progress bar and "current step" both need the whole set,
+  // and a row cannot compute "am I the lowest incomplete step" on its own.
+  isDone: boolean
+  isCurrent: boolean
+  // This step's mark row, or null when unmarked. Shaped as ActionCompletion (with a
+  // synthetic `completed: true` — the table has no such column, row existence IS
+  // completion) purely so completionLabel() is reused verbatim, exactly as the
+  // per-task checkboxes above already do.
+  mark: ActionCompletion | null
+  // A mark/un-mark write is in flight for this step — busy, not disabled-for-identity.
+  marking: boolean
+  // False while the marks fetch or the page's self-lookup is still settling. Unlike
+  // pre-con's Mark Complete (which has no gate at all and can therefore persist a
+  // null completed_by), this button waits: construction_step_marks.completed_by is a
+  // real FK to users.id and completed_by_name is denormalized at write time, so a
+  // click before the lookup lands would save an unattributable row.
+  markReady: boolean
+  onMarkComplete: (stepNumber: number, completed: boolean) => void
 }) {
-  const [expanded, setExpanded] = useState(step.status === 'current')
+  const [expanded, setExpanded] = useState(isCurrent)
+  // `isCurrent` is now async-derived, and useState locks in its first value, so the
+  // real current step would never auto-expand once the marks fetch resolves. Same
+  // fix (and same "only react to changes, leave manual toggles alone" caveat) as the
+  // pre-con WorkflowStep's defaultExpanded sync.
+  const prevIsCurrent = useRef(isCurrent)
+  useEffect(() => {
+    if (isCurrent !== prevIsCurrent.current) {
+      prevIsCurrent.current = isCurrent
+      setExpanded(isCurrent)
+    }
+  }, [isCurrent])
   const cfg = CJ_STEP_TYPE_CONFIG[step.type]
-  const isCurrent = step.status === 'current'
-  const isDone = step.status === 'done'
+  // Who marked this step complete, and when, in ET. Null while unmarked, so the line
+  // is skipped entirely rather than rendering an empty row.
+  const markCredit = completionLabel(mark ?? undefined)
   const showAgenda = step.type === 'customer'
   const showRecap = step.type === 'customer' || step.type === 'internal'
 
@@ -5643,7 +5687,16 @@ function CjStepRow({
           {cfg.label}
         </span>
 
-        {/* Status badge */}
+        {/* Status badge. isDone / isCurrent are now real per-client state from
+            construction_step_marks (see the props above), not step.status.
+            DELIBERATE DIVERGENCE FROM PRE-CON — the third "Pending" branch is kept.
+            The real WorkflowStep renders nothing for a step that is neither done nor
+            current, which works there because that list is always shown whole. This
+            list has a step-type FILTER (All / Customer / Internal / Email / Window):
+            filter to 'email' and the current step is usually not among the rows, so
+            every visible row would carry no status badge at all and read as broken
+            rather than as not-yet-started. Dropping Pending here means matching
+            pre-con's markup at the cost of the clarity the filter makes necessary. */}
         {isDone ? (
           <span className="shrink-0 self-center" style={{ ...cjBadgeBase, color: 'var(--green)', background: 'var(--green-bg)', border: '1px solid var(--pill-green-border)' }}>
             Done
@@ -5881,20 +5934,35 @@ function CjStepRow({
             {step.type === 'email' && (
               <button type="button" title="Preview only — this button does nothing" style={{ ...cjActionBtn, color: 'var(--amber)', background: 'var(--amber-bg)', border: '1px solid var(--badge-open-border)', fontWeight: 600 }}>✉️ Generate Recap Email</button>
             )}
+            {/* Mark Complete — REAL. Writes construction_step_marks via the panel's
+                markCjStep handler. Disabled while a write is in flight or while
+                attribution is still resolving; see the markReady prop note. */}
             <button
               type="button"
-              title="Preview only — this button does nothing"
+              onClick={() => { if (!marking && markReady) onMarkComplete(step.n, !isDone) }}
+              disabled={marking || !markReady}
+              title={!markReady ? 'Loading step progress…' : undefined}
               style={{
                 ...cjActionBtn,
                 color: isDone ? '#166534' : 'var(--btn-primary-text, #fff)',
                 background: isDone ? 'var(--green-bg)' : 'var(--btn-primary-bg, var(--charcoal))',
                 border: isDone ? '1px solid var(--pill-green-border)' : '1px solid var(--btn-primary-bg, var(--charcoal))',
                 fontWeight: 600,
+                cursor: marking ? 'wait' : !markReady ? 'not-allowed' : 'pointer',
+                opacity: marking || !markReady ? 0.5 : 1,
               }}
             >
-              {isDone ? '✓ Completed' : 'Mark Complete'}
+              {marking ? '…' : isDone ? '✓ Completed' : 'Mark Complete'}
             </button>
           </div>
+
+          {/* Who marked the step complete + when, in ET. Same completionLabel() output
+              and same green treatment as the per-task credit lines above, so step-level
+              and task-level attribution read identically. Sits under the action row
+              rather than inside it so it never competes for space with the buttons. */}
+          {markCredit && (
+            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--green)' }}>{markCredit}</div>
+          )}
         </div>
       )}
     </div>
@@ -6685,6 +6753,20 @@ function ConstructionJourneyPanel({
   // table guarantees at most one per step, which is what makes a Map the right shape.
   const [schedules, setSchedules] = useState<Map<number, CjSchedule>>(new Map())
   const [filter, setFilter] = useState<CjFilter>('all')
+  // ── Step-level completion (construction_step_marks) ─────────────────────────
+  // Keyed by step_number. Presence in the Map IS completion — the table has no
+  // `completed` column, so marking inserts a row and un-marking deletes it, exactly
+  // as pre-con's workflow_step_completions does. Values carry a synthetic
+  // `completed: true` so completionLabel() can be reused with no adapter.
+  //
+  // A Map assumes at most one row per (client_id, step_number). A duplicate would be
+  // harmless here (the later row simply wins the key), but it is a UNIQUE constraint
+  // on the table — not this code — that prevents a double-click from creating one;
+  // see the note in markCjStep below.
+  const [marks, setMarks] = useState<Map<number, ActionCompletion>>(new Map())
+  const [marksLoading, setMarksLoading] = useState(true)
+  // Step numbers with a mark/un-mark write in flight.
+  const [markToggling, setMarkToggling] = useState<Set<number>>(new Set())
 
   // Deliberately its OWN effect, not folded into the completions fetch: a reschedule
   // bumps scheduleRefreshKey, and that must not force the larger completions read to
@@ -6771,6 +6853,142 @@ function ConstructionJourneyPanel({
     return () => { cancelled = true }
   }, [clientId])
 
+  // Load this client's step-level marks. Its OWN effect rather than folded into the
+  // completions read above, matching the schedules effect's shape: one failing read
+  // must not cost the other its data, and the two answer different questions (which
+  // TASKS are ticked vs. which STEPS are signed off). Same mount/tab-open timing.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!clientId) {
+        setCjError('No client is in scope for this page, so step completion cannot be loaded.')
+        setMarksLoading(false)
+        return
+      }
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('construction_step_marks')
+        .select('step_number, completed_at, completed_by_name')
+        .eq('client_id', clientId)
+      if (cancelled) return
+      if (error) {
+        // Surfaced, not swallowed — a denied read must not look like "no steps are
+        // done yet". Shares the panel's one error slot, like the other two reads.
+        setCjError(`Could not load step completion: ${error.message}`)
+        setMarksLoading(false)
+        return
+      }
+      const rows = (data ?? []) as {
+        step_number: number
+        completed_at: string | null
+        completed_by_name: string | null
+      }[]
+      const m = new Map<number, ActionCompletion>()
+      for (const r of rows) {
+        m.set(r.step_number, {
+          // Row existence is completion; there is no column to read.
+          completed: true,
+          completed_at: r.completed_at ?? null,
+          // Normalised at the fetch boundary so completionLabel() only ever sees
+          // string | null, per CLAUDE.md's rule on model/legacy JSON values.
+          completed_by_name: typeof r.completed_by_name === 'string' ? r.completed_by_name : null,
+        })
+      }
+      setMarks(m)
+      setMarksLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  // ── Mark a construction step complete / incomplete (construction_step_marks) ──
+  // Mirrors pre-con's markStepComplete deliberately: plain .insert() on mark, hard
+  // .delete() on un-mark (no soft flag — the table has no `completed` column),
+  // optimistic update first, full revert plus a surfaced error on failure, and NO
+  // dependency whatsoever on construction_step_completions / journey_checklists task
+  // state. The one intentional difference is the attribution pair, which pre-con's
+  // looser table cannot store: completed_by is a real FK to users.id and
+  // completed_by_name is denormalized at write time, both taken from the page's
+  // single self-lookup (hence the markReady gate on the button).
+  async function markCjStep(stepNumber: number, completed: boolean) {
+    if (!clientId) {
+      setCjError('No client is in scope for this page, so step completion cannot be saved.')
+      return
+    }
+    setMarkToggling(prev => new Set(prev).add(stepNumber))
+    setCjError(null)
+
+    // Stamp exactly what is about to be written so the acting user's own name and
+    // time paint immediately — the name is already in hand from the threaded
+    // self-lookup, so nothing needs resolving. Same approach as toggleCjTask.
+    const completedName = selfUserNameRef.current
+    const completedAt = new Date().toISOString()
+    const prevRow = marks.get(stepNumber)
+
+    setMarks(prev => {
+      const m = new Map(prev)
+      if (completed) m.set(stepNumber, { completed: true, completed_at: completedAt, completed_by_name: completedName })
+      else m.delete(stepNumber)
+      return m
+    })
+
+    try {
+      const supabase = createClient()
+      if (completed) {
+        // Plain insert, not an upsert — pre-con's pattern, and correct here because
+        // un-marking removes the row outright, so there is never a dead row to
+        // revive. A UNIQUE (client_id, step_number) on the table is what makes a
+        // double-click safe: with it the second insert fails 23505 and lands in the
+        // catch below (the step IS complete, so the revert is cosmetically wrong but
+        // self-corrects on the next tab open); without it the race writes a harmless
+        // duplicate. Worth confirming the constraint exists before relying on either.
+        const { error } = await supabase
+          .from('construction_step_marks')
+          .insert({
+            client_id:         clientId,
+            step_number:       stepNumber,
+            completed_by:      selfUserIdRef.current,
+            completed_by_name: completedName,
+            completed_at:      completedAt,
+          })
+        if (error) throw error
+      } else {
+        // Hard delete, per pre-con. `count` is checked because the sibling table
+        // construction_step_completions has NO delete policy by design (see
+        // toggleCjTask), so a refused delete on this table would return 204 with no
+        // error and the un-mark would appear to work until the next reload. Counting
+        // turns that silent desync into a visible message. DELIBERATE ADDITION over
+        // pre-con's unchecked delete — drop the `count` option and this branch to
+        // match it exactly.
+        const { error, count } = await supabase
+          .from('construction_step_marks')
+          .delete({ count: 'exact' })
+          .eq('client_id', clientId)
+          .eq('step_number', stepNumber)
+        if (error) throw error
+        if (count === 0) {
+          throw new Error('no row was removed — it may already have been un-marked by someone else')
+        }
+      }
+    } catch (err) {
+      console.error('[cj-step-mark] mark complete failed:', err)
+      // Restore the whole prior record — completed_at AND completed_by_name — not
+      // just presence, so a failed un-mark keeps its original attribution.
+      setMarks(prev => {
+        const m = new Map(prev)
+        if (prevRow) m.set(stepNumber, prevRow)
+        else m.delete(stepNumber)
+        return m
+      })
+      setCjError(`Could not update step ${stepNumber}: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setMarkToggling(prev => {
+        const s = new Set(prev)
+        s.delete(stepNumber)
+        return s
+      })
+    }
+  }
+
   // Persist one task's checkbox. Optimistic, with a full revert on failure.
   async function toggleCjTask(stepNumber: number, role: string, taskText: string, next: boolean) {
     const key = cjTaskKey(stepNumber, role, taskText)
@@ -6846,8 +7064,17 @@ function ConstructionJourneyPanel({
   }
 
   const locked = !preComplete
-  const doneCount = CJ_STEPS.filter(s => s.status === 'done').length
+  // ── Real 19-step progress (construction_step_marks) ─────────────────────────
+  // Mirrors pre-con's getJourneyState exactly:
+  //  · doneCount is the INTERSECTION with CJ_STEPS, never a raw row count, so a stray
+  //    or retired step_number left in the table cannot inflate it past 19.
+  //  · currentStepNumber is the LOWEST-numbered unmarked step — not "highest marked
+  //    + 1". Marking step 10 while 5 is still open leaves Current on 5.
+  //  · null once all 19 are marked, which is what makes the Current badge disappear
+  //    instead of pinning to the last row.
+  const doneCount = CJ_STEPS.filter(s => marks.has(s.n)).length
   const pct = Math.round((doneCount / CJ_STEPS.length) * 100)
+  const cjCurrentStepNumber = CJ_STEPS.find(s => !marks.has(s.n))?.n ?? null
 
   // Presentational filter only: doneCount and pct above deliberately stay on the
   // full set, so the progress bar keeps meaning "progress through the whole
@@ -6857,8 +7084,18 @@ function ConstructionJourneyPanel({
   return (
     <div className="flex flex-col gap-5">
 
-      {/* Preview notice — this panel now sits on a real client's page, so it says
-          plainly that the content is not real. */}
+      {/* Mixed-state notice. This panel is no longer "preview only" — four features
+          in it now read and write real per-client data (reference files, per-task
+          checkboxes, scheduled meetings and, as of this change, step completion), so
+          leading with "nothing is saved" was actively misleading: an operator could
+          click Mark Complete believing it was a demo. The amber treatment stays,
+          because what remains static still needs calling out. Keep this text in sync
+          with what is actually wired — it is the only thing telling operators which
+          half of the panel is real.
+          NOTE: the lock switch is NOT described as inert, because it no longer is —
+          `!locked` gates the whole steps list, so with it off the real Mark Complete
+          and checkboxes are unreachable. Real controls sitting behind a demo switch
+          is a wart worth removing separately; it was left alone here as out of scope. */}
       <div
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 9,
@@ -6868,11 +7105,13 @@ function ConstructionJourneyPanel({
       >
         <span style={{ fontSize: 13, lineHeight: 1.3 }}>⚠️</span>
         <span style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text2)' }}>
-          <b style={{ fontWeight: 700, color: 'var(--text)' }}>Preview only.</b>{' '}
-          Static demo of the 19-step Construction Journey. Despite living on a real
-          client&apos;s page, nothing here is connected to this client — no data is read
-          or saved, and every button except the demo switch, the sub-tabs and the
-          checkboxes is inert. All state resets when you leave this tab.
+          <b style={{ fontWeight: 700, color: 'var(--text)' }}>Partly live.</b>{' '}
+          Step completion, per-task checkboxes, scheduled meetings and reference files
+          are real: they save against this client and anyone else with access to this
+          tab will see them. Still demo-only — the 19 steps themselves are a fixed
+          template rather than per-client records, the Pre-Construction switch below
+          simulates the unlock instead of reading real pre-con progress, and View
+          Agenda, View Recap and Generate Recap Email do nothing.
         </span>
       </div>
 
@@ -7045,6 +7284,16 @@ function ConstructionJourneyPanel({
                         onCreateInvite={onCreateInvite}
                         schedule={schedules.get(step.n) ?? null}
                         clientId={clientId}
+                        // Real step-level completion. isCurrent is computed once for
+                        // the whole list above, so no row can disagree with another.
+                        isDone={marks.has(step.n)}
+                        isCurrent={step.n === cjCurrentStepNumber}
+                        mark={marks.get(step.n) ?? null}
+                        marking={markToggling.has(step.n)}
+                        // Both gates in one flag, like attributionReady above: the
+                        // marks read still in flight, or the self-lookup unsettled.
+                        markReady={selfUserReady && !marksLoading}
+                        onMarkComplete={markCjStep}
                       />
                     ))
                   )}
