@@ -4494,13 +4494,15 @@ Today's date is ${today}.
         >
           <ClientTabBtn id="overview" cur={activeTab} set={setActiveTab}>Overview</ClientTabBtn>
           <ClientTabBtn id="journey" cur={activeTab} set={setActiveTab}>Precon Journey</ClientTabBtn>
-          {/* 5th tab — preview, gated to one operator. Rendered only once userEmail
-              has resolved AND matches; while it is still '' this is false, so the tab
-              never mounts and never flashes. For everyone else the row above is
-              byte-identical to what it has always been. */}
-          {canSeeCjPreview(userEmail) && (
-            <ClientTabBtn id="construction" cur={activeTab} set={setActiveTab}>Construction Journey</ClientTabBtn>
-          )}
+          {/* 5th tab. Deliberately UNGATED client-side, exactly like the four tabs
+              around it — the email allowlist that used to wrap this is now scoped to
+              the Admin override switch inside the panel and nothing else. The real
+              boundary for everything this panel reads or writes is RLS: on
+              construction_step_marks, construction_step_completions,
+              construction_step_schedules and workflow_step_completions, and on the
+              construction-files bucket. Do not reintroduce a UI gate here as a
+              security measure — it never was one. */}
+          <ClientTabBtn id="construction" cur={activeTab} set={setActiveTab}>Construction Journey</ClientTabBtn>
           <ClientTabBtn id="communication" cur={activeTab} set={setActiveTab}>Communication</ClientTabBtn>
           <ClientTabBtn id="files" cur={activeTab} set={setActiveTab}>Files &amp; Agenda</ClientTabBtn>
         </div>
@@ -5262,19 +5264,23 @@ Today's date is ${today}.
         </div>
         </section>{/* /FILES & AGENDA */}
 
-        {/* ══════════════ CONSTRUCTION JOURNEY (preview, gated) ══════════════ */}
+        {/* ══════════════ CONSTRUCTION JOURNEY ══════════════ */}
         {/* NOT AN INCONSISTENCY: the four panels above are always mounted and hidden
             via the `hidden` attribute, deliberately, so a tab switch never unmounts
-            their fetches and effects. This panel is conditionally rendered instead,
-            because the gate requires it to be absent from the DOM rather than merely
-            hidden. It DOES now own a fetch (per-task step completions), so leaving and
-            re-entering the tab re-reads them — which is the behaviour we want, since
-            another operator may have ticked a box in the meantime. What still resets
-            on tab exit is only the mock lock/filter/expand state.
+            their fetches and effects. This panel is still mount-gated on activeTab
+            instead — no longer because an allowlist required it absent from the DOM
+            (that allowlist is gone from here), but because it owns fetches (per-task
+            step completions, marks, schedules, precon progress) that we WANT re-read
+            on re-entry, since another operator may have ticked a box in the meantime.
+            What still resets on tab exit is only the override/filter/expand state.
             selfUserIdRef / selfUserNameRef are threaded down rather than re-resolved:
             the lookup above is the page's single copy and its declaration comment
-            explicitly warns against adding another. */}
-        {canSeeCjPreview(userEmail) && activeTab === 'construction' && (
+            explicitly warns against adding another.
+            canSeeAdminOverride is the ONLY thing the email allowlist still decides —
+            it gates the Admin override switch inside the panel, nothing else. It is
+            false until userEmail resolves, which is what keeps that switch out of the
+            first paint rather than flashing in and out. */}
+        {activeTab === 'construction' && (
           <section id="client-p-construction" role="tabpanel" aria-labelledby="client-t-construction">
             <ConstructionJourneyPanel
               clientId={params.id}
@@ -5284,6 +5290,7 @@ Today's date is ${today}.
               selfUserIdRef={selfUserIdRef}
               selfUserNameRef={selfUserNameRef}
               selfUserReady={selfUserReady}
+              canSeeAdminOverride={canSeeCjPreview(userEmail)}
             />
           </section>
         )}
@@ -5306,11 +5313,14 @@ Today's date is ${today}.
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CONSTRUCTION JOURNEY — PREVIEW PANEL (additive, gated, zero-data)
+// CONSTRUCTION JOURNEY — PANEL (additive, self-contained)
 //
-// Everything below this line is new and self-contained. Nothing above it calls
-// into this block except the two gated `canSeeCjPreview(userEmail)` guards in
-// ClientDetailPage (the 5th tab button and the 5th panel).
+// Everything below this line is self-contained. Nothing above it calls into this
+// block except the 5th tab button and the 5th panel in ClientDetailPage, neither
+// of which is gated any more: both render for any authenticated user. The single
+// surviving `canSeeCjPreview(userEmail)` call is the `canSeeAdminOverride` prop
+// threaded into the panel, and its only effect is whether the Admin override
+// switch renders.
 //
 // Declared after ClientDetailPage rather than before it to keep the diff to one
 // contiguous append; function declarations hoist, and the consts are only read at
@@ -6027,13 +6037,21 @@ function CjSubTabBtn({ label, active, onSelect }: { label: string; active: boole
 // state, so leaving the Reference Files sub-tab simply unmounts it.
 //
 // SECURITY — read this before changing anything here:
-// The page-level `canSeeCjPreview(userEmail)` gate is a UI-layer convenience
-// only. The real enforcement for these files is the RLS on the
-// `construction-files` bucket, which restricts SELECT/INSERT/UPDATE/DELETE to
-// current_user_role() IN ('president','ea','ai_specialist'). This is the first
-// feature on this page where the actual security boundary is the RLS rather
-// than the UI gate — every call below runs through the cookie-backed browser
-// client, so it is the signed-in user's own role that decides the outcome.
+// There is NO UI gate in front of these files. The Construction Journey tab and
+// panel render for any authenticated user; the old `canSeeCjPreview(userEmail)`
+// tab gate has been removed, and that allowlist now decides one thing only —
+// whether the Admin override switch renders. So RLS on the `construction-files`
+// bucket is not a backstop behind a UI check, it is the ONLY boundary.
+//
+// That policy now allows SELECT/INSERT/UPDATE/DELETE to `current_user_role() IS
+// NOT NULL` — any authenticated user — widened from the original
+// 'president','ea','ai_specialist' list. Every call below runs through the
+// cookie-backed browser client, so it is the signed-in user's own session that
+// decides the outcome.
+//
+// Consequence to know before extending this: any Hub user can read, upload and
+// delete any client's reference files. If that needs narrowing, narrow the bucket
+// policy — do not add a UI gate and call it security.
 //
 // PATHING — scoped per client, but still under a preview umbrella:
 //
@@ -6616,11 +6634,18 @@ function CjReferenceFilesPanel({ clientId }: { clientId: string }) {
 // Views inside the Construction Journey panel.
 type CjView = 'steps' | 'files'
 
-// ── Construction Journey — access gate ───────────────────────────────────────
+// ── Construction Journey — Admin override allowlist ──────────────────────────
 //
-// While this panel is a preview it is visible to exactly three operators. The tab
-// button and the panel are BOTH wrapped in this check, so for everyone else
-// neither exists in the DOM at all — not hidden, not disabled, absent.
+// SCOPE, as of this change: this list gates the Admin override switch and NOTHING
+// else. The tab button and the panel are no longer wrapped in it — they render for
+// any authenticated user, exactly like the other four tabs, and RLS on the four
+// construction tables plus the construction-files bucket is the only real boundary.
+// Do not widen this back into a tab/panel gate; if the override should become a
+// role check, replace this list rather than re-wrapping the tab in it.
+//
+// Where it IS still used, the absence guarantee still holds: the switch is a
+// conditional render, so for a non-matching user it does not exist in the DOM at
+// all — not hidden, not disabled, absent.
 //
 // Deliberately still an email allowlist, not a role check: this component has no
 // role / current_user_role() fetch today and a preview gate does not justify adding
@@ -6722,6 +6747,7 @@ function ConstructionJourneyPanel({
   selfUserIdRef,
   selfUserNameRef,
   selfUserReady,
+  canSeeAdminOverride,
 }: {
   clientId: string
   // Pass-through only — the panel itself never reads these; CjStepRow does. Threaded
@@ -6738,6 +6764,13 @@ function ConstructionJourneyPanel({
   selfUserIdRef: React.MutableRefObject<string | null>
   selfUserNameRef: React.MutableRefObject<string | null>
   selfUserReady: boolean
+  // Whether to render the Admin override switch AT ALL. Computed at the call site
+  // from CJ_PREVIEW_EMAILS — the last remaining use of that allowlist. False (so:
+  // absent) until the caller's userEmail has resolved and matched, which is the same
+  // no-flash property the tab gate used to rely on. This is a UI affordance gate, not
+  // a security boundary: the override only changes what THIS component renders, and
+  // every read/write below is decided by RLS under the signed-in user's own role.
+  canSeeAdminOverride: boolean
 }) {
   // Admin override. Off by default, so the real Precon-derived lock state is what a
   // viewer sees first.
@@ -7211,58 +7244,66 @@ function ConstructionJourneyPanel({
         </div>
       </div>
 
-      {/* Admin override — opens the journey early. This sits INSIDE the already
-          admin-only tab gate (canSeeCjPreview / CJ_PREVIEW_EMAILS), so it needs no
-          role check of its own; it only changes what happens within that boundary.
+      {/* Admin override — opens the journey early. Gated on canSeeAdminOverride, which
+          is the ONLY thing CJ_PREVIEW_EMAILS still decides anywhere in this file.
+          A conditional render, NOT a `disabled` prop, on purpose: for a non-matching
+          user this switch must be genuinely absent from the DOM, not greyed out.
+          canSeeAdminOverride is also false while the caller's userEmail is still
+          unresolved, so the switch is absent on first paint too and appears only once a
+          real match is confirmed — same no-flash property the tab gate used to have.
+          NOTE: affordance gate only. This is NOT what stops a non-admin writing
+          construction data — RLS is. Flipping it changes nothing outside this render.
           Amber rather than green when on: an override is a caveat, not an achievement.
           On the standalone page this switch gated the Construction Journey TAB. Here
           the tab is this page's own ClientTabBtn, which must not grow a locked variant
           (it is shared by the four live tabs), so it gates the panel BODY instead. */}
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 14, flexWrap: 'wrap',
-          padding: '10px 14px', borderRadius: 9,
-          background: 'var(--surface2)', border: '1px dashed var(--border2)',
-        }}
-      >
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 3 }}>
-            Admin override
-          </div>
-          <label htmlFor="cj-admin-override" style={{ fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
-            Open the Construction Journey before Precon is complete
-          </label>
-        </div>
-
-        {/* Switch */}
-        <button
-          id="cj-admin-override"
-          type="button"
-          role="switch"
-          aria-checked={adminOverride}
-          onClick={() => setAdminOverride(v => !v)}
+      {canSeeAdminOverride && (
+        <div
           style={{
-            display: 'inline-flex', alignItems: 'center', gap: 9, background: 'none',
-            border: 0, padding: 0, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 14, flexWrap: 'wrap',
+            padding: '10px 14px', borderRadius: 9,
+            background: 'var(--surface2)', border: '1px dashed var(--border2)',
           }}
         >
-          <span
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 3 }}>
+              Admin override
+            </div>
+            <label htmlFor="cj-admin-override" style={{ fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
+              Open the Construction Journey before Precon is complete
+            </label>
+          </div>
+
+          {/* Switch */}
+          <button
+            id="cj-admin-override"
+            type="button"
+            role="switch"
+            aria-checked={adminOverride}
+            onClick={() => setAdminOverride(v => !v)}
             style={{
-              width: 34, height: 19, borderRadius: 99, padding: 2, flexShrink: 0,
-              display: 'flex', alignItems: 'center',
-              justifyContent: adminOverride ? 'flex-end' : 'flex-start',
-              background: adminOverride ? 'var(--amber)' : 'var(--border2)',
-              transition: 'background 150ms ease',
+              display: 'inline-flex', alignItems: 'center', gap: 9, background: 'none',
+              border: 0, padding: 0, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
             }}
           >
-            <span style={{ width: 15, height: 15, borderRadius: '50%', background: '#fff', display: 'block' }} />
-          </span>
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: adminOverride ? 'var(--amber)' : 'var(--text3)', minWidth: 30, textAlign: 'left' }}>
-            {adminOverride ? 'On' : 'Off'}
-          </span>
-        </button>
-      </div>
+            <span
+              style={{
+                width: 34, height: 19, borderRadius: 99, padding: 2, flexShrink: 0,
+                display: 'flex', alignItems: 'center',
+                justifyContent: adminOverride ? 'flex-end' : 'flex-start',
+                background: adminOverride ? 'var(--amber)' : 'var(--border2)',
+                transition: 'background 150ms ease',
+              }}
+            >
+              <span style={{ width: 15, height: 15, borderRadius: '50%', background: '#fff', display: 'block' }} />
+            </span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: adminOverride ? 'var(--amber)' : 'var(--text3)', minWidth: 30, textAlign: 'left' }}>
+              {adminOverride ? 'On' : 'Off'}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* Admin-override caveat. Shown ONLY when the journey is open because of the
           switch AND the client has not genuinely finished Precon. A real unlock needs
@@ -7314,8 +7355,18 @@ function ConstructionJourneyPanel({
           <div style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--text3)', maxWidth: 460, margin: '0 auto' }}>
             Unlocks once Pre-Construction is complete{' '}
             (<b style={{ fontWeight: 600, color: 'var(--text2)' }}>{precoCompletedCount} of {precoTotal}</b> done).
-            Flip <b style={{ fontWeight: 600, color: 'var(--text2)' }}>Admin override</b> above to open
-            it anyway.
+            {/* Only shown to someone who actually has the switch. Gated on the SAME
+                `canSeeAdminOverride` that renders the switch itself, so the card can
+                never point at a control that is absent from the reader's DOM. For
+                everyone else the message stops at the real numbers. The leading
+                {' '} is explicit because JSX drops the newline-bearing whitespace
+                before an expression container. */}
+            {canSeeAdminOverride && (
+              <>
+                {' '}Flip <b style={{ fontWeight: 600, color: 'var(--text2)' }}>Admin override</b> above
+                to open it anyway.
+              </>
+            )}
           </div>
         </div>
       )}
