@@ -6739,8 +6739,15 @@ function ConstructionJourneyPanel({
   selfUserNameRef: React.MutableRefObject<string | null>
   selfUserReady: boolean
 }) {
-  // The demo switch. Off by default, so the locked state is what a viewer sees first.
-  const [preComplete, setPreComplete] = useState(false)
+  // Admin override. Off by default, so the real Precon-derived lock state is what a
+  // viewer sees first.
+  //
+  // RENAMED from `preComplete` (the old demo switch). That name now actively lies:
+  // whether Pre-Construction is complete is REAL data as of this change, held in
+  // precoDone below, and having `preComplete` mean "ignore precoDone" one line away
+  // from `precoDone` itself is the kind of pair that gets misread once and stays
+  // misread. Nothing outside this panel referenced it.
+  const [adminOverride, setAdminOverride] = useState(false)
   const [cjView, setCjView] = useState<CjView>('steps')
   // Real per-task completion state, keyed by cjTaskKey. Starts EMPTY and is filled by
   // the fetch below — the old cjSeedChecked() seed off CJ_STEPS' hardcoded `done`
@@ -6767,6 +6774,16 @@ function ConstructionJourneyPanel({
   const [marksLoading, setMarksLoading] = useState(true)
   // Step numbers with a mark/un-mark write in flight.
   const [markToggling, setMarkToggling] = useState<Set<number>>(new Set())
+  // ── Pre-Construction progress (workflow_step_completions) — READ-ONLY ───────
+  // This client's completed PRE-CON step numbers, which is what actually gates this
+  // journey. `null` means "not loaded yet" and is deliberately distinct from an empty
+  // Set ("loaded, nothing done"): the gate must never unlock on absence of data, and
+  // the locked card must not flash before the answer is known.
+  //
+  // Construction code NEVER writes to workflow_step_completions. This is the single
+  // SELECT that exists here, and pre-con's own Journey tab is untouched by it.
+  const [precoSteps, setPrecoSteps] = useState<Set<number> | null>(null)
+  const [precoLoading, setPrecoLoading] = useState(true)
 
   // Deliberately its OWN effect, not folded into the completions fetch: a reschedule
   // bumps scheduleRefreshKey, and that must not force the larger completions read to
@@ -6896,6 +6913,45 @@ function ConstructionJourneyPanel({
       }
       setMarks(m)
       setMarksLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [clientId])
+
+  // Load this client's PRE-CON step completions — the real unlock condition for this
+  // journey. Its own effect, same mount/tab-open timing and same `cancelled` guard as
+  // the other three reads.
+  //
+  // STRICTLY READ-ONLY, and deliberately the exact query pre-con's own Journey tab
+  // uses (`select('step_number').eq('client_id', …)`), so the two can never disagree
+  // about where a client is. The count is then handed to getJourneyState — the same
+  // module-level helper the pre-con tab calls — rather than re-derived here, which is
+  // what keeps "37" out of this code entirely and keeps the intersection-with-
+  // WORKFLOW_STEPS semantics (a stray step_number cannot inflate the count).
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!clientId) {
+        setCjError('No client is in scope for this page, so Precon progress cannot be loaded.')
+        setPrecoLoading(false)
+        return
+      }
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('workflow_step_completions')
+        .select('step_number')
+        .eq('client_id', clientId)
+      if (cancelled) return
+      if (error) {
+        // Surfaced rather than swallowed. Note the consequence is FAIL-CLOSED:
+        // precoSteps stays null, so precoDone stays false and the journey stays
+        // locked unless an admin overrides. A denied read must not hand out access.
+        setCjError(`Could not load Precon progress: ${error.message}`)
+        setPrecoLoading(false)
+        return
+      }
+      const rows = (data ?? []) as { step_number: number }[]
+      setPrecoSteps(new Set(rows.map(r => r.step_number)))
+      setPrecoLoading(false)
     })()
     return () => { cancelled = true }
   }, [clientId])
@@ -7063,7 +7119,24 @@ function ConstructionJourneyPanel({
     }
   }
 
-  const locked = !preComplete
+  // ── Pre-Construction gate (real data + admin override) ──────────────────────
+  // getJourneyState is pre-con's own helper, reused rather than re-implemented, so
+  // these numbers are by construction the same ones the Precon Journey tab shows.
+  // precoTotal comes from it too (TOTAL_WORKFLOW_STEPS = WORKFLOW_STEPS.length) —
+  // nothing here hardcodes 37.
+  const precoJourney = precoSteps ? getJourneyState(precoSteps) : null
+  const precoCompletedCount = precoJourney?.completedCount ?? 0
+  const precoTotal = precoJourney?.totalSteps ?? TOTAL_WORKFLOW_STEPS
+  const precoPct = precoTotal > 0 ? Math.round((precoCompletedCount / precoTotal) * 100) : 0
+  // Requires a loaded result: `precoJourney != null` keeps an unresolved or failed
+  // read from ever reading as "complete".
+  const precoDone = precoJourney != null && precoCompletedCount === precoTotal
+  // The gate. Real completion unlocks it; an admin can open it early.
+  const locked = !(precoDone || adminOverride)
+  // Open ONLY because of the override — the case that needs the amber caveat. A
+  // genuine unlock gets no banner.
+  const overrideActive = adminOverride && !precoDone
+
   // ── Real 19-step progress (construction_step_marks) ─────────────────────────
   // Mirrors pre-con's getJourneyState exactly:
   //  · doneCount is the INTERSECTION with CJ_STEPS, never a raw row count, so a stray
@@ -7092,10 +7165,11 @@ function ConstructionJourneyPanel({
           because what remains static still needs calling out. Keep this text in sync
           with what is actually wired — it is the only thing telling operators which
           half of the panel is real.
-          NOTE: the lock switch is NOT described as inert, because it no longer is —
-          `!locked` gates the whole steps list, so with it off the real Mark Complete
-          and checkboxes are unreachable. Real controls sitting behind a demo switch
-          is a wart worth removing separately; it was left alone here as out of scope. */}
+          NOTE: the lock is no longer listed as demo-only, because it no longer is —
+          it now derives from this client's real workflow_step_completions rows, and
+          the switch beside it is an admin override rather than a simulation. The
+          earlier wart (real controls sitting behind a purely fictional demo switch)
+          is therefore gone. */}
       <div
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 9,
@@ -7108,18 +7182,42 @@ function ConstructionJourneyPanel({
           <b style={{ fontWeight: 700, color: 'var(--text)' }}>Partly live.</b>{' '}
           Step completion, per-task checkboxes, scheduled meetings and reference files
           are real: they save against this client and anyone else with access to this
-          tab will see them. Still demo-only — the 19 steps themselves are a fixed
-          template rather than per-client records, the Pre-Construction switch below
-          simulates the unlock instead of reading real pre-con progress, and View
-          Agenda, View Recap and Generate Recap Email do nothing.
+          tab will see them, and the lock below reflects this client&apos;s real Precon
+          progress. Still demo-only — the 19 steps themselves are a fixed template
+          rather than per-client records, and View Agenda, View Recap and Generate
+          Recap Email do nothing.
         </span>
       </div>
 
-      {/* Demo controls — gates the locked/unlocked state of the panel below.
+      {/* Real Pre-Construction progress for THIS client. Always rendered — it is the
+          reason the journey below is locked or open, so seeing it must never require
+          flipping anything. A read-only mirror of workflow_step_completions; the
+          numbers come from getJourneyState, the same helper the Precon Journey tab
+          calls, so the two surfaces cannot drift. */}
+      <div style={{ padding: '10px 14px', borderRadius: 9, background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+        <div className="flex items-center" style={{ gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, color: 'var(--text2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+            Precon progress for this client —{' '}
+            {precoLoading
+              ? <span style={{ color: 'var(--text3)' }}>checking…</span>
+              : <><b style={{ fontWeight: 600, color: 'var(--text)' }}>{precoCompletedCount} of {precoTotal}</b> steps complete</>}
+          </span>
+          <span className="flex-1 overflow-hidden" style={{ height: 4, borderRadius: 99, background: 'var(--border2)', minWidth: 80 }}>
+            <span style={{ display: 'block', height: '100%', width: precoLoading ? '0%' : `${precoPct}%`, background: 'var(--purple)', borderRadius: 99, transition: 'width 200ms ease' }} />
+          </span>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', minWidth: 32, textAlign: 'right' }}>
+            {precoLoading ? '—' : `${precoPct}%`}
+          </span>
+        </div>
+      </div>
+
+      {/* Admin override — opens the journey early. This sits INSIDE the already
+          admin-only tab gate (canSeeCjPreview / CJ_PREVIEW_EMAILS), so it needs no
+          role check of its own; it only changes what happens within that boundary.
+          Amber rather than green when on: an override is a caveat, not an achievement.
           On the standalone page this switch gated the Construction Journey TAB. Here
-          the tab is this page's own ClientTabBtn, which must not grow a locked
-          variant (it is shared by the four live tabs), so the switch gates the panel
-          BODY instead. Same demo, one level lower. */}
+          the tab is this page's own ClientTabBtn, which must not grow a locked variant
+          (it is shared by the four live tabs), so it gates the panel BODY instead. */}
       <div
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -7130,20 +7228,20 @@ function ConstructionJourneyPanel({
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 3 }}>
-            Demo controls
+            Admin override
           </div>
-          <label htmlFor="cj-pre-complete" style={{ fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
-            Simulate: Pre-Construction marked complete?
+          <label htmlFor="cj-admin-override" style={{ fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
+            Open the Construction Journey before Precon is complete
           </label>
         </div>
 
         {/* Switch */}
         <button
-          id="cj-pre-complete"
+          id="cj-admin-override"
           type="button"
           role="switch"
-          aria-checked={preComplete}
-          onClick={() => setPreComplete(v => !v)}
+          aria-checked={adminOverride}
+          onClick={() => setAdminOverride(v => !v)}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 9, background: 'none',
             border: 0, padding: 0, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
@@ -7153,27 +7251,60 @@ function ConstructionJourneyPanel({
             style={{
               width: 34, height: 19, borderRadius: 99, padding: 2, flexShrink: 0,
               display: 'flex', alignItems: 'center',
-              justifyContent: preComplete ? 'flex-end' : 'flex-start',
-              background: preComplete ? 'var(--green)' : 'var(--border2)',
+              justifyContent: adminOverride ? 'flex-end' : 'flex-start',
+              background: adminOverride ? 'var(--amber)' : 'var(--border2)',
               transition: 'background 150ms ease',
             }}
           >
             <span style={{ width: 15, height: 15, borderRadius: '50%', background: '#fff', display: 'block' }} />
           </span>
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: preComplete ? 'var(--green)' : 'var(--text3)', minWidth: 62, textAlign: 'left' }}>
-            {preComplete ? 'Unlocked' : 'Locked'}
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: adminOverride ? 'var(--amber)' : 'var(--text3)', minWidth: 30, textAlign: 'left' }}>
+            {adminOverride ? 'On' : 'Off'}
           </span>
         </button>
       </div>
 
+      {/* Admin-override caveat. Shown ONLY when the journey is open because of the
+          switch AND the client has not genuinely finished Precon. A real unlock needs
+          no caveat, which is exactly what `overrideActive` encodes — do not relax it
+          to plain `adminOverride`, or every finished client gets a false warning. */}
+      {overrideActive && (
+        <div
+          role="status"
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: 9,
+            padding: '9px 13px', borderRadius: 8,
+            background: 'var(--amber-bg)', border: '1px solid var(--badge-open-border)',
+          }}
+        >
+          <span style={{ fontSize: 13, lineHeight: 1.3 }}>🔓</span>
+          <span style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--text2)' }}>
+            <b style={{ fontWeight: 700, color: 'var(--text)' }}>Admin override active.</b>{' '}
+            This client is only {precoCompletedCount} of {precoTotal} Precon steps complete — you
+            can see the Construction Journey because you&apos;re an admin, not because it is
+            genuinely unlocked yet.
+          </span>
+        </div>
+      )}
+
       {/* ── Locked state ── */}
-      {locked && (
+      {/* `!precoLoading` matters: without it a client who HAS finished Precon would
+          see the padlock card flash before the read resolves, and the card would
+          briefly claim "0 of 37 done". */}
+      {locked && !precoLoading && (
         <div
           className="rounded-[12px]"
           style={{ border: '1px solid var(--border)', background: 'var(--surface)', padding: '38px 24px', textAlign: 'center' }}
         >
           <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--text3)', marginBottom: 12 }}>
-            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, borderRadius: '50%', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+            {/* Real numbers on the padlock itself, not a generic string. This card is
+                the panel's lock affordance — the Construction Journey TAB button is a
+                shared ClientTabBtn with no locked variant by design (see above), so
+                there is no tab tooltip to put them on. */}
+            <span
+              title={`Unlocks once Pre-Construction is complete (${precoCompletedCount} of ${precoTotal} done)`}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, borderRadius: '50%', background: 'var(--surface2)', border: '1px solid var(--border)' }}
+            >
               <CjLockIcon />
             </span>
           </div>
@@ -7181,10 +7312,22 @@ function ConstructionJourneyPanel({
             Construction Journey locked
           </div>
           <div style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--text3)', maxWidth: 460, margin: '0 auto' }}>
-            Unlocks once Pre-Construction is marked complete. Flip{' '}
-            <b style={{ fontWeight: 600, color: 'var(--text2)' }}>Simulate: Pre-Construction marked complete?</b>{' '}
-            above to preview the 19 steps.
+            Unlocks once Pre-Construction is complete{' '}
+            (<b style={{ fontWeight: 600, color: 'var(--text2)' }}>{precoCompletedCount} of {precoTotal}</b> done).
+            Flip <b style={{ fontWeight: 600, color: 'var(--text2)' }}>Admin override</b> above to open
+            it anyway.
           </div>
+        </div>
+      )}
+
+      {/* Precon read still in flight. Stands in for the locked card so the panel does
+          not sit empty, and does not assert a lock state it cannot know yet. */}
+      {locked && precoLoading && (
+        <div
+          className="rounded-[12px]"
+          style={{ border: '1px solid var(--border)', background: 'var(--surface)', padding: '38px 24px', textAlign: 'center', fontSize: 11.5, color: 'var(--text3)' }}
+        >
+          Checking this client&apos;s Precon progress…
         </div>
       )}
 
