@@ -2693,6 +2693,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [activeAgenda, setActiveAgenda] = useState<string | null>(null)
   // "View Agenda" on a customer journey step — holds the step whose agenda is open.
   const [agendaStep, setAgendaStep] = useState<WorkflowStepDef | null>(null)
+  // "View Agenda" on a Construction journey step — holds the step whose agenda is open.
+  // Deliberately owned HERE and not in CjStepRow: `position: fixed` resolves against the
+  // nearest ancestor that establishes a containing block, and the scroll container below
+  // (`.animate-page-in`) permanently holds `transform: translateY(0)` because
+  // its keyframes end there and it animates with `fill-mode: both`. A modal rendered
+  // anywhere inside that container — including at ConstructionJourneyPanel's own top
+  // level, which is nested inside it — anchors to that div and gets clipped by its
+  // overflow-y instead of covering the viewport. Rendering it up here, as a sibling of
+  // the pre-con modal above, is the only placement that escapes. One instance for all 19
+  // rows; the row hands its step up via onOpenAgenda rather than owning any state.
+  const [cjAgendaStep, setCjAgendaStep] = useState<CjStep | null>(null)
   const [emailDrafts, setEmailDrafts] = useState<EmailDraft[]>([])
   const [sentEmails, setSentEmails] = useState<EmailDraft[]>([])
   const [previewDraft, setPreviewDraft] = useState<EmailDraft | null>(null)
@@ -4022,6 +4033,7 @@ Today's date is ${today}.
     <>
       {activeAgenda && <AgendaModal code={activeAgenda} onClose={() => setActiveAgenda(null)} />}
       {agendaStep && <StepAgendaModal step={agendaStep} onClose={() => setAgendaStep(null)} />}
+      {cjAgendaStep && <CjStepAgendaModal step={cjAgendaStep} onClose={() => setCjAgendaStep(null)} />}
 
       {/* Edit Client Modal */}
       {editForm && (
@@ -5495,6 +5507,7 @@ Today's date is ${today}.
               clientId={params.id}
               clientName={client.name}
               onCreateInvite={handleCjCreateInvite}
+              onOpenAgenda={setCjAgendaStep}
               scheduleRefreshKey={scheduleRefreshKey}
               selfUserIdRef={selfUserIdRef}
               selfUserNameRef={selfUserNameRef}
@@ -5800,6 +5813,7 @@ function CjStepRow({
   onToggle,
   clientName,
   onCreateInvite,
+  onOpenAgenda,
   schedule,
   clientId,
   isDone,
@@ -5829,6 +5843,10 @@ function CjStepRow({
   // callback-passed-down shape the pre-con WorkflowStep uses for onCreateInvite.
   // The step number rides along so the return URL can carry createdStep.
   onCreateInvite: (inviteTitle: string, stepNumber: number) => void
+  // Hands this step up to ClientDetailPage, which renders the one agenda modal. Same
+  // callback-passed-down shape as onCreateInvite above, and for a stricter reason: a
+  // modal rendered from inside this row cannot position correctly (see cjAgendaStep).
+  onOpenAgenda: (targetStep: CjStep) => void
   // This step's scheduled meeting, or null when none exists. Drives both the header
   // badge and whether the button reads "Schedule meeting" or "Reschedule".
   schedule: CjSchedule | null
@@ -5906,11 +5924,6 @@ function CjStepRow({
   // have uploaded to this step in the meantime.
   const [attachOpen, setAttachOpen] = useState(false)
 
-  // Agenda-modal disclosure. Its own state, like attachOpen above — opening the agenda
-  // must not expand or collapse the checklist, and vice versa. Holds no data: the modal
-  // reads this row's own `step`, which is already the CJ_STEPS entry.
-  const [agendaOpen, setAgendaOpen] = useState(false)
-
   return (
     <div
       style={{
@@ -5919,11 +5932,6 @@ function CjStepRow({
         background: 'var(--surface)',
       }}
     >
-
-      {/* Agenda modal. Rendered at the row's top level rather than inside the expanded
-          body so a collapse can never unmount it mid-view. position: fixed, so its
-          placement in the tree has no visual effect. */}
-      {agendaOpen && <CjStepAgendaModal step={step} onClose={() => setAgendaOpen(false)} />}
 
       {/* Header row — click anywhere to expand/collapse. role="button" rather than a
           real <button> because the action buttons in the body would otherwise nest. */}
@@ -6199,13 +6207,16 @@ function CjStepRow({
           {/* Action row. View Agenda and Mark Complete are REAL; View Recap and
               Generate Recap Email are still deliberately inert placeholders. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-            {/* View Agenda — REAL. Opens CjStepAgendaModal with THIS step's own CJ_STEPS
-                definition (objective / who / role-grouped tasks). No fetch: CJ_STEPS is
-                module-scope data, the same footing WORKFLOW_STEPS gave the pre-con fix. */}
+            {/* View Agenda — REAL. Hands this step up to ClientDetailPage, which renders
+                the single agenda modal (objective / who / role-grouped tasks) from the
+                step's own CJ_STEPS entry. The modal is owned up there, not here, because
+                a `position: fixed` overlay rendered inside this row anchors to the page's
+                transformed scroll container instead of the viewport — see cjAgendaStep.
+                No fetch either way: CJ_STEPS is module-scope data. */}
             {showAgenda && (
               <button
                 type="button"
-                onClick={() => setAgendaOpen(true)}
+                onClick={() => onOpenAgenda(step)}
                 title={`View the agenda for CSTEP${String(step.n).padStart(2, '0')} ${step.title}`}
                 style={cjActionBtn}
               >
@@ -7017,6 +7028,7 @@ function ConstructionJourneyPanel({
   clientId,
   clientName,
   onCreateInvite,
+  onOpenAgenda,
   scheduleRefreshKey,
   selfUserIdRef,
   selfUserNameRef,
@@ -7028,6 +7040,11 @@ function ConstructionJourneyPanel({
   // the same way clientId already is, rather than re-fetched or re-derived.
   clientName: string
   onCreateInvite: (inviteTitle: string, stepNumber: number) => void
+  // Pass-through only, like clientName/onCreateInvite above — the panel never reads it.
+  // Hands a step up to ClientDetailPage, which owns the single agenda-modal instance.
+  // It has to live up there: see the cjAgendaStep declaration for why a modal rendered
+  // inside this panel would anchor to the page's transformed scroll container.
+  onOpenAgenda: (targetStep: CjStep) => void
   // Incremented by the page after a post-invite schedule write lands, so the fetch
   // below re-runs and the new badge appears without reopening the tab.
   scheduleRefreshKey: number
@@ -7750,6 +7767,7 @@ function ConstructionJourneyPanel({
                         onToggle={toggleCjTask}
                         clientName={clientName}
                         onCreateInvite={onCreateInvite}
+                        onOpenAgenda={onOpenAgenda}
                         schedule={schedules.get(step.n) ?? null}
                         clientId={clientId}
                         // Real step-level completion. isCurrent is computed once for
