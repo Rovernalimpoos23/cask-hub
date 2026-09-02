@@ -888,6 +888,205 @@ function AgendaModal({ code, onClose }: { code: string; onClose: () => void }) {
   )
 }
 
+// ── Journey step agenda modal ─────────────────────────────────────────────────
+// Shared presentation for "View Agenda" on BOTH journeys. The two journeys' step
+// shapes have almost no field names in common — pre-con's WorkflowStepDef uses
+// `step` / `subtitle` / `roles[].role` with an inline `color` and has a `timeWindow`,
+// while Construction's CjStep uses `n` / `objective` / `who` / `roles[].r` with
+// colours in a separate CJ_ROLE_COLORS lookup and four step types instead of three.
+// Rather than branch on a union inside one component, the chrome lives here behind a
+// normalised view-model and each journey supplies a thin adapter (StepAgendaModal
+// below, CjStepAgendaModal down in the Construction section). Neither journey fetches
+// anything: both step tables are module-scope constants.
+interface AgendaModalRole {
+  key: string
+  label: string
+  color: string
+  tasks: string[]
+}
+
+interface AgendaModalView {
+  stepLabel: string
+  typeLabel: string
+  typeBadgeBg: string
+  typeBadgeText: string
+  // Pre-con only — CjStep has no time window, so it passes null and the pill is skipped.
+  timeWindow: string | null
+  title: string
+  // Pre-con passes `subtitle` (its nearest real field); Construction passes its real
+  // `objective` prose. Falsy hides the block rather than rendering an empty heading.
+  objective: string | null
+  // Construction only — CjStep.who (attendees). Pre-con has no equivalent and omits it.
+  who?: string | null
+  roles: AgendaModalRole[]
+}
+
+function JourneyAgendaModal({ view, onClose }: { view: AgendaModalView; onClose: () => void }) {
+  const close = useCallback(onClose, [onClose])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [close])
+
+  const taskCount = view.roles.reduce((n, rb) => n + rb.tasks.length, 0)
+
+  return (
+    <div
+      onClick={close}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 10000,
+        background: 'rgba(0,0,0,0.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 600, maxHeight: '80vh',
+          background: 'var(--surface)',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.3)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexShrink: 0 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: 'var(--text3)' }}>
+                {view.stepLabel}
+              </span>
+              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: view.typeBadgeText, background: view.typeBadgeBg, borderRadius: 99, padding: '2px 7px' }}>
+                {view.typeLabel}
+              </span>
+              {view.timeWindow && (
+                <span style={{ fontSize: 10, color: 'var(--text2)', border: '0.5px solid var(--border)', background: 'var(--surface)', borderRadius: 99, padding: '2px 8px' }}>
+                  ⏱ {view.timeWindow}
+                </span>
+              )}
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 18, fontWeight: 400, color: 'var(--text)', margin: 0, lineHeight: 1.3, letterSpacing: '-0.2px' }}>
+              {view.title}
+            </h2>
+          </div>
+          <button
+            onClick={close}
+            style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface2)'; e.currentTarget.style.color = 'var(--text)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text3)' }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {view.objective && (
+            <div style={{ marginBottom: view.who ? 16 : 22 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: 'var(--red, #c8311a)', marginBottom: 8 }}>
+                OBJECTIVE
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, margin: 0 }}>
+                {view.objective}
+              </p>
+            </div>
+          )}
+
+          {/* Attendees — Construction only (CjStep.who). Skipped entirely for pre-con,
+              which has no equivalent field, so its modal renders exactly as before. */}
+          {view.who && (
+            <div style={{ marginBottom: 22 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: 'var(--red, #c8311a)', marginBottom: 8 }}>
+                WHO
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, margin: 0 }}>
+                {view.who}
+              </p>
+            </div>
+          )}
+
+          {/* Role-grouped tasks */}
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: 'var(--red, #c8311a)', marginBottom: 10 }}>
+            AGENDA / TASKS{taskCount > 0 ? ` · ${taskCount}` : ''}
+          </div>
+
+          {view.roles.length === 0 ? (
+            <p style={{ fontSize: 12.5, color: 'var(--text3)', lineHeight: 1.55, margin: 0 }}>
+              No role tasks are defined for this step.
+            </p>
+          ) : (
+            view.roles.map(roleBlock => (
+              <div key={roleBlock.key} style={{ marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: roleBlock.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text2)' }}>
+                    {roleBlock.label}
+                  </span>
+                </div>
+                <ul style={{ margin: 0, padding: 0 }}>
+                  {roleBlock.tasks.map((task, ti) => (
+                    <li key={ti} style={{ listStyle: 'none', marginBottom: 5, display: 'flex', gap: 8 }}>
+                      <span style={{ color: 'var(--red, #c8311a)', fontWeight: 600, fontSize: 12, flexShrink: 0, minWidth: 16 }}>
+                        {ti + 1}.
+                      </span>
+                      <span style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{task}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)', flexShrink: 0, textAlign: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            CASK Construction · caskconstruction.com · 727-201-2551
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Pre-con adapter ───────────────────────────────────────────────────────────
+// "View Agenda" on a customer-type pre-con journey step. Maps WORKFLOW_STEPS data
+// onto the shared view-model — no fetch; WORKFLOW_STEPS is module-scope.
+//
+// Deliberately NOT wired to AgendaModal / AGENDAS above: that data is keyed by the
+// retired legacy journey codes (PR1m, PS1e, CG2.a…), and no mapping from the 37
+// step_XX codes to those 48 keys exists. Note WorkflowStepDef has no `objective`
+// field — `subtitle` is the nearest real data, so that is what shows here; nothing
+// is invented. `who` is omitted: pre-con steps carry no attendee field.
+function StepAgendaModal({ step, onClose }: { step: WorkflowStepDef; onClose: () => void }) {
+  const typeCfg = STEP_TYPE_CONFIG[step.type]
+  return (
+    <JourneyAgendaModal
+      onClose={onClose}
+      view={{
+        stepLabel: `Step ${step.step} of ${TOTAL_WORKFLOW_STEPS}`,
+        typeLabel: typeCfg.label,
+        typeBadgeBg: typeCfg.badgeBg,
+        typeBadgeText: typeCfg.badgeText,
+        timeWindow: step.timeWindow,
+        title: step.title,
+        objective: step.subtitle,
+        roles: step.roles.map(rb => ({
+          key: rb.role,
+          label: ROLE_NAMES[rb.role] ?? rb.role,
+          color: rb.color,
+          tasks: rb.tasks,
+        })),
+      }}
+    />
+  )
+}
+
 // ── Role-based checklist persistence (journey_checklists) ─────────────────────
 // Per-client checkbox state. Keyed by meeting_code + role + task_text so the
 // same task text under different roles/steps never collides. We no longer track
@@ -2492,6 +2691,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [userEmail, setUserEmail] = useState('')
   const userEmailRef = useRef('')
   const [activeAgenda, setActiveAgenda] = useState<string | null>(null)
+  // "View Agenda" on a customer journey step — holds the step whose agenda is open.
+  const [agendaStep, setAgendaStep] = useState<WorkflowStepDef | null>(null)
   const [emailDrafts, setEmailDrafts] = useState<EmailDraft[]>([])
   const [sentEmails, setSentEmails] = useState<EmailDraft[]>([])
   const [previewDraft, setPreviewDraft] = useState<EmailDraft | null>(null)
@@ -3196,10 +3397,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   }
 
   // ── Customer-meeting action buttons (View Agenda / Recap / Generate Email) ──
-  // Agenda / email remain placeholders. View Recap looks up the saved
-  // client_meetings recap for this step (meeting_id like 'step_04') and, when
-  // present, navigates to its recap page; otherwise it shows the linked-yet toast.
+  // View Agenda opens StepAgendaModal, rendering this step's own WORKFLOW_STEPS
+  // definition (title / subtitle / time window / role-grouped tasks). No fetch —
+  // WORKFLOW_STEPS is module-scope data this page already imports.
+  // View Recap looks up the saved client_meetings recap for this step (meeting_id
+  // like 'step_04') and, when present, navigates to its recap page; otherwise it
+  // shows the not-linked-yet toast. Recap email remains a placeholder.
   function handleWorkflowAction(kind: 'agenda' | 'recap' | 'email', step: WorkflowStepDef) {
+    if (kind === 'agenda') {
+      setAgendaStep(step)
+      return
+    }
     if (kind === 'recap') {
       const code = stepCode(step.step)
       const recapRow = journeyRows.get(code)
@@ -3813,6 +4021,7 @@ Today's date is ${today}.
   return (
     <>
       {activeAgenda && <AgendaModal code={activeAgenda} onClose={() => setActiveAgenda(null)} />}
+      {agendaStep && <StepAgendaModal step={agendaStep} onClose={() => setAgendaStep(null)} />}
 
       {/* Edit Client Modal */}
       {editForm && (
@@ -5494,6 +5703,42 @@ const CJ_ROLE_COLORS: Record<string, string> = {
   market: '#14b8a6',
 }
 
+// ── Construction adapter ─────────────────────────────────────────────────────
+// "View Agenda" on a Construction meeting step. Maps this step's CJ_STEPS entry onto
+// the same shared view-model the pre-con journey uses (JourneyAgendaModal, defined
+// earlier in this file), so both journeys' agendas render identically.
+//
+// ZERO fetches: CJ_STEPS, CJ_ROLE_NAMES, CJ_ROLE_COLORS and CJ_STEP_TYPE_CONFIG are all
+// module-scope constants — the same footing WORKFLOW_STEPS gave the pre-con fix.
+// Unlike WorkflowStepDef, CjStep has a real `objective` prose field and a `who` attendee
+// list, so both are passed through rather than substituted. Role colours come from the
+// CJ_ROLE_COLORS lookup because CjRoleBlock carries no inline colour of its own.
+function CjStepAgendaModal({ step, onClose }: { step: CjStep; onClose: () => void }) {
+  const typeCfg = CJ_STEP_TYPE_CONFIG[step.type]
+  return (
+    <JourneyAgendaModal
+      onClose={onClose}
+      view={{
+        stepLabel: `Step ${step.n} of ${CJ_STEPS.length}`,
+        typeLabel: typeCfg.label,
+        typeBadgeBg: typeCfg.badgeBg,
+        typeBadgeText: typeCfg.badgeText,
+        // CjStep has no time window — the pill is skipped rather than faked.
+        timeWindow: null,
+        title: step.title,
+        objective: step.objective,
+        who: step.who,
+        roles: step.roles.map(rb => ({
+          key: rb.r,
+          label: CJ_ROLE_NAMES[rb.r] ?? rb.r,
+          color: CJ_ROLE_COLORS[rb.r] ?? 'var(--text3)',
+          tasks: rb.tasks,
+        })),
+      }}
+    />
+  )
+}
+
 // Same shape as the real client page's workflowActionBtn.
 const cjActionBtn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500,
@@ -5630,7 +5875,6 @@ function CjStepRow({
   // Who marked this step complete, and when, in ET. Null while unmarked, so the line
   // is skipped entirely rather than rendering an empty row.
   const markCredit = completionLabel(mark ?? undefined)
-  const showAgenda = step.type === 'customer'
   const showRecap = step.type === 'customer' || step.type === 'internal'
 
   // Attach-files gate. Inherited verbatim from the removed Schedule-meeting button so
@@ -5641,6 +5885,14 @@ function CjStepRow({
   // range, so neither is a place a photo or a marked-up sheet belongs. 10 of the 19
   // steps qualify (7 customer + 3 internal); the other 9 do not (7 email + 2 window).
   const showAttach = step.type === 'customer' || step.type === 'internal'
+
+  // View-Agenda gate. Reuses showAttach rather than restating the condition — the same
+  // move the Schedule-meeting button makes — so the agenda lands on exactly the same 10
+  // meeting steps. Widened from the previous `step.type === 'customer'` (7 steps): the
+  // three 'internal' sub meetings are real meetings with their own objective, attendees
+  // and role tasks, so they have an agenda too. 'email' steps are recaps sent after the
+  // fact and 'window' steps are date ranges — neither has an agenda, both stay excluded.
+  const showAgenda = showAttach
 
   // Reuses the page's existing ET formatter — no second date function. Null when there
   // is no schedule, or when the stored timestamp won't parse, in which case the badge
@@ -5654,6 +5906,11 @@ function CjStepRow({
   // have uploaded to this step in the meantime.
   const [attachOpen, setAttachOpen] = useState(false)
 
+  // Agenda-modal disclosure. Its own state, like attachOpen above — opening the agenda
+  // must not expand or collapse the checklist, and vice versa. Holds no data: the modal
+  // reads this row's own `step`, which is already the CJ_STEPS entry.
+  const [agendaOpen, setAgendaOpen] = useState(false)
+
   return (
     <div
       style={{
@@ -5662,6 +5919,12 @@ function CjStepRow({
         background: 'var(--surface)',
       }}
     >
+
+      {/* Agenda modal. Rendered at the row's top level rather than inside the expanded
+          body so a collapse can never unmount it mid-view. position: fixed, so its
+          placement in the tree has no visual effect. */}
+      {agendaOpen && <CjStepAgendaModal step={step} onClose={() => setAgendaOpen(false)} />}
+
       {/* Header row — click anywhere to expand/collapse. role="button" rather than a
           real <button> because the action buttons in the body would otherwise nest. */}
       <div
@@ -5933,10 +6196,21 @@ function CjStepRow({
             </div>
           )}
 
-          {/* Action row — visual only. Every button here is deliberately inert. */}
+          {/* Action row. View Agenda and Mark Complete are REAL; View Recap and
+              Generate Recap Email are still deliberately inert placeholders. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            {/* View Agenda — REAL. Opens CjStepAgendaModal with THIS step's own CJ_STEPS
+                definition (objective / who / role-grouped tasks). No fetch: CJ_STEPS is
+                module-scope data, the same footing WORKFLOW_STEPS gave the pre-con fix. */}
             {showAgenda && (
-              <button type="button" title="Preview only — this button does nothing" style={cjActionBtn}>📋 View Agenda</button>
+              <button
+                type="button"
+                onClick={() => setAgendaOpen(true)}
+                title={`View the agenda for CSTEP${String(step.n).padStart(2, '0')} ${step.title}`}
+                style={cjActionBtn}
+              >
+                📋 View Agenda
+              </button>
             )}
             {showRecap && (
               <button type="button" title="Preview only — this button does nothing" style={{ ...cjActionBtn, color: 'var(--text3)', opacity: 0.5 }}>🎙️ View Recap</button>
