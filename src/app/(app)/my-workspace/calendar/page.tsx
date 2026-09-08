@@ -710,7 +710,11 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 // `lockedTitle` puts the modal in locked-invite mode: the title is fixed to the
 // STEP<NN> … : <Client> string the Fireflies webhook parses, and Teams is forced on.
 // Omitted (the manual "+ Add Event" flow) everything behaves exactly as before.
-function AddEventModal({ onClose, onSuccess, lockedTitle }: { onClose: () => void; onSuccess: (createdEvent?: unknown) => void; lockedTitle?: string }) {
+// `existingEventId` is set only in locked-invite RESCHEDULE mode. It is threaded
+// straight through to the API body and is never derived here — the caller is the only
+// thing that knows whether a prior Outlook event exists. Undefined/null for the
+// manual "+ Add Event" button and for every first-time schedule.
+function AddEventModal({ onClose, onSuccess, lockedTitle, existingEventId }: { onClose: () => void; onSuccess: (createdEvent?: unknown) => void; lockedTitle?: string; existingEventId?: string | null }) {
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: ET })
   const isLocked = !!lockedTitle
 
@@ -791,6 +795,11 @@ function AddEventModal({ onClose, onSuccess, lockedTitle }: { onClose: () => voi
                 recurringEndDate,
               }
             : {}),
+          // Spread in rather than written as `eventId: existingEventId` so the key is
+          // ABSENT (not present-and-undefined) for the manual path. The route branches
+          // on `if (eventId)`, so either form would behave the same server-side, but
+          // an absent key keeps the manual request body byte-identical to today's.
+          ...(existingEventId ? { eventId: existingEventId } : {}),
         }),
       })
       const json = await res.json().catch(() => ({}))
@@ -1126,9 +1135,11 @@ export default function MyCalendarPage() {
   const [monthRefreshKey, setMonthRefreshKey] = useState(0)
   // Locked-invite mode, set only when arrived at via the client-journey "Create invite"
   // button. null for every normal visit, which is what keeps "+ Add Event" unchanged.
-  const [lockedInvite, setLockedInvite] = useState<{ title: string; returnTo: string | null } | null>(null)
+  const [lockedInvite, setLockedInvite] = useState<{ title: string; returnTo: string | null; existingEventId: string | null } | null>(null)
 
-  // Read ?prefillTitle=…&locked=1&returnTo=… once on mount and auto-open the modal.
+  // Read ?prefillTitle=…&locked=1&returnTo=…&existingEventId=… once on mount and
+  // auto-open the modal. existingEventId is optional and purely pass-through: absent
+  // on a first-time schedule, present only when the caller already stored a Graph id.
   // Uses window.location rather than useSearchParams() so this page needs no Suspense
   // boundary (same approach as dashboard/page.tsx:1081). Bails out unless BOTH locked=1
   // and a non-empty prefillTitle are present, so a partial URL can't half-lock the form.
@@ -1136,7 +1147,7 @@ export default function MyCalendarPage() {
     const q = new URLSearchParams(window.location.search)
     const prefillTitle = q.get('prefillTitle')
     if (q.get('locked') !== '1' || !prefillTitle) return
-    setLockedInvite({ title: prefillTitle, returnTo: q.get('returnTo') })
+    setLockedInvite({ title: prefillTitle, returnTo: q.get('returnTo'), existingEventId: q.get('existingEventId') })
     setAddOpen(true)
   }, [])
 
@@ -1314,6 +1325,13 @@ export default function MyCalendarPage() {
     // date-formatting function exists anywhere. Omitted rather than guessed if Graph's
     // start can't be parsed — the toast then simply renders without the when-line.
     if (startIso) url.searchParams.set('createdWhen', startIso)
+    // Graph returns the event's id on BOTH verbs — the same id back from a PATCH, a
+    // brand-new one when the route's 404 fallback had to create a replacement — so the
+    // receiving page can just store whatever came back without knowing which happened.
+    // Type-guarded rather than cast: this is a model-free but still untrusted JSON
+    // payload, and an absent id must drop the param rather than write "undefined".
+    const createdId = (createdEvent as { id?: unknown } | null | undefined)?.id
+    if (typeof createdId === 'string' && createdId) url.searchParams.set('createdEventId', createdId)
     router.push(`${url.pathname}${url.search}`)
   }
 
@@ -1437,6 +1455,7 @@ export default function MyCalendarPage() {
           onClose={() => { setAddOpen(false); setLockedInvite(null) }}
           onSuccess={handleEventAdded}
           lockedTitle={lockedInvite?.title}
+          existingEventId={lockedInvite?.existingEventId}
         />
       )}
 

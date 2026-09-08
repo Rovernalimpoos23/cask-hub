@@ -10,6 +10,12 @@ export const dynamic = 'force-dynamic'
 // Graph (POST /me/events), using the token stored in user_integrations. Refreshes
 // the access token automatically when it's expired or within 5 minutes of expiry.
 //
+// If the body carries an `eventId`, the existing event is UPDATED in place
+// (PATCH /me/events/{id}) instead of a second one being created — which is what a
+// "Reschedule" needs. A PATCH that 404s (the original was deleted in Outlook) falls
+// back to creating a new event. Omit `eventId` and this route behaves exactly as it
+// always has: a plain create, no new branch reached.
+//
 // Auth + token pattern mirrors src/app/api/calendar/my-events/route.ts:
 //  - Session identity comes from the SSR cookie client (@/lib/supabase-server).
 //  - user_integrations + users are read/written with the SERVICE-ROLE client
@@ -38,6 +44,11 @@ interface AddEventBody {
   isRecurring?: boolean
   recurringFrequency?: 'daily' | 'weekly' | 'monthly'
   recurringEndDate?: string // client sends YYYY-MM-DD (date input) or mm/dd/yyyy
+  // OPTIONAL, and the only field that decides which Graph verb this route uses.
+  // Present ONLY when a caller is rescheduling a meeting it previously created and
+  // whose Graph id it stored. Absent for every manual "+ Add Event" submission and
+  // for every first-time schedule — both keep the original create-only path.
+  eventId?: string
 }
 
 // Combine a YYYY-MM-DD date and HH:MM time into the naive local datetime string
@@ -211,6 +222,7 @@ export async function POST(request: Request) {
       isRecurring,
       recurringFrequency,
       recurringEndDate,
+      eventId,
     } = payload
 
     if (!title || !date || !startTime || !endTime) {
@@ -274,15 +286,77 @@ export async function POST(request: Request) {
       recurrence,
     }
 
-    // ── 6. Create the event via Graph ────────────────────────────────
-    const graphRes = await fetch(`${GRAPH_BASE}/me/events`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(graphEvent),
-    })
+    // ── 6. Send to Graph ────────────────────────────────
+    // ONE body-builder (above), two possible verbs (below). createEvent() is the
+    // byte-identical POST this route has always made, extracted to a closure only so
+    // the 404 fallback can reuse it — it is NOT parameterised and has no
+    // eventId-dependent behaviour of its own.
+    const createEvent = () =>
+      fetch(`${GRAPH_BASE}/me/events`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(graphEvent),
+      })
+
+    let graphRes: Response
+    // True only when an UPDATE actually succeeded. Drives the 200-vs-201 status and
+    // nothing else; both are res.ok, so no caller can regress on it.
+    let didUpdate = false
+
+    if (eventId) {
+      // The update body is the same event object minus the two online-meeting fields.
+      // Graph refuses a change to isOnlineMeeting on an event that already exists, and
+      // the locked-invite flow always submits isTeamsMeeting=true (see AddEventModal),
+      // so sending them would fail every reschedule of a Teams invite — precisely the
+      // case this branch exists for. Omitting them leaves the existing online meeting
+      // and its join link untouched, which is also what a reschedule should do.
+      // Built by copy-and-delete rather than rest-destructuring so `graphEvent` itself
+      // is left exactly as it was for the create path.
+      const updateEvent: Record<string, unknown> = { ...graphEvent }
+      delete updateEvent.isOnlineMeeting
+      delete updateEvent.onlineMeetingProvider
+
+      // Same reasoning, sharper consequence: Graph REPLACES the attendee list on a
+      // PATCH, and the locked-invite modal reopens with no attendees selected every
+      // time. Sending the empty array would strip everyone off an existing meeting and
+      // make Outlook mail them a cancellation — a worse outcome than the duplicate
+      // event this whole change exists to prevent. So on an update an EMPTY attendee
+      // list means "leave the attendees alone"; a non-empty one still replaces them,
+      // which is what a caller that actually picked attendees intends.
+      // Trade-off, stated plainly: removing every attendee via a reschedule is not
+      // expressible through this route. Do it in Outlook.
+      if (!attendees || attendees.length === 0) delete updateEvent.attendees
+
+      graphRes = await fetch(`${GRAPH_BASE}/me/events/${encodeURIComponent(eventId)}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateEvent),
+      })
+      didUpdate = graphRes.ok
+
+      if (graphRes.status === 404) {
+        // The stored id points at an event that no longer exists — deleted from
+        // Outlook by hand, or belonging to a different mailbox. Creating a fresh one
+        // beats failing: the user asked for a meeting either way. Logged at warn with
+        // the id (an event id is not secret) so this is obvious in the Vercel logs
+        // instead of looking like an ordinary create.
+        console.warn(
+          `[add-event] PATCH 404 for event ${eventId} — original is gone; falling back to CREATE`,
+        )
+        didUpdate = false
+        graphRes = await createEvent()
+      }
+    } else {
+      // No eventId — the ONLY path manual "+ Add Event" and first-time schedules
+      // ever take. Identical request to the one this route made before eventId existed.
+      graphRes = await createEvent()
+    }
 
     if (!graphRes.ok) {
       // Surface the status only (no token/secret material).
@@ -294,7 +368,12 @@ export async function POST(request: Request) {
     }
 
     const createdEvent = await graphRes.json()
-    return NextResponse.json({ success: true, event: createdEvent }, { status: 201 })
+    // 201 for a create (unchanged), 200 for an update. Both satisfy res.ok, which is
+    // all any caller checks, so this is additive rather than a contract change.
+    return NextResponse.json(
+      { success: true, event: createdEvent },
+      { status: didUpdate ? 200 : 201 },
+    )
   } catch (err) {
     // Never throw unhandled — surface a generic error.
     console.error('[add-event] error:', err instanceof Error ? err.message : 'unknown')

@@ -432,6 +432,13 @@ function BackLink() {
 // pattern for consistency.
 type ClientTab = 'overview' | 'journey' | 'communication' | 'files' | 'construction'
 
+// Which schedule table a returning locked-invite writes to. One table per journey, on
+// purpose: the two number their steps independently (pre-con 1-37, construction 1-19),
+// so a single shared table keyed by (client_id, step_number) would have step 5 of one
+// journey silently overwrite step 5 of the other. Only the two journey tabs map to a
+// table; every other ClientTab maps to null and writes nothing.
+type ScheduleTable = 'construction_step_schedules' | 'workflow_step_schedules'
+
 function ClientTabBtn({ id, cur, set, children }: {
   id: ClientTab
   cur: ClientTab
@@ -1155,6 +1162,7 @@ function WorkflowStep({
   onAction,
   hasRecap,
   onCreateInvite,
+  schedule,
 }: {
   step: WorkflowStepDef
   isCompleted: boolean
@@ -1171,6 +1179,11 @@ function WorkflowStep({
   // Fired by the "Schedule meeting" action in the header row. Receives THIS step —
   // the invite is always for the step whose card the button sits on.
   onCreateInvite: (targetStep: WorkflowStepDef) => void
+  // This step's scheduled meeting from workflow_step_schedules, or null when none
+  // exists. Drives both the header badge and whether the button reads "Schedule
+  // meeting" or "Reschedule". Reuses the Construction row's CjSchedule type rather
+  // than declaring a second identical one — the shape, not the table, is shared.
+  schedule: CjSchedule | null
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   // `defaultExpanded` depends on the current step, which is only known after the
@@ -1188,6 +1201,9 @@ function WorkflowStep({
   const cfg = STEP_TYPE_CONFIG[step.type]
   const code = stepCode(step.step)
   const isCustomer = step.type === 'customer'
+  // Formatted with this page's one existing timestamp helper, exactly as the
+  // Construction row does, so the two badges cannot drift apart in wording.
+  const scheduleLabel = schedule ? formatCompletedAt(schedule.at) : null
 
   return (
     <div
@@ -1250,6 +1266,41 @@ function WorkflowStep({
           </span>
         ) : null}
 
+        {/* Scheduled-meeting badge — rendered only when a workflow_step_schedules row
+            exists for this step. Visually identical to the Construction row's badge:
+            same green, same border, same icon, same formatCompletedAt text, and the
+            same undoing of the badge base's uppercase/letter-spacing (a date set in
+            caps with tracking reads badly). The values are restated here rather than
+            imported from cjBadgeBase so nothing on this tab reaches into Construction's
+            code and no shared style can be changed for one journey by accident. */}
+        {scheduleLabel && (
+          <span
+            className="shrink-0 self-center"
+            style={{
+              fontSize: 9.5,
+              fontWeight: 600,
+              letterSpacing: 0,
+              textTransform: 'none',
+              padding: '2px 7px',
+              borderRadius: 5,
+              whiteSpace: 'nowrap',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              background: 'rgba(29,158,117,0.1)',
+              border: '1px solid rgba(29,158,117,0.35)',
+              color: '#5dcaa5',
+            }}
+            title={schedule?.title ?? undefined}
+          >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: '#5dcaa5' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            {scheduleLabel}
+          </span>
+        )}
+
         {/* Schedule meeting — rendered on every non-window step (the 10 'customer' and
             4 'internal' steps), never on a work window. Builds the invite for THIS step,
             so no forward-scanning is involved. stopPropagation keeps the click from also
@@ -1258,7 +1309,11 @@ function WorkflowStep({
           <button
             type="button"
             onClick={e => { e.stopPropagation(); onCreateInvite(step) }}
-            title={`Create a Teams invite for STEP${String(step.step).padStart(2, '0')} ${step.title}`}
+            title={
+              schedule
+                ? `Reschedule STEP${String(step.step).padStart(2, '0')} ${step.title} — currently ${scheduleLabel}`
+                : `Create a Teams invite for STEP${String(step.step).padStart(2, '0')} ${step.title}`
+            }
             className="shrink-0 self-center"
             style={{
               ...workflowActionBtn,
@@ -1283,7 +1338,9 @@ function WorkflowStep({
               <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
               <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
             </svg>
-            Schedule meeting
+            {/* Same button, handler and gate either way — only the label changes once a
+                schedule exists. Re-clicking overwrites the row via the upsert. */}
+            {schedule ? 'Reschedule' : 'Schedule meeting'}
           </button>
         )}
 
@@ -2716,17 +2773,25 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // Confirmation shown after returning from the My Calendar locked-invite flow. `when`
   // is already formatted (or null when Graph's start couldn't be parsed / wasn't sent).
   const [createdToast, setCreatedToast] = useState<{ title: string; when: string | null } | null>(null)
-  // Construction-only. Captured on mount from the return URL, then written once the
+  // Either journey. Captured on mount from the return URL, then written once the
   // self-lookup has settled — at mount the identity refs are still null, and this row's
   // scheduled_by is a real FK to public.users, so writing immediately would persist an
   // unattributed schedule.
+  // `table` is resolved from the return URL's `tab` at capture time rather than at
+  // write time, so the write effect never has to re-derive it after the params have
+  // already been stripped back out of the URL.
   const [pendingSchedule, setPendingSchedule] = useState<
-    { stepNumber: number; scheduledAt: string; title: string } | null
+    { table: ScheduleTable; stepNumber: number; scheduledAt: string; title: string; eventId: string | null } | null
   >(null)
-  // Bumped after a schedule write lands so the Construction panel re-reads. The panel
-  // mounts in parallel with that write, so without this the badge would only show up
-  // after the tab was closed and reopened.
+  // Bumped after a schedule write lands so the journey panels re-read. They mount in
+  // parallel with that write, so without this the badge would only show up after the
+  // tab was closed and reopened.
   const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0)
+  // This client's PRE-CON scheduled meetings, keyed by pre-con step number. The
+  // Construction twin of this map lives inside ConstructionJourneyPanel and reads a
+  // different table; the two are deliberately never merged, because their step numbers
+  // collide (pre-con 1-37 vs construction 1-19) and would overwrite each other.
+  const [precoSchedules, setPrecoSchedules] = useState<Map<number, CjSchedule>>(new Map())
   // Collapse state for the moved-to-bottom info sections (collapsed by default).
   const [isPersonalityExpanded, setIsPersonalityExpanded] = useState(false)
   const [isPrioritiesExpanded, setIsPrioritiesExpanded] = useState(false)
@@ -3018,26 +3083,41 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       })
     }
 
-    // ── Construction-only branch ──────────────────────────────────────────────
-    // createdStep is written by handleCjCreateInvite and by nothing else, so its
-    // presence is the discriminator. Absent → this was pre-con → nothing here runs and
-    // pre-con's behaviour is exactly what it was before this change.
+    // ── Schedule-row branch (both journeys) ─────────────────────────────────────────
+    // Two independent signals, deliberately not collapsed into one:
+    //   createdStep — "this return came from a step's Schedule-meeting button, so a
+    //                  schedule row should be written". Both journey handlers send it.
+    //   tab         — WHICH journey, and therefore which table. Already read above, so
+    //                  no second discriminator param had to be added to the return URL.
+    // An unrecognised tab resolves to null and writes nothing rather than guessing a
+    // table: a pre-con step number written into the Construction table (or the reverse)
+    // would collide with a real row there under UNIQUE (client_id, step_number).
     const stepRaw = q.get('createdStep')
     const whenRaw = q.get('createdWhen')
-    if (created && stepRaw && /^\d+$/.test(stepRaw) && whenRaw) {
-      // scheduled_at is NOT NULL on the table, so an unparseable timestamp must not be
-      // written at all — better no badge than a broken row.
+    const scheduleTable: ScheduleTable | null =
+      tab === 'construction' ? 'construction_step_schedules'
+      : tab === 'journey'    ? 'workflow_step_schedules'
+      : null
+    if (created && scheduleTable && stepRaw && /^\d+$/.test(stepRaw) && whenRaw) {
+      // scheduled_at is NOT NULL on both tables, so an unparseable timestamp must not
+      // be written at all — better no badge than a broken row.
       const validWhen = !isNaN(new Date(whenRaw).getTime())
       if (validWhen) {
         setPendingSchedule({
+          table: scheduleTable,
           stepNumber: Number(stepRaw),
           scheduledAt: whenRaw,
           title: q.get('createdTitle') ?? '',
+          // The Outlook event this schedule now points at. Same id back when the
+          // calendar page UPDATED an existing event, a new one when it had to create.
+          // Absent — e.g. Graph returned no id — leaves the stored id untouched
+          // rather than clearing it; see the upsert payload.
+          eventId: q.get('createdEventId'),
         })
       }
     }
 
-    // Strip all five so a refresh can't re-fire the toast, re-force the tab, or write
+    // Strip all six so a refresh can't re-fire the toast, re-force the tab, or write
     // the schedule a second time. history.replaceState, NOT router.replace: no
     // navigation, no refetch, no scroll reset, and no re-run of route-keyed effects.
     if (tab || created) {
@@ -3046,6 +3126,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       q.delete('createdTitle')
       q.delete('createdWhen')
       q.delete('createdStep')
+      q.delete('createdEventId')
       const qs = q.toString()
       window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`)
     }
@@ -3059,37 +3140,43 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     return () => clearTimeout(timer)
   }, [createdToast])
 
-  // ── Persist a Construction step's scheduled meeting ──────────────────────────
+  // ── Persist a step's scheduled meeting (either journey) ────────────────────────
   // Gated on selfUserReady, not run inline in the effect above, because at mount the
   // identity refs are still null and scheduled_by is a real FK to public.users. Waiting
   // one tick is what makes the row attributed. The upsert's UNIQUE (client_id,
   // step_number) is what turns a reschedule into an overwrite rather than a duplicate.
+  // The two tables are same-shape by design, so the only thing parameterised here is
+  // the table name — row payload, conflict target and error handling stay shared.
   useEffect(() => {
     if (!pendingSchedule || !selfUserReady) return
     let cancelled = false
     ;(async () => {
       const supabase = createClient()
+      const row: Record<string, unknown> = {
+        client_id:         params.id,
+        step_number:       pendingSchedule.stepNumber,
+        scheduled_at:      pendingSchedule.scheduledAt,
+        scheduled_title:   pendingSchedule.title,
+        scheduled_by:      selfUserIdRef.current,
+        scheduled_by_name: selfUserNameRef.current,
+        // Sent explicitly: a column default only fires on INSERT, so without this
+        // an overwriting reschedule would keep the original updated_at.
+        updated_at:        new Date().toISOString(),
+      }
+      // Added ONLY when we actually have an id. Omitting the key is not the same as
+      // sending null: PostgREST builds its ON CONFLICT DO UPDATE SET from the keys
+      // present in the payload, so leaving it out preserves the id the row already
+      // holds. Sending null would wipe it, and the NEXT reschedule would silently go
+      // back to creating a duplicate — the exact bug this whole change fixes.
+      if (pendingSchedule.eventId) row.graph_event_id = pendingSchedule.eventId
       const { error } = await supabase
-        .from('construction_step_schedules')
-        .upsert(
-          {
-            client_id:         params.id,
-            step_number:       pendingSchedule.stepNumber,
-            scheduled_at:      pendingSchedule.scheduledAt,
-            scheduled_title:   pendingSchedule.title,
-            scheduled_by:      selfUserIdRef.current,
-            scheduled_by_name: selfUserNameRef.current,
-            // Sent explicitly: a column default only fires on INSERT, so without this
-            // an overwriting reschedule would keep the original updated_at.
-            updated_at:        new Date().toISOString(),
-          },
-          { onConflict: 'client_id,step_number' },
-        )
+        .from(pendingSchedule.table)
+        .upsert(row, { onConflict: 'client_id,step_number' })
       if (cancelled) return
       if (error) {
         // The Outlook event itself was created regardless — say so, rather than letting
         // a missing badge imply the meeting didn't happen.
-        console.error('[cj-step-schedule] upsert failed:', error)
+        console.error(`[step-schedule] upsert into ${pendingSchedule.table} failed:`, error)
         setToast('Meeting created, but the schedule badge could not be saved.')
       } else {
         setScheduleRefreshKey(k => k + 1)
@@ -3098,6 +3185,54 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     })()
     return () => { cancelled = true }
   }, [pendingSchedule, selfUserReady, params.id])
+
+  // ── Load this client's PRE-CON scheduled meetings ─────────────────────────────
+  // The pre-con twin of the identical fetch inside ConstructionJourneyPanel, kept as a
+  // separate effect against a separate table for the reason ScheduleTable documents:
+  // the two journeys' step numbers collide, so one shared map would mis-badge steps.
+  // Lives here rather than in a panel component because the pre-con Journey tab has no
+  // panel component — WorkflowStep is mapped directly from this page.
+  // Keyed on the same scheduleRefreshKey as the Construction fetch so a reschedule
+  // repaints without a tab round-trip. That key also re-running the Construction fetch
+  // is harmless (same client, same read) and keeps one refresh signal rather than two.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!params.id) return
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('workflow_step_schedules')
+        .select('step_number, scheduled_at, scheduled_title, graph_event_id')
+        .eq('client_id', params.id)
+      if (cancelled) return
+      if (error) {
+        // Logged, not surfaced. DELIBERATE DIVERGENCE from the Construction panel,
+        // which has its own inline error slot (setCjError) to put this in; the pre-con
+        // Journey tab has no equivalent, and every other fetch on this tab already
+        // degrades silently. A missing badge is the degradation — the meeting itself
+        // still exists in Outlook either way.
+        console.error('[preco-step-schedule] load failed:', error)
+        return
+      }
+      const rows = (data ?? []) as {
+        step_number: number
+        scheduled_at: string | null
+        scheduled_title: string | null
+        graph_event_id: string | null
+      }[]
+      const m = new Map<number, CjSchedule>()
+      for (const r of rows) {
+        if (!r.scheduled_at) continue
+        // Normalised at the fetch boundary, the same way owner is on action items:
+        // an empty string in the column must read as "no id", not as an id, or the
+        // reschedule would PATCH /me/events/ and 404 on every attempt.
+        const eventId = typeof r.graph_event_id === 'string' && r.graph_event_id ? r.graph_event_id : null
+        m.set(r.step_number, { at: r.scheduled_at, title: r.scheduled_title, eventId })
+      }
+      setPrecoSchedules(m)
+    })()
+    return () => { cancelled = true }
+  }, [params.id, scheduleRefreshKey])
 
   // ── Resolve the acting user's own public.users id + display name ─────────────
   // ONE lookup, shared by both completion features on this page. Lifted out of the
@@ -3832,8 +3967,21 @@ Today's date is ${today}.
       // ?tab= is what fixes the old "always came back to Overview" gap. It rides on
       // returnTo, so the calendar page needs no knowledge of tabs at all — it just
       // preserves whatever it was handed and appends its own created* params.
-      returnTo: `/customers/${params.id}?tab=journey`,
+      // createdStep rides along for the same reason it does on the Construction
+      // handler below: it is what tells the return handler that a schedule row should
+      // be written at all. Which TABLE that row goes to is decided by `tab`, not by
+      // this param — see the schedule-row branch in the created=1 effect.
+      returnTo: `/customers/${params.id}?tab=journey&createdStep=${targetStep.step}`,
     })
+    // RESCHEDULE vs first-time schedule. The button is the same button either way;
+    // what makes this an update is purely whether a row with a stored Graph id already
+    // exists for this step. Read straight from precoSchedules, which this component
+    // owns — no extra fetch, and it is already refreshed by scheduleRefreshKey.
+    // Set conditionally, never as part of the literal above: URLSearchParams would
+    // stringify a null into the literal text "null", which the route would then treat
+    // as a real event id and PATCH against.
+    const existingEventId = precoSchedules.get(targetStep.step)?.eventId
+    if (existingEventId) query.set('existingEventId', existingEventId)
     router.push(`/my-workspace/calendar?${query.toString()}`)
   }
 
@@ -3842,16 +3990,24 @@ Today's date is ${today}.
   // STEP handler and is not being touched. This owns only the navigation — the CSTEP
   // title itself is built by cjInviteTitle in the CJ section, where the step data
   // lives. Same locked-invite mechanism, so the calendar page needs no changes.
-  function handleCjCreateInvite(inviteTitle: string, stepNumber: number) {
+  // existingEventId arrives as an ARGUMENT here, unlike the pre-con handler which
+  // reads its own state. Deliberate: Construction's schedules map lives inside
+  // ConstructionJourneyPanel, not on this page, so passing it up the existing
+  // callback (which already carries stepNumber for the same reason) is the only way
+  // to reach it without duplicating that fetch.
+  function handleCjCreateInvite(inviteTitle: string, stepNumber: number, existingEventId: string | null) {
     const query = new URLSearchParams({
       prefillTitle: inviteTitle,
       locked: '1',
-      // Same mechanism as the pre-con handler above — only the tab value differs, plus
-      // createdStep. That param is added HERE ONLY: construction_step_schedules is a
-      // Construction-only table, so its presence on the way back is exactly what tells
-      // the return handler this was a Construction invite and not a pre-con one.
+      // Same mechanism as the pre-con handler above — only the tab value differs.
+      // Both handlers now send createdStep ("write a schedule row"); `tab` is what
+      // selects the table. Do NOT reintroduce a second discriminator param: the two
+      // journeys number their steps independently (pre-con 1-37, construction 1-19),
+      // so the step number is ambiguous on its own and `tab` already is not.
       returnTo: `/customers/${params.id}?tab=construction&createdStep=${stepNumber}`,
     })
+    // Same null-guard rationale as the pre-con handler above.
+    if (existingEventId) query.set('existingEventId', existingEventId)
     router.push(`/my-workspace/calendar?${query.toString()}`)
   }
 
@@ -5027,6 +5183,7 @@ Today's date is ${today}.
                 onAction={handleWorkflowAction}
                 hasRecap={journeyRows.has(stepCode(step.step))}
                 onCreateInvite={handleCreateInvite}
+                schedule={precoSchedules.get(step.step) ?? null}
               />
             ))}
           </div>
@@ -5796,11 +5953,17 @@ function cjInviteTitle(n: number, title: string, clientName: string): string {
   return `CSTEP${String(n).padStart(2, '0')} ${title}: ${clientName}`
 }
 
-// One construction_step_schedules row, reduced to what the header badge needs.
-// `at` is the raw timestamptz — formatting happens at render via formatCompletedAt.
+// One schedule row (either table), reduced to what the header badge and the invite
+// handlers need. `at` is the raw timestamptz — formatting happens at render via
+// formatCompletedAt.
 interface CjSchedule {
   at: string
   title: string | null
+  // The Outlook event this row was created from, or null for a row written before
+  // graph_event_id existed (or when Graph's response carried no id). Null is what
+  // makes a reschedule fall back to creating a fresh event instead of updating one:
+  // there is nothing to PATCH.
+  eventId: string | null
 }
 
 // ── CjStep row ─────────────────────────────────────────────────────────────────
@@ -5841,8 +6004,11 @@ function CjStepRow({
   clientName: string
   // Hands a finished invite title back up to the page, which owns the router. Same
   // callback-passed-down shape the pre-con WorkflowStep uses for onCreateInvite.
-  // The step number rides along so the return URL can carry createdStep.
-  onCreateInvite: (inviteTitle: string, stepNumber: number) => void
+  // The step number rides along so the return URL can carry createdStep, and the
+  // stored Graph event id so the page can turn this into an UPDATE rather than a
+  // second Outlook event. Null when this step has never been scheduled, or was
+  // scheduled before graph_event_id existed.
+  onCreateInvite: (inviteTitle: string, stepNumber: number, existingEventId: string | null) => void
   // Hands this step up to ClientDetailPage, which renders the one agenda modal. Same
   // callback-passed-down shape as onCreateInvite above, and for a stricter reason: a
   // modal rendered from inside this row cannot position correctly (see cjAgendaStep).
@@ -6032,7 +6198,7 @@ function CjStepRow({
         {showAttach && (
           <button
             type="button"
-            onClick={e => { e.stopPropagation(); onCreateInvite(cjInviteTitle(step.n, step.title, clientName), step.n) }}
+            onClick={e => { e.stopPropagation(); onCreateInvite(cjInviteTitle(step.n, step.title, clientName), step.n, schedule?.eventId ?? null) }}
             title={
               schedule
                 ? `Reschedule CSTEP${String(step.n).padStart(2, '0')} ${step.title} — currently ${scheduleLabel}`
@@ -7039,7 +7205,7 @@ function ConstructionJourneyPanel({
   // Pass-through only — the panel itself never reads these; CjStepRow does. Threaded
   // the same way clientId already is, rather than re-fetched or re-derived.
   clientName: string
-  onCreateInvite: (inviteTitle: string, stepNumber: number) => void
+  onCreateInvite: (inviteTitle: string, stepNumber: number, existingEventId: string | null) => void
   // Pass-through only, like clientName/onCreateInvite above — the panel never reads it.
   // Hands a step up to ClientDetailPage, which owns the single agenda-modal instance.
   // It has to live up there: see the cjAgendaStep declaration for why a modal rendered
@@ -7119,7 +7285,7 @@ function ConstructionJourneyPanel({
       const supabase = createClient()
       const { data, error } = await supabase
         .from('construction_step_schedules')
-        .select('step_number, scheduled_at, scheduled_title')
+        .select('step_number, scheduled_at, scheduled_title, graph_event_id')
         .eq('client_id', clientId)
       if (cancelled) return
       if (error) {
@@ -7132,11 +7298,14 @@ function ConstructionJourneyPanel({
         step_number: number
         scheduled_at: string | null
         scheduled_title: string | null
+        graph_event_id: string | null
       }[]
       const m = new Map<number, CjSchedule>()
       for (const r of rows) {
         if (!r.scheduled_at) continue
-        m.set(r.step_number, { at: r.scheduled_at, title: r.scheduled_title })
+        // Same fetch-boundary normalisation as the pre-con effect: '' must read null.
+        const eventId = typeof r.graph_event_id === 'string' && r.graph_event_id ? r.graph_event_id : null
+        m.set(r.step_number, { at: r.scheduled_at, title: r.scheduled_title, eventId })
       }
       setSchedules(m)
     })()
