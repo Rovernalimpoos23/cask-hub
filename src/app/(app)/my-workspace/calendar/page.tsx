@@ -1064,15 +1064,48 @@ function AddEventModal({ onClose, onSuccess, lockedTitle, existingEventId }: { o
           </div>
 
           {/* Body / Notes */}
+          {/* Locked on a RESCHEDULE (existingEventId present) — same lock treatment as
+              the Title field above. Graph replaces a supplied property wholesale on a
+              PATCH, and on a Teams event the body carries the auto-generated join-link
+              blob, so any note typed here would overwrite it and kill the link.
+              api/calendar/add-event already drops an EMPTY body from the PATCH; this
+              stops a non-empty one from being composed in the first place.
+              Gated on existingEventId, NOT isLocked: a first-time schedule is also
+              locked-title, and its Notes field must stay fully editable. */}
           <div>
             <label className={LABEL_CLS}>Notes</label>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={4}
-              placeholder="Add notes, agenda, or description..."
-              className={`${INPUT_CLS} resize-none`}
-            />
+            {existingEventId ? (
+              <>
+                <div className="relative" title="Notes are locked when rescheduling — editing them would replace the Teams meeting link.">
+                  <textarea
+                    value=""
+                    readOnly
+                    aria-readonly="true"
+                    rows={4}
+                    placeholder="Locked while rescheduling"
+                    className={`${INPUT_CLS} resize-none cursor-not-allowed pr-9 opacity-80`}
+                  />
+                  <svg
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-3 top-3 text-[var(--text3)]"
+                    width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  >
+                    <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </div>
+                <div className="mt-1.5 text-xs text-[var(--text3)]">
+                  Notes can&apos;t be edited when rescheduling, to protect the Teams meeting link. Edit notes directly in Outlook if needed.
+                </div>
+              </>
+            ) : (
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                rows={4}
+                placeholder="Add notes, agenda, or description..."
+                className={`${INPUT_CLS} resize-none`}
+              />
+            )}
           </div>
 
           {formError && <div className="text-sm text-[var(--red)]">{formError}</div>}
