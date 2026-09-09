@@ -330,6 +330,24 @@ export async function POST(request: Request) {
       // expressible through this route. Do it in Outlook.
       if (!attendees || attendees.length === 0) delete updateEvent.attendees
 
+      // Same guard, same reason, different property — and the one that actually bit us.
+      // Graph replaces a supplied property WHOLESALE: a PATCH carrying `body` overwrites
+      // the entire ItemBody, and on a Teams event that body holds the auto-generated
+      // join-link blob. Microsoft documents exactly this ("Inadvertently removing the
+      // meeting blob from the body would disable meeting online" — Update event, v1.0).
+      // The locked-invite modal reopens with Notes blank every time, so an unguarded
+      // reschedule sent `content: ''` and stripped the join link off a live invite.
+      // So on an update an EMPTY note means "leave the body alone".
+      // `typeof` rather than the literal `!body` shape of the attendees guard above:
+      // body is client-supplied JSON, and a non-string truthy value would reach .trim()
+      // and throw. Same guard, one word safer.
+      // Trade-off, stated plainly and matching attendees: clearing a description via a
+      // reschedule is not expressible through this route. Do it in Outlook.
+      // NOT fixed here, deliberately: a NON-empty note still REPLACES the blob, because
+      // this route never reads the original body. Preserving it needs a GET-and-merge,
+      // which is a separate change rather than a wider edit to this one.
+      if (typeof body !== 'string' || body.trim() === '') delete updateEvent.body
+
       graphRes = await fetch(`${GRAPH_BASE}/me/events/${encodeURIComponent(eventId)}`, {
         method: 'PATCH',
         headers: {
