@@ -464,7 +464,7 @@ export async function POST(req: NextRequest) {
     // Restricted roles get a PERSONAL dashboard AI: only meetings they attended
     // and only their own action items; calendar/company-wide data is excluded.
     // Admin roles, a missing role, or any non-dashboard page → unchanged below.
-    const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance']
+    const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'data_analyst']
     const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
     const roleLower = (userRole ?? '').toLowerCase().trim()
     const isRestrictedDashboard =

@@ -28,7 +28,7 @@ import type { Meeting } from '@/types'
 // All of the above is route/nav access only. It does NOT affect the
 // meeting-visibility filtering in this file, which still treats every
 // restricted role identically (own-attendance only).
-export const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member']
+export const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member', 'data_analyst']
 export const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 
 // True only when the role is restricted and NOT an admin role (admin always wins).
