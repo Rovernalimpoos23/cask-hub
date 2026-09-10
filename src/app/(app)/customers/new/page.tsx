@@ -612,6 +612,17 @@ export default function NewClientSetupPage() {
                 <div style={fieldStyle}>
                   <label style={labelStyle}>Personality Tags</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                    {/* Selected chips fill with --charcoal, which inverts from #111111 in
+                        light mode to #ECEBE8 in dark mode (globals.css:20 vs :123), so the
+                        hardcoded white label rendered white-on-near-white — invisible — in
+                        dark mode. Both fill and label now go through the repo's documented
+                        remedy pair for exactly this inversion (globals.css:125-131):
+                        --btn-primary-bg / --btn-primary-text are defined only in .dark, so
+                        light mode falls back to var(--charcoal) + white and is unchanged.
+                        The border follows the fill for the same reason — left on --charcoal
+                        it would ring a near-white outline around the new fill. Same pattern
+                        as the selected tab pills on the Action Items page. The unselected
+                        branch of all three properties is untouched. */}
                     {ALL_TAGS.map(tag => {
                       const active = selectedTags.includes(tag)
                       return (
@@ -624,9 +635,9 @@ export default function NewClientSetupPage() {
                             borderRadius: 20,
                             fontSize: 12,
                             fontWeight: 500,
-                            border: `1px solid ${active ? 'var(--charcoal)' : 'var(--border)'}`,
-                            background: active ? 'var(--charcoal)' : 'transparent',
-                            color: active ? 'white' : 'var(--text2)',
+                            border: `1px solid ${active ? 'var(--btn-primary-bg, var(--charcoal))' : 'var(--border)'}`,
+                            background: active ? 'var(--btn-primary-bg, var(--charcoal))' : 'transparent',
+                            color: active ? 'var(--btn-primary-text, white)' : 'var(--text2)',
                             cursor: 'pointer',
                             transition: 'all 120ms ease',
                             fontFamily: 'inherit',
