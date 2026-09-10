@@ -517,6 +517,13 @@ export default function ActionsPage() {
   const [loading, setLoading] = useState(true)
   const [ownerFilter, setOwnerFilter] = useState('My Items')
   const [showAll, setShowAll] = useState(false)
+  // NEW (additive): status filter — selects WHICH of the two existing sections
+  // renders below. Deliberately its own state, separate from `ownerFilter` (which
+  // selects WHOSE items): status and owner are orthogonal dimensions, so keeping
+  // them apart lets them compose. Folding 'Completed' into ownerFilter /
+  // OWNER_FILTERS instead would fall through to the substring branch in `filtered`
+  // below and silently render an empty list.
+  const [statusFilter, setStatusFilter] = useState<'open' | 'completed'>('open')
   // NEW (additive): current user's first name, powering the "My Items" filter.
   const [currentUserFirstName, setCurrentUserFirstName] = useState('')
   // NEW (additive): current user's role, used only to hide owner filter tabs +
@@ -641,6 +648,17 @@ export default function ActionsPage() {
 
   const openItems = filtered.filter(a => !a.done).sort(byPriorityThenDue)
   const completedItems = filtered.filter(a => a.done).sort(byCompletedDesc)
+
+  // NEW (additive): does the active status filter have anything to render?
+  // 'open' (the default) keeps today's condition verbatim — Open Items plus the
+  // Completed section beneath it. 'completed' hides Open Items, so the empty state
+  // must key off completedItems alone; otherwise selecting Completed with zero
+  // completed items but some open ones would render neither a section nor the
+  // empty message, just blank space.
+  const hasVisibleItems =
+    statusFilter === 'completed'
+      ? completedItems.length > 0
+      : openItems.length > 0 || completedItems.length > 0
 
   async function handleToggle(id: string, done: boolean) {
     // Stamp the completion time once and reuse for both the optimistic state and
@@ -851,6 +869,42 @@ export default function ActionsPage() {
               </button>
             ))}
           </div>
+          {/* NEW (additive): status filter — orthogonal to the owner tabs above,
+              so the two compose instead of overriding each other. Sits out here
+              beside "View All Owners" (this row's other independent toggle) rather
+              than inside the owner tab group, so it doesn't read as one more
+              option in that single-select. Shown for EVERY role, unlike "View All
+              Owners": restricted users already see their completed items in the
+              section below, so gating this would remove capability, not add it.
+              Pill styling is copied from the "My Items" button above; only the
+              inactive badge palette differs — the green triplet (same as the
+              TopBar "Done" pill) per the page's open=red / done=green convention.
+              Toggles back to 'open' on a second click, mirroring how "View All
+              Owners" toggles, so there is always a way back to the default view. */}
+          <button
+            onClick={() => setStatusFilter(prev => (prev === 'completed' ? 'open' : 'completed'))}
+            className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-all duration-150 inline-flex items-center gap-1.5 shrink-0"
+            style={{
+              background: statusFilter === 'completed' ? 'var(--btn-primary-bg, var(--charcoal))' : 'none',
+              color: statusFilter === 'completed' ? 'var(--btn-primary-text, white)' : 'var(--text3)',
+              border: statusFilter === 'completed' ? '1px solid var(--btn-primary-bg, var(--charcoal))' : '1px solid var(--border)',
+              fontFamily: 'var(--font-geist), sans-serif',
+              cursor: 'pointer',
+            }}
+          >
+            Completed
+            <span
+              className="text-[10px] font-semibold rounded-full"
+              style={{
+                padding: '0 6px',
+                background: statusFilter === 'completed' ? 'rgba(255,255,255,0.22)' : 'var(--green-bg)',
+                color: statusFilter === 'completed' ? 'white' : 'var(--green)',
+                border: statusFilter === 'completed' ? '1px solid rgba(255,255,255,0.25)' : '1px solid var(--pill-green-border)',
+              }}
+            >
+              {loading ? '…' : completedItems.length}
+            </span>
+          </button>
           {/* CHANGE 2: the "View All Owners" toggle is an owner-wide control that
               has no effect on the "My Items" view, so it's hidden for restricted
               roles. Admins keep it, unchanged. */}
@@ -879,7 +933,7 @@ export default function ActionsPage() {
           </div>
         ) : (
           <>
-            {openItems.length > 0 && (
+            {statusFilter === 'open' && openItems.length > 0 && (
               <div className="mb-7">
                 <SectionLabel>Open Items</SectionLabel>
                 <div className="flex flex-col gap-[5px]">
@@ -907,9 +961,9 @@ export default function ActionsPage() {
               </div>
             )}
 
-            {openItems.length === 0 && completedItems.length === 0 && (
+            {!hasVisibleItems && (
               <div className="text-center py-12 text-[13px]" style={{ color: 'var(--text3)' }}>
-                No action items for this owner filter.
+                {statusFilter === 'completed' ? 'No completed action items for this owner filter.' : 'No action items for this owner filter.'}
               </div>
             )}
           </>
