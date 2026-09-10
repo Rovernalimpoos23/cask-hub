@@ -117,7 +117,7 @@ export async function middleware(request: NextRequest) {
   // /my-workspace/*. No allowlist entry needed.
   // NOTE: 'vp_ops' and 'ops_manager' are restricted AND further narrowed — see
   // NARROWED_ROLES below.
-  const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member', 'data_analyst']
+  const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member', 'data_analyst', 'sales_rep']
   // These roles are narrowed FURTHER than the other restricted roles, at their
   // holders' own request: Action Items + the three Customer Journey pages only.
   // No All Sessions, no Generate Agenda, no My Workspace (My Calendar / My
