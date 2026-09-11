@@ -4,6 +4,7 @@
 import Link from 'next/link'
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
+import { WORKFLOW_STEPS, TOTAL_WORKFLOW_STEPS } from '@/lib/workflow-steps'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 type Happiness = 'green' | 'yellow' | 'red'
@@ -22,9 +23,74 @@ interface Client {
   meetings_completed: number | null
   total_meetings: number | null
   owner: string | null
-  meetingsCompleted: number
+  // Journey progress, computed at the fetch boundary (see load()). Renamed from
+  // meetingsCompleted: it never counted meetings, and now that a second journey's
+  // count sits beside it the old name actively misleads.
+  preconCompleted: number
+  constructionCompleted: number
+  phase: Phase
   emailsSent: number
 }
+
+// ── Journey progress + phase ─────────────────────────────────────────────────
+// Both counts are an INTERSECTION of the client's completed step numbers with the
+// steps that actually exist — the same shape as getJourneyState in
+// customers/[id]/page.tsx (`WORKFLOW_STEPS.filter(s => stepCompletions.has(s.step)).length`).
+// A raw row count is wrong on both ends: nothing enforces one row per client+step,
+// and it has no ceiling, which is how this page could report more completed steps
+// than the journey contains.
+function countPreconSteps(completed: Set<number> | undefined): number {
+  if (!completed) return 0
+  return WORKFLOW_STEPS.filter(s => completed.has(s.step)).length
+}
+
+// The 19 construction steps live in CJ_STEPS inside customers/[id]/page.tsx, which
+// is module-local and not exported, so there is nothing importable to intersect
+// against here. Its step numbers are a contiguous 1…19 (verified against that
+// array), so the range stands in for it — same dedup, same ceiling. If CJ_STEPS
+// ever gains or loses a step, this constant has to move with it.
+const TOTAL_CONSTRUCTION_STEPS = 19
+const CONSTRUCTION_STEP_NUMBERS = Array.from({ length: TOTAL_CONSTRUCTION_STEPS }, (_, i) => i + 1)
+
+function countConstructionSteps(completed: Set<number> | undefined): number {
+  if (!completed) return 0
+  return CONSTRUCTION_STEP_NUMBERS.filter(n => completed.has(n)).length
+}
+
+type Phase = 'precon' | 'construction' | 'completed'
+
+// Pre-con gates construction, matching the detail page's own gate
+// (`precoCompletedCount === precoTotal` is what unlocks the Construction tab): a
+// client is in Construction only once all 37 pre-con steps are done, and Completed
+// only once all 19 construction steps are done on top of that. Both arguments come
+// from the capped intersections above, so neither can overshoot its total.
+function getPhase(preconCompleted: number, constructionCompleted: number): Phase {
+  if (preconCompleted !== TOTAL_WORKFLOW_STEPS) return 'precon'
+  return constructionCompleted === TOTAL_CONSTRUCTION_STEPS ? 'completed' : 'construction'
+}
+
+// ── Phase filter tabs — single-address gate ──────────────────────────────────
+// Same shape as canSeeCjPreview in customers/[id]/page.tsx, narrowed to one
+// address: trimmed + lower-cased rather than a bare ===, and false for the ''
+// that `userEmail` holds before supabase.auth.getUser() resolves. That empty-string
+// case is what keeps the tabs out of the first paint entirely — they mount only
+// once a real matching email is confirmed, so there is no visible-then-hidden
+// flash. Deliberately an email check and not a role check: this page has no role
+// fetch today and a filter preview does not justify adding one.
+const PHASE_TABS_EMAIL = 'r.alimpoos@caskconstruction.com'
+
+function canSeePhaseTabs(email: string | null | undefined): boolean {
+  return (email ?? '').trim().toLowerCase() === PHASE_TABS_EMAIL
+}
+
+type PhaseFilter = 'all' | Phase
+
+const PHASE_TAB_DEFS: { id: PhaseFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'precon', label: 'Precon' },
+  { id: 'construction', label: 'Construction' },
+  { id: 'completed', label: 'Completed' },
+]
 
 interface HappinessConfig {
   pill: { background: string; color: string }
@@ -91,10 +157,94 @@ function formatCurrency(value: unknown): string {
   return '$' + n.toLocaleString('en-US')
 }
 
-function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDelete: (client: Client) => void }) {
+// ── Card progress display ────────────────────────────────────────────────────
+// Which journey the progress line reports follows the ACTIVE TAB: the same client
+// reads as its pre-con count under Precon and as its construction count under
+// Construction. Under All — the only view an ungated user ever has — there is no
+// single journey to report, so each card falls back to its OWN phase.
+//
+// 'completed' deliberately prints no fraction. Every card under that tab is 37/37
+// and 19/19 by definition, so per-row numbers would only restate the tab's own
+// meaning — in a 160px column at 11px that cannot hold both fractions without
+// wrapping. The breakdown moves to a title tooltip instead.
+interface CardProgress {
+  // null renders the word "Complete" in place of a fraction.
+  completed: number | null
+  total: number
+  pct: number
+  // Set ONLY where the visible label drops detail. Left undefined elsewhere so
+  // React omits the attribute entirely and the untabbed card keeps today's DOM.
+  title?: string
+  // Prepended to the fraction so the number says which journey it counts. Only
+  // the construction branch sets it; undefined renders as nothing, and React
+  // drops an undefined child without emitting a text node, so the pre-con line's
+  // markup is byte-for-byte what it is today.
+  prefix?: string
+}
+
+function getCardProgress(client: Client, phaseFilter: PhaseFilter): CardProgress {
+  if (phaseFilter === 'completed') {
+    return {
+      completed: null,
+      total: TOTAL_WORKFLOW_STEPS,
+      pct: 100,
+      title: `${TOTAL_WORKFLOW_STEPS} of ${TOTAL_WORKFLOW_STEPS} Precon · ${TOTAL_CONSTRUCTION_STEPS} of ${TOTAL_CONSTRUCTION_STEPS} Construction`,
+    }
+  }
+  if (phaseFilter === 'construction') {
+    return {
+      completed: client.constructionCompleted,
+      total: TOTAL_CONSTRUCTION_STEPS,
+      // Names the journey on the line itself, because "2 of 19 steps" is
+      // indistinguishable from "2 of 37" at 11px and its short bar reads as lost
+      // progress to anyone who does not know the client changed phase.
+      //
+      // Unconditional, including under the Construction tab where the tab label
+      // already says it. The 'all' branch reaches this code by calling back in
+      // with phaseFilter: 'construction', deliberately indistinguishable from a
+      // direct call — so a prefix that appeared only "via all" would mean
+      // threading a how-did-I-get-here flag through that delegation, i.e. real
+      // state added for a cosmetic difference. A label that is always present is
+      // also easier to trust than one that moves with the route in: redundant
+      // but stable beats contextual but clever.
+      prefix: 'Construction · ',
+      // Rebased on 19, not 37 — a construction count against the pre-con total
+      // would read as barely-started for a client that is nearly done.
+      pct: Math.round((client.constructionCompleted / TOTAL_CONSTRUCTION_STEPS) * 100),
+    }
+  }
+  // ── 'all' ──────────────────────────────────────────────────────────────────
+  // The unfiltered view, so each card reports on ITS OWN phase rather than on
+  // pre-con for everybody. "37 of 37" on a client who is already building is a
+  // finished pre-con, not current progress.
+  //
+  // The phase comes from getPhase — the same function the tabs filter on — so a
+  // card and the tab it appears under can never disagree about where a client is.
+  // Delegating back into this function reuses the two branches above verbatim
+  // instead of restating them; it terminates because getPhase only ever returns
+  // 'precon' | 'construction' | 'completed', never 'all'.
+  //
+  // Guarded on the TAB, not only on the phase: this fallthrough serves 'precon'
+  // as well as 'all'. Today every card under the Precon tab is phase 'precon'
+  // anyway, so the inner check alone would be enough — but that is an invariant
+  // of how visibleClients filters, not of this function, and the Precon tab must
+  // keep reporting pre-con regardless of what that filtering does later.
+  if (phaseFilter === 'all') {
+    const phase = getPhase(client.preconCompleted, client.constructionCompleted)
+    if (phase !== 'precon') return getCardProgress(client, phase)
+  }
+
+  return {
+    completed: client.preconCompleted,
+    total: TOTAL_WORKFLOW_STEPS,
+    pct: Math.round((client.preconCompleted / TOTAL_WORKFLOW_STEPS) * 100),
+  }
+}
+
+function ClientCard({ client, phaseFilter, onRequestDelete }: { client: Client; phaseFilter: PhaseFilter; onRequestDelete: (client: Client) => void }) {
   const [hovered, setHovered] = useState(false)
   const config = getHappinessConfig(client.happiness)
-  const pct = Math.round((client.meetingsCompleted / 37) * 100)
+  const progress = getCardProgress(client, phaseFilter)
 
   return (
     <Link
@@ -185,8 +335,12 @@ function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDele
 
       {/* Progress */}
       <div style={{ width: 160, flexShrink: 0 }}>
-        <div style={{ fontSize: 11, color: 'var(--muted, #6b7280)', marginBottom: 5 }}>
-          {client.meetingsCompleted} of 37 steps
+        <div style={{ fontSize: 11, color: 'var(--muted, #6b7280)', marginBottom: 5 }} title={progress.title}>
+          {progress.completed === null ? (
+            'Complete'
+          ) : (
+            <>{progress.prefix}{progress.completed} of {progress.total} steps</>
+          )}
           {client.emailsSent > 0 && <span style={{ color: 'var(--muted, #6b7280)' }}> · {client.emailsSent} emails sent</span>}
         </div>
         <div
@@ -200,7 +354,7 @@ function ClientCard({ client, onRequestDelete }: { client: Client; onRequestDele
           <div
             style={{
               height: '100%',
-              width: `${pct}%`,
+              width: `${progress.pct}%`,
               borderRadius: 4,
               background: config.accent,
               transition: 'width 400ms ease',
@@ -717,10 +871,26 @@ function FloatingCustomerJourneyAI() {
 export default function ActiveClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
+  // Gated phase filter (additive). `userEmail` starts '' so canSeePhaseTabs is false
+  // on the first paint; nothing else on this page reads it.
+  const [userEmail, setUserEmail] = useState('')
+  const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('all')
   // Delete-flow state (additive — does not affect existing load/render logic).
   const [pendingDelete, setPendingDelete] = useState<Client | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+
+  // Resolve the signed-in address, for the phase-tab gate only.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (cancelled) return
+      if (user?.email) setUserEmail(user.email)
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // Auto-dismiss the toast after a few seconds.
   useEffect(() => {
@@ -771,30 +941,50 @@ export default function ActiveClientsPage() {
       try {
         const supabase = createClient()
 
-        const [{ data: clientRows }, { data: meetingRows }, { data: stepRows }, { data: emailRows }] = await Promise.all([
+        // client_meetings is no longer read here. It used to be summed into the step
+        // count, but it holds meetings, not steps — its meeting_id mixes retired
+        // journey codes ('PR1m') with step codes ('step_04'), so completed rows were
+        // both double-counting steps already in workflow_step_completions and adding
+        // rows that are not steps at all. workflow_step_completions is the single
+        // authority for pre-con progress, exactly as customers/[id]/page.tsx states.
+        const [{ data: clientRows }, { data: stepRows }, { data: constructionRows }, { data: emailRows }] = await Promise.all([
           supabase.from('clients').select('*').order('name'),
-          supabase.from('client_meetings').select('client_id').eq('completed', true),
-          supabase.from('workflow_step_completions').select('client_id'),
+          supabase.from('workflow_step_completions').select('client_id, step_number'),
+          supabase.from('construction_step_marks').select('client_id, step_number'),
           supabase.from('client_email_drafts').select('client_id').eq('status', 'sent'),
         ])
 
-        const meetingMap: Record<string, number> = {}
-        for (const row of meetingRows ?? []) {
-          meetingMap[row.client_id] = (meetingMap[row.client_id] ?? 0) + 1
-        }
+        // Sets of step numbers per client, not row counts — see countPreconSteps.
+        const preconSets = new Map<string, Set<number>>()
         for (const row of stepRows ?? []) {
-          meetingMap[row.client_id] = (meetingMap[row.client_id] ?? 0) + 1
+          const set = preconSets.get(row.client_id) ?? new Set<number>()
+          set.add(row.step_number)
+          preconSets.set(row.client_id, set)
+        }
+        // Row existence is completion in construction_step_marks — the detail page's
+        // panel reads it the same way, with no completed column to check.
+        const constructionSets = new Map<string, Set<number>>()
+        for (const row of constructionRows ?? []) {
+          const set = constructionSets.get(row.client_id) ?? new Set<number>()
+          set.add(row.step_number)
+          constructionSets.set(row.client_id, set)
         }
         const emailMap: Record<string, number> = {}
         for (const row of emailRows ?? []) {
           emailMap[row.client_id] = (emailMap[row.client_id] ?? 0) + 1
         }
 
-        const enriched = (clientRows ?? []).map(c => ({
-          ...c,
-          meetingsCompleted: meetingMap[c.id] ?? 0,
-          emailsSent: emailMap[c.id] ?? 0,
-        }))
+        const enriched = (clientRows ?? []).map(c => {
+          const preconCompleted = countPreconSteps(preconSets.get(c.id))
+          const constructionCompleted = countConstructionSteps(constructionSets.get(c.id))
+          return {
+            ...c,
+            preconCompleted,
+            constructionCompleted,
+            phase: getPhase(preconCompleted, constructionCompleted),
+            emailsSent: emailMap[c.id] ?? 0,
+          }
+        })
 
         setClients(enriched as Client[])
       } catch {
@@ -805,6 +995,14 @@ export default function ActiveClientsPage() {
     }
     load()
   }, [])
+
+  const showPhaseTabs = canSeePhaseTabs(userEmail)
+  // `phaseFilter` can only leave 'all' through the tabs below, and those never
+  // render for anyone else — so for every other user this is `clients` itself.
+  const visibleClients =
+    phaseFilter === 'all' ? clients : clients.filter(c => c.phase === phaseFilter)
+  const phaseCount = (p: PhaseFilter) =>
+    p === 'all' ? clients.length : clients.filter(c => c.phase === p).length
 
   return (
     <div
@@ -871,6 +1069,44 @@ export default function ActiveClientsPage() {
         </Link>
       </div>
 
+      {/* Phase filter tabs — conditionally MOUNTED, not visually hidden: for any
+          address other than the gated one these buttons are absent from the DOM
+          entirely, and they are absent before auth resolves too, so they never
+          flash in and back out. */}
+      {showPhaseTabs && (
+        <div
+          role="tablist"
+          aria-label="Filter clients by journey phase"
+          style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}
+        >
+          {PHASE_TAB_DEFS.map(tab => {
+            const active = phaseFilter === tab.id
+            return (
+              <button
+                key={tab.id}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setPhaseFilter(tab.id)}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  cursor: 'pointer',
+                  border: `1px solid ${active ? 'var(--red, #c8311a)' : 'var(--border, #e5e7eb)'}`,
+                  background: active ? 'var(--red, #c8311a)' : 'transparent',
+                  color: active ? '#fff' : 'var(--muted, #6b7280)',
+                  transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                }}
+              >
+                {tab.label}{' '}
+                <span style={{ opacity: 0.7, fontWeight: 500 }}>{phaseCount(tab.id)}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Client list */}
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -898,10 +1134,24 @@ export default function ActiveClientsPage() {
         >
           No active clients yet. Add your first client to get started.
         </div>
+      ) : visibleClients.length === 0 ? (
+        // Only reachable with a phase tab active, i.e. only for the gated address —
+        // kept separate so the real "no clients at all" copy above never gets shown
+        // for what is just an empty filter.
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '60px 0',
+            color: 'var(--text3, #a8a29e)',
+            fontSize: 14,
+          }}
+        >
+          No clients in this phase.
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {clients.map((client) => (
-            <ClientCard key={client.id} client={client} onRequestDelete={setPendingDelete} />
+          {visibleClients.map((client) => (
+            <ClientCard key={client.id} client={client} phaseFilter={phaseFilter} onRequestDelete={setPendingDelete} />
           ))}
         </div>
       )}
