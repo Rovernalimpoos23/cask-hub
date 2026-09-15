@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase'
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PROJECT_TYPE_GROUPS: { label: string; options: string[] }[] = [
-  { label: '── ADU ──', options: ['Detached ADU', 'Attached ADU', 'Garage Conversion ADU', '1-Story ADU', '2-Story ADU', 'Studio ADU', '1-Bedroom ADU', '2-Bedroom ADU'] },
+  { label: '── ADU ──', options: ['Detached ADU', 'Attached ADU', 'Garage Conversion ADU', '1-Story ADU', '2-Story ADU', 'Studio ADU', '1-Bedroom ADU', '2-Bedroom ADU', 'Option 1: 1-Story', 'Option 1: 2-Story', 'Option 2: 1-Story', 'Option 2: 2-Story', 'Option 3: 1-Story', 'Option 3: 2-Story'] },
   { label: '── New Home Construction ──', options: ['Custom Home', 'One-Story Home', 'Two-Story Home'] },
   { label: '── Renovation / Remodel ──', options: ['Whole-Home Renovation', 'Residential Remodel'] },
   { label: '── Garage ──', options: ['New Garage', 'Garage Construction'] },
