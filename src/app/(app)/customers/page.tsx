@@ -1005,156 +1005,160 @@ export default function ActiveClientsPage() {
     p === 'all' ? clients.length : clients.filter(c => c.phase === p).length
 
   return (
-    <div
-      style={{
-        maxWidth: 860,
-        margin: '0 auto',
-        padding: '40px 32px 60px',
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          marginBottom: 32,
-          gap: 16,
-        }}
-      >
-        <div>
-          <h1
-            className="font-serif"
-            style={{
-              fontSize: 32,
-              fontWeight: 400,
-              color: 'var(--foreground, #111)',
-              margin: 0,
-              lineHeight: 1.15,
-            }}
-          >
-            Active Clients
-          </h1>
-          <p
-            style={{
-              fontSize: 14,
-              color: 'var(--muted, #6b7280)',
-              marginTop: 6,
-              marginBottom: 0,
-            }}
-          >
-            All active CASK Construction client projects
-          </p>
-        </div>
-
-        <Link
-          href="/customers/new"
-          className="no-underline"
+    <>
+      <div className="flex-1 overflow-y-auto animate-page-in">
+        <div
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 13,
-            fontWeight: 600,
-            color: '#fff',
-            background: 'var(--red, #c8311a)',
-            padding: '9px 16px',
-            borderRadius: 8,
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-            marginTop: 4,
+            maxWidth: 860,
+            margin: '0 auto',
+            padding: '40px 32px 60px',
           }}
         >
-          + New Client
-        </Link>
-      </div>
-
-      {/* Phase filter tabs — conditionally MOUNTED, not visually hidden: for any
-          address other than the gated one these buttons are absent from the DOM
-          entirely, and they are absent before auth resolves too, so they never
-          flash in and back out. */}
-      {showPhaseTabs && (
-        <div
-          role="tablist"
-          aria-label="Filter clients by journey phase"
-          style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}
-        >
-          {PHASE_TAB_DEFS.map(tab => {
-            const active = phaseFilter === tab.id
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setPhaseFilter(tab.id)}
+          {/* Header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              marginBottom: 32,
+              gap: 16,
+            }}
+          >
+            <div>
+              <h1
+                className="font-serif"
                 style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  padding: '6px 12px',
-                  borderRadius: 20,
-                  cursor: 'pointer',
-                  border: `1px solid ${active ? 'var(--red, #c8311a)' : 'var(--border, #e5e7eb)'}`,
-                  background: active ? 'var(--red, #c8311a)' : 'transparent',
-                  color: active ? '#fff' : 'var(--muted, #6b7280)',
-                  transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                  fontSize: 32,
+                  fontWeight: 400,
+                  color: 'var(--foreground, #111)',
+                  margin: 0,
+                  lineHeight: 1.15,
                 }}
               >
-                {tab.label}{' '}
-                <span style={{ opacity: 0.7, fontWeight: 500 }}>{phaseCount(tab.id)}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
+                Active Clients
+              </h1>
+              <p
+                style={{
+                  fontSize: 14,
+                  color: 'var(--muted, #6b7280)',
+                  marginTop: 6,
+                  marginBottom: 0,
+                }}
+              >
+                All active CASK Construction client projects
+              </p>
+            </div>
 
-      {/* Client list */}
-      {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {[1, 2, 3].map((i) => (
-            <div
-              key={i}
+            <Link
+              href="/customers/new"
+              className="no-underline"
               style={{
-                height: 76,
-                borderRadius: 10,
-                background: 'var(--border, #e5e7eb)',
-                opacity: 0.5,
-                animation: 'pulse 1.5s ease-in-out infinite',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#fff',
+                background: 'var(--red, #c8311a)',
+                padding: '9px 16px',
+                borderRadius: 8,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                marginTop: 4,
               }}
-            />
-          ))}
+            >
+              + New Client
+            </Link>
+          </div>
+
+          {/* Phase filter tabs — conditionally MOUNTED, not visually hidden: for any
+              address other than the gated one these buttons are absent from the DOM
+              entirely, and they are absent before auth resolves too, so they never
+              flash in and back out. */}
+          {showPhaseTabs && (
+            <div
+              role="tablist"
+              aria-label="Filter clients by journey phase"
+              style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}
+            >
+              {PHASE_TAB_DEFS.map(tab => {
+                const active = phaseFilter === tab.id
+                return (
+                  <button
+                    key={tab.id}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setPhaseFilter(tab.id)}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: '6px 12px',
+                      borderRadius: 20,
+                      cursor: 'pointer',
+                      border: `1px solid ${active ? 'var(--red, #c8311a)' : 'var(--border, #e5e7eb)'}`,
+                      background: active ? 'var(--red, #c8311a)' : 'transparent',
+                      color: active ? '#fff' : 'var(--muted, #6b7280)',
+                      transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                    }}
+                  >
+                    {tab.label}{' '}
+                    <span style={{ opacity: 0.7, fontWeight: 500 }}>{phaseCount(tab.id)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Client list */}
+          {loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  style={{
+                    height: 76,
+                    borderRadius: 10,
+                    background: 'var(--border, #e5e7eb)',
+                    opacity: 0.5,
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                  }}
+                />
+              ))}
+            </div>
+          ) : clients.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '60px 0',
+                color: 'var(--text3, #a8a29e)',
+                fontSize: 14,
+              }}
+            >
+              No active clients yet. Add your first client to get started.
+            </div>
+          ) : visibleClients.length === 0 ? (
+            // Only reachable with a phase tab active, i.e. only for the gated address —
+            // kept separate so the real "no clients at all" copy above never gets shown
+            // for what is just an empty filter.
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '60px 0',
+                color: 'var(--text3, #a8a29e)',
+                fontSize: 14,
+              }}
+            >
+              No clients in this phase.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {visibleClients.map((client) => (
+                <ClientCard key={client.id} client={client} phaseFilter={phaseFilter} onRequestDelete={setPendingDelete} />
+              ))}
+            </div>
+          )}
         </div>
-      ) : clients.length === 0 ? (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '60px 0',
-            color: 'var(--text3, #a8a29e)',
-            fontSize: 14,
-          }}
-        >
-          No active clients yet. Add your first client to get started.
-        </div>
-      ) : visibleClients.length === 0 ? (
-        // Only reachable with a phase tab active, i.e. only for the gated address —
-        // kept separate so the real "no clients at all" copy above never gets shown
-        // for what is just an empty filter.
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '60px 0',
-            color: 'var(--text3, #a8a29e)',
-            fontSize: 14,
-          }}
-        >
-          No clients in this phase.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {visibleClients.map((client) => (
-            <ClientCard key={client.id} client={client} phaseFilter={phaseFilter} onRequestDelete={setPendingDelete} />
-          ))}
-        </div>
-      )}
+      </div>
 
       {/* Floating Customer Journey AI button + chat drawer — bottom-right, this page only */}
       <FloatingCustomerJourneyAI />
@@ -1255,6 +1259,6 @@ export default function ActiveClientsPage() {
           {toast}
         </div>
       )}
-    </div>
+    </>
   )
 }
