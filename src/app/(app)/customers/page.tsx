@@ -69,19 +69,10 @@ function getPhase(preconCompleted: number, constructionCompleted: number): Phase
   return constructionCompleted === TOTAL_CONSTRUCTION_STEPS ? 'completed' : 'construction'
 }
 
-// ── Phase filter tabs — single-address gate ──────────────────────────────────
-// Same shape as canSeeCjPreview in customers/[id]/page.tsx, narrowed to one
-// address: trimmed + lower-cased rather than a bare ===, and false for the ''
-// that `userEmail` holds before supabase.auth.getUser() resolves. That empty-string
-// case is what keeps the tabs out of the first paint entirely — they mount only
-// once a real matching email is confirmed, so there is no visible-then-hidden
-// flash. Deliberately an email check and not a role check: this page has no role
-// fetch today and a filter preview does not justify adding one.
-const PHASE_TABS_EMAIL = 'r.alimpoos@caskconstruction.com'
-
-function canSeePhaseTabs(email: string | null | undefined): boolean {
-  return (email ?? '').trim().toLowerCase() === PHASE_TABS_EMAIL
-}
+// ── Phase filter tabs ────────────────────────────────────────────────────────
+// Rendered for every user who reaches this page. The tabs only filter rows that
+// are already fetched and already on screen under 'all', so they surface nothing
+// new — who can reach /customers at all is middleware’s call, not this file’s.
 
 type PhaseFilter = 'all' | Phase
 
@@ -871,26 +862,11 @@ function FloatingCustomerJourneyAI() {
 export default function ActiveClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
-  // Gated phase filter (additive). `userEmail` starts '' so canSeePhaseTabs is false
-  // on the first paint; nothing else on this page reads it.
-  const [userEmail, setUserEmail] = useState('')
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('all')
   // Delete-flow state (additive — does not affect existing load/render logic).
   const [pendingDelete, setPendingDelete] = useState<Client | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
-
-  // Resolve the signed-in address, for the phase-tab gate only.
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (cancelled) return
-      if (user?.email) setUserEmail(user.email)
-    })()
-    return () => { cancelled = true }
-  }, [])
 
   // Auto-dismiss the toast after a few seconds.
   useEffect(() => {
@@ -996,9 +972,8 @@ export default function ActiveClientsPage() {
     load()
   }, [])
 
-  const showPhaseTabs = canSeePhaseTabs(userEmail)
-  // `phaseFilter` can only leave 'all' through the tabs below, and those never
-  // render for anyone else — so for every other user this is `clients` itself.
+  // `phaseFilter` starts at 'all' and only leaves it when the user picks a tab
+  // below, so this is `clients` itself until they do.
   const visibleClients =
     phaseFilter === 'all' ? clients : clients.filter(c => c.phase === phaseFilter)
   const phaseCount = (p: PhaseFilter) =>
@@ -1071,43 +1046,38 @@ export default function ActiveClientsPage() {
             </Link>
           </div>
 
-          {/* Phase filter tabs — conditionally MOUNTED, not visually hidden: for any
-              address other than the gated one these buttons are absent from the DOM
-              entirely, and they are absent before auth resolves too, so they never
-              flash in and back out. */}
-          {showPhaseTabs && (
-            <div
-              role="tablist"
-              aria-label="Filter clients by journey phase"
-              style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}
-            >
-              {PHASE_TAB_DEFS.map(tab => {
-                const active = phaseFilter === tab.id
-                return (
-                  <button
-                    key={tab.id}
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setPhaseFilter(tab.id)}
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      padding: '6px 12px',
-                      borderRadius: 20,
-                      cursor: 'pointer',
-                      border: `1px solid ${active ? 'var(--red, #c8311a)' : 'var(--border, #e5e7eb)'}`,
-                      background: active ? 'var(--red, #c8311a)' : 'transparent',
-                      color: active ? '#fff' : 'var(--muted, #6b7280)',
-                      transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
-                    }}
-                  >
-                    {tab.label}{' '}
-                    <span style={{ opacity: 0.7, fontWeight: 500 }}>{phaseCount(tab.id)}</span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
+          {/* Phase filter tabs */}
+          <div
+            role="tablist"
+            aria-label="Filter clients by journey phase"
+            style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}
+          >
+            {PHASE_TAB_DEFS.map(tab => {
+              const active = phaseFilter === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setPhaseFilter(tab.id)}
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    padding: '6px 12px',
+                    borderRadius: 20,
+                    cursor: 'pointer',
+                    border: `1px solid ${active ? 'var(--red, #c8311a)' : 'var(--border, #e5e7eb)'}`,
+                    background: active ? 'var(--red, #c8311a)' : 'transparent',
+                    color: active ? '#fff' : 'var(--muted, #6b7280)',
+                    transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
+                  }}
+                >
+                  {tab.label}{' '}
+                  <span style={{ opacity: 0.7, fontWeight: 500 }}>{phaseCount(tab.id)}</span>
+                </button>
+              )
+            })}
+          </div>
 
           {/* Client list */}
           {loading ? (
@@ -1137,9 +1107,9 @@ export default function ActiveClientsPage() {
               No active clients yet. Add your first client to get started.
             </div>
           ) : visibleClients.length === 0 ? (
-            // Only reachable with a phase tab active, i.e. only for the gated address —
-            // kept separate so the real "no clients at all" copy above never gets shown
-            // for what is just an empty filter.
+            // Only reachable with a non-'all' tab active — kept separate so the real
+            // "no clients at all" copy above never gets shown for what is just an
+            // empty filter.
             <div
               style={{
                 textAlign: 'center',
