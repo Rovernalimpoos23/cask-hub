@@ -23,6 +23,10 @@ interface Client {
   meetings_completed: number | null
   total_meetings: number | null
   owner: string | null
+  // Written by a DB-side default, never by app code (/customers/new's insert omits
+  // it), so it is typed nullable like every other non-required column above — a row
+  // created outside that form is not guaranteed to carry one.
+  created_at: string | null
   // Journey progress, computed at the fetch boundary (see load()). Renamed from
   // meetingsCompleted: it never counted meetings, and now that a second journey's
   // count sits beside it the old name actively misleads.
@@ -148,6 +152,25 @@ function formatCurrency(value: unknown): string {
   return '$' + n.toLocaleString('en-US')
 }
 
+// "Jun 2026" for the card's Added stamp. Same posture as formatCurrency: a value that
+// is not a parseable timestamp returns '' and the caller renders nothing, rather than
+// letting "Invalid Date" reach the card.
+//
+// Rendered in America/New_York, not the viewer's zone, because created_at is a UTC
+// instant and the rest of the app reads dates in ET (customers/[id]/page.tsx:1775,
+// 2451). Without it a client added late on the last evening of a month would show the
+// following month.
+function formatAddedDate(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') return ''
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 // ── Card progress display ────────────────────────────────────────────────────
 // Which journey the progress line reports follows the ACTIVE TAB: the same client
 // reads as its pre-con count under Precon and as its construction count under
@@ -236,6 +259,7 @@ function ClientCard({ client, phaseFilter, onRequestDelete }: { client: Client; 
   const [hovered, setHovered] = useState(false)
   const config = getHappinessConfig(client.happiness)
   const progress = getCardProgress(client, phaseFilter)
+  const addedDate = formatAddedDate(client.created_at)
 
   return (
     <Link
@@ -352,6 +376,42 @@ function ClientCard({ client, phaseFilter, onRequestDelete }: { client: Client; 
             }}
           />
         </div>
+      </div>
+
+      {/* Added date — fixed-width so a row missing created_at leaves the gap rather than
+          shifting the value, delete and arrow columns out of line with its neighbours. */}
+      <div
+        style={{
+          width: 62,
+          flexShrink: 0,
+          textAlign: 'right',
+          lineHeight: 1.25,
+        }}
+      >
+        {addedDate && (
+          <>
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 600,
+                letterSpacing: '0.6px',
+                textTransform: 'uppercase',
+                color: 'var(--muted, #9ca3af)',
+              }}
+            >
+              Added
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--muted, #6b7280)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {addedDate}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Project value */}
@@ -863,6 +923,12 @@ export default function ActiveClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>('all')
+  // Deliberately separate state from phaseFilter, not a fifth PhaseFilter value:
+  // "which phase" and "which name" are orthogonal, so keeping them apart is what
+  // lets them AND together in visibleClients below. Same split as the Action Items
+  // page's ownerFilter/statusFilter pair (actions/page.tsx:526) — folding one into
+  // the other there would have silently emptied the list, and it would here too.
+  const [search, setSearch] = useState('')
   // Delete-flow state (additive — does not affect existing load/render logic).
   const [pendingDelete, setPendingDelete] = useState<Client | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -974,8 +1040,26 @@ export default function ActiveClientsPage() {
 
   // `phaseFilter` starts at 'all' and only leaves it when the user picks a tab
   // below, so this is `clients` itself until they do.
-  const visibleClients =
+  const phaseClients =
     phaseFilter === 'all' ? clients : clients.filter(c => c.phase === phaseFilter)
+
+  // Search narrows WITHIN the active tab: it filters phaseClients, never `clients`,
+  // so typing while Precon is selected cannot surface a Construction client. An empty
+  // or whitespace-only box short-circuits to the tab's own list — today's behaviour.
+  //
+  // One substring test against the whole `name` string, which is a single combined
+  // field ("Bill Anderson") with no first/last split anywhere in the schema — so
+  // "john" and "anderson" both match without needing two comparisons.
+  //
+  // typeof-guarded despite `name` being typed non-nullable: it is the only required
+  // column, but this file already treats it as untrusted at every other read
+  // (getInitials takes `unknown`, the card renders through safeText).
+  const searchTerm = search.trim().toLowerCase()
+  const visibleClients = searchTerm
+    ? phaseClients.filter(
+        c => typeof c.name === 'string' && c.name.toLowerCase().includes(searchTerm)
+      )
+    : phaseClients
   const phaseCount = (p: PhaseFilter) =>
     p === 'all' ? clients.length : clients.filter(c => c.phase === p).length
 
@@ -1079,6 +1163,32 @@ export default function ActiveClientsPage() {
             })}
           </div>
 
+          {/* Search — narrows the active tab, never changes it. Counts on the tabs
+              above stay deliberately unsearched: they report how many clients each
+              phase holds, which is what makes them usable as navigation while a
+              search is running. */}
+          <div style={{ marginBottom: 20 }}>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search clients by name…"
+              aria-label="Search clients by name"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                fontSize: 13,
+                fontFamily: 'inherit',
+                padding: '9px 12px',
+                borderRadius: 8,
+                border: '1px solid var(--border, #e5e7eb)',
+                background: 'var(--card, #fff)',
+                color: 'var(--foreground, #111)',
+                outline: 'none',
+              }}
+            />
+          </div>
+
           {/* Client list */}
           {loading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1107,9 +1217,11 @@ export default function ActiveClientsPage() {
               No active clients yet. Add your first client to get started.
             </div>
           ) : visibleClients.length === 0 ? (
-            // Only reachable with a non-'all' tab active — kept separate so the real
-            // "no clients at all" copy above never gets shown for what is just an
-            // empty filter.
+            // Reachable two ways now: a phase tab with nothing in it, or a search
+            // that matched nothing inside the active tab (which is why 'all' no
+            // longer rules this branch out). Kept separate from the branch above so
+            // the real "no clients at all" copy is never shown for what is only a
+            // filter result — only the wording below tells the two causes apart.
             <div
               style={{
                 textAlign: 'center',
@@ -1118,7 +1230,9 @@ export default function ActiveClientsPage() {
                 fontSize: 14,
               }}
             >
-              No clients in this phase.
+              {searchTerm
+                ? `No clients match “${search.trim()}”.`
+                : 'No clients in this phase.'}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
