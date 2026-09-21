@@ -1,11 +1,32 @@
 // src/app/api/big-vision/upload/route.ts
 //
-// Uploads a file to the 'hub-memory' Supabase storage bucket and records a row in
-// public.hub_memory. Admin-only (president / ea / ai_specialist).
+// Indexes a file that is ALREADY in the 'hub-memory' Supabase storage bucket and
+// records a row in public.hub_memory. Admin-only (president / ea / ai_specialist).
+//
+// TWO-STEP UPLOAD (changed 2026-09-21 — this route no longer receives file bytes):
+//  1. The browser uploads the file straight to the 'hub-memory' bucket with its own
+//     authenticated session client (@/lib/supabase), permitted by the
+//     hub_memory_insert_leadership RLS policy on storage.objects.
+//  2. The browser POSTs only a small JSON descriptor here — { storagePath, title,
+//     categories, layer, source_type, leader } — and this route downloads the object
+//     back with the service-role client to extract its text.
+// The reason is Vercel's ~4.5MB serverless request-body limit: multipart file bytes
+// used to pass through this function and anything larger was killed at the edge
+// before the handler ran. The JSON descriptor is a few hundred bytes and comes
+// nowhere near that limit, so no request-size ceiling applies to documents any more.
+//
+// REMAINING SIZE CEILING — worth a decision, deliberately not changed here:
+// storage.buckets.file_size_limit for 'hub-memory' is null (verified), so Storage
+// imposes no per-object limit either. The only Big Vision upload ceiling left is the
+// client-side MAX_UPLOAD_BYTES check (4MB) in the two upload handlers, which was
+// sized purely to stay under the old ~4.5MB request-body limit that this change
+// removes. That number is now arguably too low for its own stated reason. Raising it
+// is Rovern's call — note that extraction/embedding for a very large document still
+// has to finish inside maxDuration below.
 //
 // Auth + client pattern mirrors src/app/api/email/attachments/route.ts:
 //  - Session identity comes from the SSR cookie client (@/lib/supabase-server).
-//  - The users role lookup, storage upload, and hub_memory insert all use the
+//  - The users role lookup, storage download, and hub_memory insert all use the
 //    SERVICE-ROLE client so they bypass RLS.
 //
 // Text extraction (PDF / DOCX / XLSX) reuses the same libraries as the
@@ -108,7 +129,11 @@ function extractXlsxText(buffer: ArrayBuffer): string {
 
 // Extract readable text from the file by type. Never throws — unsupported types or
 // extraction failures return null.
-async function extractContent(file: File): Promise<string | null> {
+// Takes a Blob rather than a File since the two-step upload: what arrives here is now
+// the Blob returned by storage.download(), not a File lifted out of multipart form
+// data. File extends Blob and the body only ever used `.type` and `.arrayBuffer()`,
+// both of which are Blob members, so the logic below is untouched.
+async function extractContent(file: Blob): Promise<string | null> {
   const base = baseContentType(file.type || '')
   try {
     const buffer = await file.arrayBuffer()
@@ -176,31 +201,43 @@ export async function POST(req: Request) {
     }
     console.log('[upload] step: admin check passed')
 
-    // ── 4. Parse multipart form data ─────────────────────────────────
-    // Isolated in its own try/catch: multipart parsing is where the request was
-    // crashing in the Vercel serverless runtime ("no outgoing requests"), and the
-    // outer catch alone masked the real cause. Log the underlying error here.
-    let formData: FormData
+    // ── 4. Parse the JSON descriptor ─────────────────────────────────
+    // Kept in its own try/catch for the same reason the multipart parse it replaces
+    // had one: a malformed body must report itself rather than be masked by the outer
+    // catch. No file bytes are in this request — see the header note.
+    let body: Record<string, unknown>
     try {
-      formData = await req.formData()
+      body = (await req.json()) as Record<string, unknown>
     } catch (err) {
-      console.error('[upload] form parse error:', err)
-      return NextResponse.json({ error: 'form_parse_error' }, { status: 400 })
+      console.error('[upload] json parse error:', err)
+      return NextResponse.json({ error: 'json_parse_error' }, { status: 400 })
     }
 
-    const file = formData.get('file') as File | null
-    const title = formData.get('title') as string | null
-    const categoriesRaw = formData.get('categories') as string | null
-    const layerRaw = formData.get('layer') as string | null
-    const source_type = formData.get('source_type') as string | null
-    const leaderRaw = formData.get('leader') as string | null
-    console.log('[upload] step: form parsed')
+    // Normalize at the boundary rather than trusting the body's shape — same reason
+    // the JSONB fetch boundaries in this repo use `typeof x === 'string'` over `??`.
+    // Every field below keeps the exact `string | null` shape formData.get() produced,
+    // so all the validation and insert logic downstream is untouched.
+    const asString = (v: unknown): string | null => (typeof v === 'string' ? v : null)
+
+    const storagePath = asString(body.storagePath)
+    const title = asString(body.title)
+    const categoriesRaw = asString(body.categories)
+    // layer arrives as a JSON number now (it was a stringified form field before);
+    // accept either and hand the existing parseInt validation the string it expects.
+    const layerRaw =
+      typeof body.layer === 'number' ? String(body.layer) : asString(body.layer)
+    const source_type = asString(body.source_type)
+    const leaderRaw = asString(body.leader)
+    console.log('[upload] step: json parsed')
 
     // ── 5. Validate ──────────────────────────────────────────────────
-    // Required fields present?
+    // Required fields present? storagePath replaces the File that used to arrive in
+    // the multipart body. It is client-supplied, but the bucket is hardcoded below
+    // and the caller already passed the admin gate above — naming an arbitrary key
+    // inside 'hub-memory' gives them nothing their role does not already allow.
     if (
-      !file ||
-      typeof (file as File).arrayBuffer !== 'function' ||
+      !storagePath ||
+      !storagePath.trim() ||
       !title ||
       !title.trim() ||
       !categoriesRaw ||
@@ -235,8 +272,26 @@ export async function POST(req: Request) {
     const leader = leaderRaw && leaderRaw.trim() ? leaderRaw.trim() : null
     console.log('[upload] step: validation passed')
 
-    // ── 6. Extract text content from the file (best-effort) ──────────
-    const extractedText = await extractContent(file)
+    // ── 6. Download the object the client already uploaded ───────────
+    // This route no longer uploads anything — the browser put the bytes in the bucket
+    // before calling here. It only reads them back, with the service-role client, to
+    // run the same extraction as before.
+    // The Blob's `type` comes from the object's stored content-type, which the client
+    // sets from `file.type` on upload exactly as this route used to. extractContent()
+    // routes on that value, so keeping the client's contentType argument in place is
+    // what keeps PDF/DOCX/XLSX extraction working.
+    const { data: fileBlob, error: downloadError } = await supabaseService.storage
+      .from('hub-memory')
+      .download(storagePath)
+
+    if (downloadError || !fileBlob) {
+      console.error('[big-vision-upload] storage download failed:', downloadError?.message)
+      return NextResponse.json({ error: 'download_failed' }, { status: 502 })
+    }
+    console.log('[upload] step: file downloaded from storage')
+
+    // ── 6a. Extract text content from the file (best-effort) ─────────
+    const extractedText = await extractContent(fileBlob)
     console.log('[upload] step: text extracted')
 
     // ── 6b. (removed) Voyage API-key pre-check ───────────────────────
@@ -245,23 +300,13 @@ export async function POST(req: Request) {
     // duplicate it. Embeddings are still best-effort: a missing key or a failed
     // request just leaves embedding = null and the row is written without a vector.
 
-    // ── 7. Upload the file to the 'hub-memory' bucket ────────────────
-    // Path is namespaced by the first category. Timestamp keeps names unique so
-    // ups:false uploads never collide.
-    const filePath = `${categories[0]}/${Date.now()}-${file.name}`
-
-    const { data: storageData, error: storageError } = await supabaseService.storage
-      .from('hub-memory')
-      .upload(filePath, await file.arrayBuffer(), {
-        contentType: file.type || 'application/octet-stream',
-        upsert: false,
-      })
-
-    if (storageError || !storageData) {
-      console.error('[big-vision-upload] storage upload failed')
-      return NextResponse.json({ error: 'upload_failed' }, { status: 502 })
-    }
-    console.log('[upload] step: file uploaded to storage')
+    // ── 7. (removed) Upload the file to the 'hub-memory' bucket ──────
+    // The client uploads the bytes directly now, before calling this route, so there
+    // is nothing left to upload here. The old path construction —
+    //   `${categories[0]}/${Date.now()}-${file.name}`, upsert: false
+    // — moved verbatim into the two client handlers, and `storagePath` used in the
+    // insert below is that exact value handed back in the JSON body. It is no longer
+    // derived server-side, so the client is the only place that format now lives.
 
     // ── 8. Insert the hub_memory rows (one per chunk) ────────────────
     // This route previously set no source_ref at all. Generate one up front so every
@@ -309,7 +354,7 @@ export async function POST(req: Request) {
           // SAME value for every chunk of this upload.
           source_ref: uploadSourceRef,
           leader,
-          file_path: storageData.path,
+          file_path: storagePath,
           created_by: sessionEmail,
           is_active: true,
           embedding: embedding,
@@ -338,6 +383,34 @@ export async function POST(req: Request) {
     // Only a total failure is fatal — same as the pre-chunking behaviour of 502-ing when
     // nothing was written. A partial insert still succeeds, with a warning.
     if (chunksSaved === 0 || firstRowId === null) {
+      // Orphan cleanup. Nothing references the object now: every hub_memory row failed,
+      // so the file the client uploaded is unreachable from the app and invisible to
+      // /api/big-vision/files. Delete it rather than leave it billing storage forever.
+      // This is new with the two-step upload — when this route did the uploading, the
+      // same failure left an orphan behind too, it just had no path to clean up from.
+      // Cleanup must never change the response: the 502 below reports the real error
+      // whether or not the delete works.
+      console.warn('[upload] no chunks saved — removing orphaned storage object:', storagePath)
+      try {
+        const { error: cleanupError } = await supabaseService.storage
+          .from('hub-memory')
+          .remove([storagePath])
+        if (cleanupError) {
+          console.error(
+            '[upload] orphan cleanup FAILED — object left in bucket:',
+            storagePath,
+            cleanupError.message,
+          )
+        } else {
+          console.log('[upload] orphan cleanup ok:', storagePath)
+        }
+      } catch (cleanupErr) {
+        console.error(
+          '[upload] orphan cleanup threw — object left in bucket:',
+          storagePath,
+          cleanupErr instanceof Error ? cleanupErr.message : 'unknown',
+        )
+      }
       return NextResponse.json({ error: 'upload_failed' }, { status: 502 })
     }
     if (chunksSaved < chunkTotal) {

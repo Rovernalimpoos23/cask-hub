@@ -31,6 +31,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
+import { createClient } from '@/lib/supabase'
 import { useTheme } from '@/lib/theme-context'
 
 // ── Scoped stylesheet (port of the mockup's <style>) ─────────────────
@@ -631,6 +632,32 @@ function fedAgo(iso?: string | null): string | null {
   return `fed ${d} day${d === 1 ? '' : 's'} ago`
 }
 
+// Client-side upload ceiling — a judgment call, not a platform limit.
+//
+// Vercel's ~4.5MB serverless request-body limit no longer applies to this flow: the
+// file goes straight from the browser to the 'hub-memory' Storage bucket and the API
+// route receives only a small JSON descriptor. The bucket has no file_size_limit
+// configured (confirmed null), so Storage imposes no ceiling either.
+//
+// What still bounds this is the processing route. /api/big-vision/upload runs with
+// maxDuration = 60, and those 60s have to cover downloading the object back,
+// extracting its text (unpdf / mammoth / xlsx) and embedding every chunk. A file big
+// enough to blow that budget uploads fine and then fails to index — the worst kind of
+// failure, because the bytes are in the bucket and the user sees an error.
+//
+// 20MB is deliberately generous-but-bounded: comfortably clear of realistic documents
+// including large scanned PDFs, while staying well short of the timeout risk. Move it
+// on evidence from real files, not on principle.
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+function tooLargeMessage(file: File): string {
+  const mb = (file.size / 1024 / 1024).toFixed(1)
+  // Derived from the constant rather than written out, so the message can never drift
+  // from the limit it describes — it used to hardcode "4MB" separately.
+  const maxMb = Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)
+  return `File is too large (${mb}MB). Max upload size is ${maxMb}MB — try compressing the PDF or splitting it into smaller files.`
+}
+
 // A fireflies file links to its source session only when source_ref is a valid UUID.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -1015,24 +1042,64 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     const file = e.target.files?.[0]
     if (!file) return
 
+    // Size gate runs before any upload state changes, so no fetch() is issued and
+    // uploadingFile never flips — the Upload button keeps its normal enabled state.
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError(tooLargeMessage(file))
+      setUploadSuccess('')
+      // Same reset the finally block does below, so picking another file (or the
+      // same one again) still re-triggers onChange.
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
     setUploadingFile(true)
     setUploadError('')
     setUploadSuccess('')
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('title', file.name.replace(/\.[^.]+$/, ''))
-      formData.append('categories', agentCategory)
-      formData.append('layer', '4')
-      formData.append('source_type', 'manual')
-      if (agentLeader) {
-        formData.append('leader', agentLeader)
+      // ── Step 1: bytes straight to Storage, under this user's own session ──
+      // This is the change that lifts the old ~4.5MB ceiling: the file no longer
+      // passes through the API route's request body. Permitted by the
+      // hub_memory_insert_leadership RLS policy on storage.objects.
+      // The path format and upsert:false are carried over verbatim from the server
+      // code this replaces (api/big-vision/upload/route.ts, old section 7) — that
+      // format now lives only here. contentType matters: the route routes text
+      // extraction on the object's stored content-type.
+      const supabase = createClient()
+      const storagePath = `${agentCategory}/${Date.now()}-${file.name}`
+
+      const { error: storageErr } = await supabase.storage
+        .from('hub-memory')
+        .upload(storagePath, file, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: false,
+        })
+
+      if (storageErr) {
+        // Deliberately worded differently from the indexing failure below: this one
+        // means the bytes never reached the bucket, so there is no orphan to clean up.
+        console.error('[big-vision upload] storage upload failed:', storageErr.message)
+        setUploadError('Storage upload failed — file not saved. Try again.')
+        return
       }
 
+      // ── Step 2: small JSON descriptor, no file bytes ──────────────
+      // The route downloads the object above and runs the same extraction →
+      // chunking → embedding → hub_memory insert it always has.
       const res = await fetch('/api/big-vision/upload', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storagePath,
+          title: file.name.replace(/\.[^.]+$/, ''),
+          categories: agentCategory,
+          layer: 4,
+          source_type: 'manual',
+          ...(agentLeader ? { leader: agentLeader } : {}),
+        }),
       })
 
       if (res.ok) {
@@ -1043,7 +1110,9 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
         if (data.files) setFiles(data.files)
         setTimeout(() => setUploadSuccess(''), 3000)
       } else {
-        setUploadError('Upload failed. Try again.')
+        // Second failure point: the bytes ARE in the bucket, only the indexing call
+        // failed. Distinct wording so the two are tellable apart from the UI alone.
+        setUploadError('Upload failed during indexing. Try again.')
       }
     } catch {
       setUploadError('Upload failed. Try again.')
