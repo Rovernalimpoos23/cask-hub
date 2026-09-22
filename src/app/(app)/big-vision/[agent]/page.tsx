@@ -141,6 +141,18 @@ const AGENT_CSS = `
   font:450 13px/1 var(--fb);outline:0}
 .bva-root .field input::placeholder{color:var(--ink-4)}
 .bva-root .field:focus-within{border-color:var(--line-strong)}
+.bva-root .filters{display:flex;flex-wrap:wrap;gap:6px;padding:10px 16px;border-bottom:1px solid var(--line);
+  flex:0 0 auto}
+.bva-root .pill{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line-strong);
+  background:transparent;color:var(--ink-2);font:450 11.5px/1 var(--fb);padding:5px 9px;border-radius:999px;
+  cursor:pointer;white-space:nowrap;transition:background .12s,color .12s,border-color .12s}
+.bva-root .pill:hover:not(.on){background:var(--card-hi);color:var(--ink);border-color:var(--ink-4)}
+.bva-root .pill .n{font:400 10px/1 var(--fm);color:var(--ink-4)}
+/* Filled with the same accent the send button and delete confirm already use, and
+   --send-ink is this file's existing "text on coral" token — it flips to near-black
+   in dark mode, where --coral is light. No new colours are introduced here. */
+.bva-root .pill.on{background:var(--coral);border-color:var(--coral);color:var(--send-ink)}
+.bva-root .pill.on .n{color:var(--send-ink);opacity:.7}
 
 /* ---------- file rows ---------- */
 .bva-root .list{overflow-y:auto;flex:1;min-height:0;padding:4px 0}
@@ -899,9 +911,50 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
   // maths below behaves exactly as it did before.
   const [fileSearch, setFileSearch] = useState('')
   const searchTerm = fileSearch.trim().toLowerCase()
-  const filteredFiles = searchTerm
-    ? files.filter((f) => (f.title ?? '').toLowerCase().includes(searchTerm))
-    : files
+
+  // ── Source filter (client-side only — additive) ────────────────────
+  // Independent of, and orthogonal to, the search box: narrowing one never clears
+  // the other, matching how Active Clients composes its phase tabs with its search.
+  // Defaults to 'all', so an untouched page renders exactly what it rendered before.
+  //
+  // 'manual' is deliberately tested as `!== 'fireflies'`, NOT `=== 'manual'`: the
+  // pill means "everything that is not a transcript", so seed_doc and any future
+  // source_type fall under Documents automatically instead of vanishing from both
+  // pills the day someone adds one.
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'fireflies' | 'manual'>('all')
+
+  const matchesSourceFilter = (sourceType: string | null | undefined) =>
+    sourceFilter === 'all' ||
+    (sourceFilter === 'fireflies' ? sourceType === 'fireflies' : sourceType !== 'fireflies')
+
+  // ONE combined filter rather than two chained ones, so both conditions always
+  // apply together and neither can be read as cancelling the other. Everything
+  // downstream — the head count, the visible slice, hiddenCount and the expand/
+  // collapse foot — already derives from filteredFiles, so all of it follows the
+  // combined result with no further change.
+  //
+  // The no-op case still returns `files` by identity, exactly as before, so the
+  // default render allocates nothing and the expand/collapse maths is untouched.
+  const filteredFiles =
+    !searchTerm && sourceFilter === 'all'
+      ? files
+      : files.filter(
+          (f) =>
+            (!searchTerm || (f.title ?? '').toLowerCase().includes(searchTerm)) &&
+            matchesSourceFilter(f.source_type),
+        )
+
+  // Pill counts come from the UNFILTERED `files`, never from filteredFiles — they
+  // describe what is in memory, so they must hold steady while someone types a
+  // search term rather than counting down to zero alongside the list.
+  const transcriptCount = files.filter((f) => f.source_type === 'fireflies').length
+  const documentCount = files.length - transcriptCount
+
+  // Plural noun for the active pill. One empty-state string covers all three
+  // filters instead of three near-duplicate messages; with 'all' it reproduces the
+  // original wording character for character.
+  const sourceFilterNoun =
+    sourceFilter === 'fireflies' ? 'transcripts' : sourceFilter === 'manual' ? 'documents' : 'files'
 
   // ── File list expand/collapse ──────────────────────────────────────
   const [filesExpanded, setFilesExpanded] = useState(false)
@@ -1486,6 +1539,34 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                 onChange={handleFileUpload}
               />
 
+              {/* Source filter — composes with the search box below as independent
+                  state. Counts are of the whole list, not the search result (see the
+                  declarations). This row is also where the mockup's inline filter
+                  button beside the search field ended up — that control is still
+                  omitted from .tools itself. */}
+              <div className="filters" role="group" aria-label="Filter files by source">
+                {(
+                  [
+                    { id: 'all', label: 'All', n: files.length },
+                    { id: 'fireflies', label: 'Transcripts', n: transcriptCount },
+                    { id: 'manual', label: 'Documents', n: documentCount },
+                  ] as const
+                ).map((pill) => (
+                  <button
+                    key={pill.id}
+                    type="button"
+                    // aria-pressed, not role="tab": these are toggle filters over one
+                    // list, not tabs selecting between panels.
+                    aria-pressed={sourceFilter === pill.id}
+                    className={`pill${sourceFilter === pill.id ? ' on' : ''}`}
+                    onClick={() => setSourceFilter(pill.id)}
+                  >
+                    {pill.label}
+                    <span className="n">{filesLoading ? '—' : pill.n}</span>
+                  </button>
+                ))}
+              </div>
+
               {/* Search — client-side title filter over the fetched files.
                   The mockup also had a filter button next to this field; it is
                   omitted because no filter behaviour exists to wire it to and a
@@ -1527,7 +1608,15 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                 </div>
               ) : filteredFiles.length === 0 ? (
                 <div className="list">
-                  <div className="note">No files match &ldquo;{fileSearch.trim()}&rdquo;.</div>
+                  {/* Same sentence shape as before — with 'all' and a search term it
+                      renders the original string exactly. The no-search branch is only
+                      reachable when a pill is active, since an empty `files` is caught
+                      by the preceding case. */}
+                  <div className="note">
+                    {searchTerm
+                      ? `No ${sourceFilterNoun} match \u201C${fileSearch.trim()}\u201D.`
+                      : `No ${sourceFilterNoun} yet.`}
+                  </div>
                 </div>
               ) : (
                 <div className="list">
