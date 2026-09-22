@@ -117,7 +117,7 @@ export async function middleware(request: NextRequest) {
   // /my-workspace/*. No allowlist entry needed.
   // NOTE: 'vp_ops' and 'ops_manager' are restricted AND further narrowed — see
   // NARROWED_ROLES below.
-  const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member', 'data_analyst', 'sales_rep']
+  const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member', 'data_analyst', 'sales_rep', 'construction_rep']
   // These roles are narrowed FURTHER than the other restricted roles, at their
   // holders' own request: Action Items + the three Customer Journey pages only.
   // No All Sessions, no Generate Agenda, no My Workspace (My Calendar / My
@@ -128,6 +128,18 @@ export async function middleware(request: NextRequest) {
   // holder, so narrowing by role affects only those two people. Mirrored in
   // src/components/sidebar/Sidebar.tsx (NARROWED_ROLES) — keep the two in sync.
   const NARROWED_ROLES = ['vp_ops', 'ops_manager']
+  // ── construction_rep ───────────────────────────────────────────────────────
+  // A NEW, separate narrowing rule — deliberately NOT part of NARROWED_ROLES
+  // above (that one is Chad's/Matteo's and is unchanged here). Holders of this
+  // role reach the three Customer Journey pages and nothing else; every other
+  // route, /dashboard included, redirects to /customers. See the branch below.
+  // SCOPE NOTE (deliberate, known, NOT a gap to fix here): this role grants
+  // access to ALL clients regardless of phase (Precon or Construction) once
+  // inside /customers/[id] — there is no per-client or per-phase filter anywhere
+  // in this codebase today (confirmed in a prior audit).
+  // Mirrored in src/components/sidebar/Sidebar.tsx (CONSTRUCTION_ONLY_ROLES /
+  // CONSTRUCTION_VISIBLE_HREFS) — keep the two in sync.
+  const CONSTRUCTION_ONLY_ROLES = ['construction_rep']
   const isApi = pathname.startsWith('/api/')
   if (user?.email && !isAuthPage && !isApi && !isWebhook) {
     const roleResult = await withDeadline(
@@ -189,6 +201,32 @@ export async function middleware(request: NextRequest) {
       dashboardUrl.pathname = '/dashboard'
       dashboardUrl.search = ''
       return NextResponse.redirect(dashboardUrl)
+    }
+
+    // ── construction_rep: Customer Journey only ──────────────────────────────
+    // Evaluated BEFORE the restricted/narrowed branches below, because this role
+    // has both a narrower allowlist and a different redirect target: /customers,
+    // not /dashboard, since it has no Dashboard access at all. This also denies
+    // /my-project, which every other role (restricted ones included) may reach —
+    // deliberate, per this role's spec of only these three pages.
+    // /customers/templates and /customers/okr-dashboard-v2 are static siblings
+    // under /customers that are NOT among the three allowed pages; they are
+    // denied explicitly because middleware cannot otherwise tell a static sibling
+    // from a dynamic /customers/[id] slug. Client detail sub-pages
+    // (/customers/[id]/meetings/...) stay allowed.
+    // Loop-safe: the redirect target /customers is itself an allowed page here.
+    if (role && CONSTRUCTION_ONLY_ROLES.includes(role)) {
+      const isConstructionAllowedPage =
+        isCustomersPage &&
+        !pathname.startsWith('/customers/templates') &&
+        !pathname.startsWith('/customers/okr-dashboard-v2')
+      if (!isConstructionAllowedPage) {
+        const customersUrl = request.nextUrl.clone()
+        customersUrl.pathname = '/customers'
+        customersUrl.search = ''
+        return NextResponse.redirect(customersUrl)
+      }
+      return supabaseResponse
     }
 
     // Narrowed roles get a strict subset: Action Items + Customer Journey.

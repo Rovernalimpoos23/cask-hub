@@ -73,7 +73,7 @@ const NAV_SECTIONS = [
 // They are NO LONGER redirected away from /dashboard (they have dashboard access).
 // Admin roles (Calin/president, Kai/ea, Rovern/ai_specialist) see everything
 // exactly as before. Roles are read from the `users.role` column.
-const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member', 'data_analyst', 'sales_rep']
+const RESTRICTED_ROLES = ['vp_sales', 'ops_manager', 'vp_ops', 'vp_finance', 'vp_hr', 'member', 'data_analyst', 'sales_rep', 'construction_rep']
 const ADMIN_ROLES = ['president', 'ea', 'ai_specialist']
 // Sections a restricted role is allowed to see, matched by NAV_SECTIONS label.
 // The General Meetings section already contains exactly the three allowed items
@@ -96,6 +96,20 @@ const RESTRICTED_VISIBLE_SECTIONS = ['General Meetings', 'My Workspace', 'Custom
 const NARROWED_ROLES = ['vp_ops', 'ops_manager']
 const NARROWED_VISIBLE_HREFS = [
   '/actions',
+  '/customers/new',
+  '/customers',
+  '/customers/okr-dashboard',
+]
+
+// ── construction_rep ─────────────────────────────────────────────────────────
+// A NEW, separate rule — deliberately NOT part of NARROWED_ROLES above. This
+// role sees the Customer Journey section ONLY (New Client Setup, Active
+// Clients, OKR Dashboard) and nothing else in the sidebar, including the
+// standalone Dashboard link, which it has no route access to.
+// Mirrors the CONSTRUCTION_ONLY_ROLES branch in src/middleware.ts — keep the
+// two in sync. Sections emptied by this trim are dropped below.
+const CONSTRUCTION_ONLY_ROLES = ['construction_rep']
+const CONSTRUCTION_VISIBLE_HREFS = [
   '/customers/new',
   '/customers',
   '/customers/okr-dashboard',
@@ -253,6 +267,12 @@ export default function Sidebar() {
   // below, so their sections are trimmed item-by-item.
   const isNarrowed = role !== null && NARROWED_ROLES.includes(role) && !ADMIN_ROLES.includes(role)
 
+  // construction_rep gets its own, stricter href allowlist (Customer Journey
+  // only). Disjoint from NARROWED_ROLES, so the two trims never both apply.
+  // Stays false until the role resolves, so no other role's nav changes.
+  const isConstructionOnly =
+    role !== null && CONSTRUCTION_ONLY_ROLES.includes(role) && !ADMIN_ROLES.includes(role)
+
   // Restricted roles see only the Customer Journey section; admins see all.
   // MY WORKSPACE is then dropped for Calin/Kai when hideMyWorkspace is true.
   const visibleSections = (isRestricted
@@ -264,6 +284,14 @@ export default function Sidebar() {
     .map((s) =>
       isNarrowed
         ? { ...s, items: s.items.filter((i) => NARROWED_VISIBLE_HREFS.includes(i.href)) }
+        : s
+    )
+    // Item-level trim for construction_rep only; a no-op for every other role.
+    // Leaves only Customer Journey standing once the empty-section filter below
+    // drops General Meetings and My Workspace.
+    .map((s) =>
+      isConstructionOnly
+        ? { ...s, items: s.items.filter((i) => CONSTRUCTION_VISIBLE_HREFS.includes(i.href)) }
         : s
     )
     // Drops sections emptied by the trim above (e.g. My Workspace for vp_ops).
@@ -375,15 +403,21 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 px-2 py-2.5 overflow-y-auto flex flex-col gap-px">
         {/* Standalone Dashboard — visible for ALL roles (restricted users now
-            have dashboard access). */}
-        <SideNavLink
-          href="/dashboard"
-          icon="▣"
-          label="Dashboard"
-          isActive={pathname === '/dashboard'}
-          standalone
-        />
-        <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
+            have dashboard access) EXCEPT construction_rep, which has no Dashboard
+            route access at all (middleware sends it to /customers). The flag is
+            false until the role resolves, so every other role renders as before. */}
+        {!isConstructionOnly && (
+          <>
+            <SideNavLink
+              href="/dashboard"
+              icon="▣"
+              label="Dashboard"
+              isActive={pathname === '/dashboard'}
+              standalone
+            />
+            <div className="h-px my-1.5" style={{ background: 'rgba(255,255,255,0.06)' }} />
+          </>
+        )}
 
         {/* Role-dependent sections — only render once the role has resolved, so
             restricted users never flash the full admin section list. */}
