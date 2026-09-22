@@ -155,6 +155,10 @@ const AGENT_CSS = `
 .bva-root .row .t b{flex:1;min-width:0;font:450 13px/1.4 var(--fb);color:var(--ink);letter-spacing:-.005em}
 .bva-root .row .t b a{color:var(--ink);text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
 .bva-root .row .t b a:hover{color:var(--coral)}
+.bva-root .row .t b button.open{display:inline;padding:0;border:0;background:transparent;font:inherit;
+  color:var(--ink);text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;
+  cursor:pointer;text-align:left}
+.bva-root .row .t b button.open:hover{color:var(--coral)}
 .bva-root .row .m{display:flex;align-items:center;gap:7px;margin:8px 0 0 23px;flex-wrap:wrap}
 .bva-root .tag{font:400 10px/1 var(--fm);color:var(--ink-3);background:var(--chip);padding:4px 6px;
   border-radius:4px;letter-spacing:.01em;white-space:nowrap}
@@ -1286,6 +1290,55 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
     }
   }
 
+  // Open a manually-uploaded file from the 'hub-memory' bucket in a new tab.
+  //
+  // Mirrors openFile in customers/[id]/page.tsx:6877 — the URL is minted at CLICK
+  // time and never stored, so a rendered row can never hand out a live link. The one
+  // structural difference is WHERE it is minted: construction-files signs in the
+  // browser because that bucket has a SELECT policy, whereas 'hub-memory' has only an
+  // INSERT policy (src/db/migrations/hub_memory_storage_rls.sql), so signing has to
+  // happen server-side under service-role. Hence the POST to /api/big-vision/file-url
+  // rather than a direct supabase.storage call.
+  //
+  // Both conditions are re-checked here rather than trusted from the caller: the row
+  // only renders this as clickable when they hold, but `files` is an untyped any[],
+  // so nothing type-checks that for us.
+  async function handleOpenManualFile(file: { source_type?: string | null; file_path?: string | null; title?: string }) {
+    if (file.source_type !== 'manual' || !file.file_path) return
+
+    setUploadError('')
+
+    try {
+      const res = await fetch('/api/big-vision/file-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: file.file_path }),
+      })
+
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || !data?.signedUrl) {
+        // Surface the route's real message, exactly as openFile surfaces
+        // signErr?.message — never a bare "failed". Reuses this panel's existing
+        // error line rather than inventing new UI.
+        const detail =
+          typeof data?.message === 'string'
+            ? data.message
+            : typeof data?.error === 'string'
+              ? data.error
+              : 'no signed URL returned'
+        setUploadError(`Could not open "${file.title ?? 'file'}": ${detail}`)
+        return
+      }
+
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+    } catch (err) {
+      setUploadError(
+        `Could not open "${file.title ?? 'file'}": ${err instanceof Error ? err.message : 'request failed'}`,
+      )
+    }
+  }
+
   // Begin dragging the divider. Tracks the pointer on `document` (not the divider)
   // so the drag continues even when the cursor moves off the handle.
   // Unchanged logic — the only edit is that the drag-end visual reset now toggles
@@ -1481,6 +1534,10 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                   {visibleFiles.map((f) => {
                     const linkable =
                       f.source_type === 'fireflies' && !!f.source_ref && UUID_RE.test(f.source_ref)
+                    // Separate from `linkable` on purpose — the fireflies branch above is
+                    // unchanged. A manual upload with no file_path (legacy pre-rework rows)
+                    // satisfies neither flag and stays plain text, exactly as it renders today.
+                    const openable = f.source_type === 'manual' && !!f.file_path
                     const dateIso = f.meeting_date || f.created_at
                     // source + categories + leader, capped like the mockup's rows.
                     const allTags: string[] = [
@@ -1523,7 +1580,23 @@ export default function AgentPage({ params }: { params: { agent: string } }) {
                         <div className="t">
                           <i className={`ti ${sourceIcon(f.source_type)}`} aria-hidden="true" />
                           <b>
-                            {linkable ? <Link href={`/sessions/${f.source_ref}`}>{f.title}</Link> : f.title}
+                            {linkable ? (
+                              <Link href={`/sessions/${f.source_ref}`}>{f.title}</Link>
+                            ) : openable ? (
+                              // A real <button>, not a span: it must be keyboard reachable
+                              // and announced as an action. Styled by `.row .t b button.open`
+                              // to match the fireflies anchor's dotted underline + coral hover.
+                              <button
+                                type="button"
+                                className="open"
+                                onClick={() => handleOpenManualFile(f)}
+                                title={`Open ${f.title}`}
+                              >
+                                {f.title}
+                              </button>
+                            ) : (
+                              f.title
+                            )}
                           </b>
                           <button
                             className="icon-btn trash"
