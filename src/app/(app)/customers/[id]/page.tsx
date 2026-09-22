@@ -7105,10 +7105,30 @@ type CjView = 'steps' | 'files'
 // non-exported consts — there is nothing importable for a client component to reuse.
 // Entries must stay lower-case: the comparison below normalises only its input,
 // not this list.
+//
+// MEMBERSHIP — six entries covering two groups, deliberately kept as ONE flat list:
+//   · The three admins (Rovern, Calin, Kai), who need the override to demo and test
+//     the journey against any client regardless of that client's Precon state.
+//   · Three construction_rep users (Hermansen, Pfaff, Deutelmoser), added because
+//     Construction Journey is their day-to-day surface and they work it on clients
+//     whose Precon is still open. Without the override the gate keeps them out until
+//     all 37 Precon steps are marked for that client — see `locked` below.
+// Being on this list is what lets those reps mark steps and tick tasks on a client
+// who has NOT finished Precon; those writes are real and client-scoped. Known and
+// intended, not an oversight.
+//
+// NOT split into 'admins' / 'reps' sub-lists on purpose: nothing anywhere reads a
+// group, canSeeCjPreview only asks whether an address is present, and a second shape
+// would invite exactly the role check this gate deliberately does not have. Adding a
+// rep here is also invisible to every role-based control in the app — this list and
+// `users.role` are unrelated mechanisms.
 const CJ_PREVIEW_EMAILS = [
   'r.alimpoos@caskconstruction.com',
   'c.noonan@caskconstruction.com',
   'k.mapoy@caskconstruction.com',
+  'c.hermansen@caskconstruction.com',
+  's.pfaff@caskconstruction.com',
+  'p.deutelmoser@caskconstruction.com',
 ] as const
 
 // Trimmed + lower-cased rather than a bare ===, per CLAUDE.md's rule about
