@@ -141,10 +141,28 @@ const AGENT_CSS = `
   font:450 13px/1 var(--fb);outline:0}
 .bva-root .field input::placeholder{color:var(--ink-4)}
 .bva-root .field:focus-within{border-color:var(--line-strong)}
-.bva-root .filters{display:flex;flex-wrap:wrap;gap:6px;padding:10px 16px;border-bottom:1px solid var(--line);
-  flex:0 0 auto}
-.bva-root .pill{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line-strong);
-  background:transparent;color:var(--ink-2);font:450 11.5px/1 var(--fb);padding:5px 9px;border-radius:999px;
+/* Single row, always. This panel is drag-resizable (20-60%, floored at 260px by
+   the inline minWidth), and at the narrow end three pills no longer fit side by
+   side — with flex-wrap:wrap the third dropped to its own line and left a ragged
+   two-row block. nowrap + overflow-x turns that into a horizontal scroll instead.
+   Left padding stays 16px so the pills line up with .tools and .p-head above.
+   The scrollbar is hidden rather than styled: the file's existing
+   ::-webkit-scrollbar rules (.list, .chat .body) are a VISIBLE 8px vertical bar,
+   which would be wrong on a 30px-tall strip, so this is a deliberate departure
+   from that convention, not an oversight. Scrolling still works by trackpad and
+   wheel, and tabbing to an off-screen pill scrolls it into view because they are
+   real focusable buttons. */
+.bva-root .filters{display:flex;flex-wrap:nowrap;gap:5px;padding:10px 16px;border-bottom:1px solid var(--line);
+  flex:0 0 auto;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none}
+.bva-root .filters::-webkit-scrollbar{display:none}
+/* flex:0 0 auto is load-bearing: in a nowrap flex row the default flex-shrink:1
+   would squeeze the pills instead of overflowing, truncating "Transcripts" rather
+   than scrolling. Scroll, never shrink. Horizontal padding is 7px (was 9px) and the
+   row gap 5px (was 6px), which buys back ~14px — enough for all three to sit
+   unscrolled at the default 38% width and most of the way down the range. Font size
+   is deliberately unchanged: 11.5px is already the small end of this file's scale. */
+.bva-root .pill{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;border:1px solid var(--line-strong);
+  background:transparent;color:var(--ink-2);font:450 11.5px/1 var(--fb);padding:5px 7px;border-radius:999px;
   cursor:pointer;white-space:nowrap;transition:background .12s,color .12s,border-color .12s}
 .bva-root .pill:hover:not(.on){background:var(--card-hi);color:var(--ink);border-color:var(--ink-4)}
 .bva-root .pill .n{font:400 10px/1 var(--fm);color:var(--ink-4)}
