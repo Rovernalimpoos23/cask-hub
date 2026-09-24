@@ -2760,7 +2760,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // overflow-y instead of covering the viewport. Rendering it up here, as a sibling of
   // the pre-con modal above, is the only placement that escapes. One instance for all 19
   // rows; the row hands its step up via onOpenAgenda rather than owning any state.
-  const [cjAgendaStep, setCjAgendaStep] = useState<CjStep | null>(null)
+  // totalSteps rides along because the step list is now fetched inside
+  // ConstructionJourneyPanel — this page no longer has a module-level CJ_STEPS to
+  // read the "of N" count from. The modal can only open from a loaded list.
+  const [cjAgendaStep, setCjAgendaStep] = useState<{ step: CjStep; totalSteps: number } | null>(null)
   const [emailDrafts, setEmailDrafts] = useState<EmailDraft[]>([])
   const [sentEmails, setSentEmails] = useState<EmailDraft[]>([])
   const [previewDraft, setPreviewDraft] = useState<EmailDraft | null>(null)
@@ -4189,7 +4192,7 @@ Today's date is ${today}.
     <>
       {activeAgenda && <AgendaModal code={activeAgenda} onClose={() => setActiveAgenda(null)} />}
       {agendaStep && <StepAgendaModal step={agendaStep} onClose={() => setAgendaStep(null)} />}
-      {cjAgendaStep && <CjStepAgendaModal step={cjAgendaStep} onClose={() => setCjAgendaStep(null)} />}
+      {cjAgendaStep && <CjStepAgendaModal step={cjAgendaStep.step} totalSteps={cjAgendaStep.totalSteps} onClose={() => setCjAgendaStep(null)} />}
 
       {/* Edit Client Modal */}
       {editForm && (
@@ -5664,7 +5667,7 @@ Today's date is ${today}.
               clientId={params.id}
               clientName={client.name}
               onCreateInvite={handleCjCreateInvite}
-              onOpenAgenda={setCjAgendaStep}
+              onOpenAgenda={(step, totalSteps) => setCjAgendaStep({ step, totalSteps })}
               scheduleRefreshKey={scheduleRefreshKey}
               selfUserIdRef={selfUserIdRef}
               selfUserNameRef={selfUserNameRef}
@@ -5711,139 +5714,97 @@ Today's date is ${today}.
 // ═════════════════════════════════════════════════════════════════════════════
 
 type CjStepType = 'customer' | 'internal' | 'email' | 'window'
-type CjStepStatus = 'done' | 'current' | 'pending'
 
+// The old hardcoded array also carried CjStep.status and CjRoleBlock.done — mock
+// progress, long marked NO LONGER READ (step completion is construction_step_marks,
+// task completion is construction_step_completions). They were not seeded into
+// construction_step_definitions, so they are dropped from these types rather than
+// filled with invented values; the compiler confirms nothing reads them.
 interface CjRoleBlock {
   r: string
   tasks: string[]
-  // NO LONGER READ. This used to seed the mock checkbox state; per-task completion now
-  // comes from construction_step_completions, so what renders is whatever the database
-  // holds for this client. Left in the data rather than stripped from all 19 steps,
-  // which would be a large unrelated diff — but nothing consumes it.
-  done: number[]
 }
 
 interface CjStep {
   n: number
   type: CjStepType
   title: string
-  // NO LONGER READ. Step-level completion now comes from construction_step_marks, and
-  // "current" is derived as the lowest-numbered unmarked step — so the badge, the
-  // progress bar and the default-expanded row are all per-client data, not this
-  // literal. Left in the data rather than stripped from all 19 steps (a large diff for
-  // no behaviour change), following the same precedent as CjRoleBlock.done above.
-  status: CjStepStatus
   objective: string
   who: string
   roles: CjRoleBlock[]
 }
 
-// ── The 19 Construction Journey steps (static, verbatim) ─────────────────────
+// ── The Construction Journey steps (fetched) ─────────────────────────────────
+// Content lives in public.construction_step_definitions, seeded verbatim from the
+// hardcoded CJ_STEPS constant this replaces (src/db/migrations/
+// construction_step_definitions.sql), and is read under the signed-in user's own
+// session via construction_step_definitions_select_policy.sql. One shared set for
+// every client, exactly as before — not per-client.
+//
+// Mapped back into the exact CjStep / CjRoleBlock shape the rest of this section was
+// written against, so no usage site's logic changed:
+//   step_number -> n,  step_type -> type,  roles[].role -> roles[].r
+// Order is ORDER BY step_number, and each step's role blocks and tasks keep the
+// jsonb arrays' own order — nothing is re-sorted, because array order IS display order.
+//
+// Task strings are passed through byte-for-byte (no trim, no normalisation):
+// cjTaskKey keys existing construction_step_completions rows on the exact task text,
+// so any transformation here would make every existing tick read as unchecked.
+//
+// Fails loudly, never falls back. ZERO rows is an error, not "no steps": an RLS
+// denial on SELECT comes back as an empty 200, not an error, which is exactly the
+// silent-fallback shape CLAUDE.md warns about for lib/meetings.ts. A malformed row
+// is an error too, rather than being skipped — dropping a step would hide content
+// while every count around it still looked plausible.
+const CJ_STEP_TYPES: readonly CjStepType[] = ['customer', 'internal', 'email', 'window']
 
-const CJ_STEPS: CjStep[] = [
-  {n:1,type:'customer',title:'C1 — Kickoff Meeting with Customer',status:'done',
-   objective:'Organize drawings, selections, and changes; set expectations; review BT schedule and field plans; confirm site logistics.',
-   who:'Project manager, superintendent, customer',
-   roles:[{r:'pm',tasks:['Present Cask and the team','Review BT schedule and upcoming construction journey','Review permitted set of plans and marked-up field set','Review electrical, kitchen, bathroom, plumbing, HVAC, window placement, exterior wall finish','Identify neighbors of concern','Confirm backyard laydown space; coordinate owner to clear area and install temp fencing','Verify construction sign install location with flag','Confirm QR code sheet is in the job box for sub plan review','If demo required — review demo FAQs (utility shutoff, clear space, etc.)','Schedule next meeting (Foundation and Slab on Grade)'],done:[0,1]},
-          {r:'super',tasks:['Walk site and confirm all field conditions noted','Mark up field set of plans with 100% of changes'],done:[0]}]},
-
-  {n:2,type:'email',title:'C1 Email — Kickoff Meeting Recap',status:'current',
-   objective:'Send kickoff recap to customer; confirm foundation meeting date and site survey date.',
-   who:'Sender: Project manager · CC: Superintendent → to customer',
-   roles:[{r:'pm',tasks:['Include kickoff meeting agenda notes and any changes to field set of plans','Confirm date and time for Foundation and Slab on Grade meeting','Confirm date for site survey'],done:[]}]},
-
-  {n:3,type:'window',title:'Demo (if needed)',status:'pending',
-   objective:'If demo required — 3–6 weeks post kickoff; disconnect utilities, contact 811 Dig, prep demo site.',
-   who:'Superintendent',
-   roles:[{r:'super',tasks:['Disconnect utilities','Contact 811 Dig','Prep demo site (removal of items from area)'],done:[]}]},
-
-  {n:4,type:'window',title:'Site Survey and Layout',status:'pending',
-   objective:'Schedule survey and request pinning of building and blue-top elevation; double-check all setbacks.',
-   who:'Superintendent',
-   roles:[{r:'super',tasks:['Schedule site survey','Request pinning of building and blue-top elevation','Double-check setbacks: side, rear, front; stair setbacks if stairs planned'],done:[]}]},
-
-  {n:5,type:'internal',title:'Internal Sub Meeting — Structure',status:'pending',
-   objective:'Email field set of plans; superintendent walks subs and reviews scope of work.',
-   who:'Superintendent, subs (framer, concrete, electrician, plumber)',
-   roles:[{r:'super',tasks:['Email field set of plans to all subs','Framer — review elevation changes, window/door/garage openings, wall finishes, truss layout','Concrete — review elevation changes, window/door/garage openings, wall finishes','Electrician — install and double-check all underground','Plumber — install and double-check all underground'],done:[]}]},
-
-  {n:6,type:'customer',title:'C2 — Foundation and Slab on Grade Meeting',status:'pending',
-   objective:'Review BT schedule; walk site to confirm building corners, setbacks, slab elevation, and sanitary conditions.',
-   who:'Superintendent, customer',
-   roles:[{r:'super',tasks:['Review BT schedule highlighting structure timeline','Walk site: confirm corners of building, setbacks (rear, side, front), stair setback per zoning','Confirm elevation of slab on grade','Determine sanitary condition; inform owner of replacement if needed'],done:[]}]},
-
-  {n:7,type:'email',title:'C2 Email — Foundation and Slab on Grade Recap',status:'pending',
-   objective:'Send meeting recap; outline next stage in customer journey.',
-   who:'Sender: Project manager · CC: Superintendent → to customer',
-   roles:[{r:'pm',tasks:['Include foundation and slab meeting agenda notes and any changes to field set of plans','Outline next stage in customer journey'],done:[]}]},
-
-  {n:8,type:'email',title:'C3 Email — Structure Stage Expectations',status:'pending',
-   objective:'Set customer expectations for the structure stage; outline schedule and site activity.',
-   who:'Sender: Project manager · CC: Superintendent, framer, concrete subs → to customer',
-   roles:[{r:'pm',tasks:['Confirm structure complete celebration meeting date and time','Outline BT schedule and workflow for structure stage','Detail which subs will be on site during structure','Share best practices — notify neighbors of high-traffic period; provide FAQ post-card if needed'],done:[]}]},
-
-  {n:9,type:'customer',title:'C3 Meeting — Structure Complete Celebration',status:'pending',
-   objective:'Walk space; celebrate passing structure; prepare for MEP rough-in stage.',
-   who:'Project manager, superintendent, customer',
-   roles:[{r:'pm',tasks:['Review BT schedule highlighting next steps in construction journey','Walk the completed structure with customer','Confirm rough-in next steps and upcoming MEP work'],done:[]},
-          {r:'super',tasks:['Verify construction sign and QR code sheet are in place in job box'],done:[]}]},
-
-  {n:10,type:'email',title:'C4 Email — Structure Complete Celebration Recap',status:'pending',
-   objective:'Send celebration meeting recap; outline rough-in stage.',
-   who:'Sender: Project manager · CC: Superintendent → to customer',
-   roles:[{r:'pm',tasks:['Include celebration meeting agenda notes and any changes to field set of plans','Outline next stage (rough-in) in customer journey'],done:[]}]},
-
-  {n:11,type:'internal',title:'Internal Sub Meeting — Rough-In',status:'pending',
-   objective:'Walk subs with updated scope; review MEP layout before installation.',
-   who:'Superintendent, subs',
-   roles:[{r:'super',tasks:['Review BT schedule highlighting rough-in stage','Review permitted plans and marked-up field plans with subs','Cover: electrical layout, kitchen layout, bathroom lighting and vanity, plumbing, HVAC'],done:[]}]},
-
-  {n:12,type:'customer',title:'C4 Meeting — Rough-In with Customer',status:'pending',
-   objective:'Walk space with client to lay out electrical, kitchen, plumbing, and HVAC before MEPs are installed.',
-   who:'Project manager, superintendent, customer',
-   roles:[{r:'pm',tasks:['Review BT schedule highlighting next steps','Walk and confirm: electrical layout, kitchen layout, bathroom lighting/vanity, plumbing, HVAC','Determine neighbor concerns; coordinate direct communication if needed','Verify construction sign and QR code sheet are in place in job box'],done:[]},
-          {r:'super',tasks:['Confirm all marked-up field plans are current'],done:[]}]},
-
-  {n:13,type:'customer',title:'C5 Meeting — Finishes with Customer',status:'pending',
-   objective:'Post-drywall re-walk; review and confirm all finishes to be installed; celebrate framing and in-wall inspections passing.',
-   who:'Project manager, superintendent, selections manager, customer',
-   roles:[{r:'pm',tasks:['Review BT schedule and selections packet','Update field drawings for all finishes to be installed','Celebrate customer passing framing and in-wall inspections','Verify construction sign and QR code sheet with updated link to plans are in job box','Confirm selections packet is in job box'],done:[]},
-          {r:'select',tasks:['Walk through all finish selections with customer','Confirm kitchen and bathroom layout decisions','Document any open decisions still to be made and assign due dates'],done:[]},
-          {r:'super',tasks:['Confirm field drawings are updated for all finishes'],done:[]}]},
-
-  {n:14,type:'internal',title:'Internal Sub Meeting — Finishes',status:'pending',
-   objective:'Walk subs installing finishes; review updated field drawings and selections.',
-   who:'Superintendent, subs',
-   roles:[{r:'super',tasks:['Review BT schedule and selections packet with subs','Review kitchen and bathroom layout with relevant subs','Update field drawings for all finishes to be installed'],done:[]}]},
-
-  {n:15,type:'email',title:'C5 Email — Finish Meeting Recap',status:'pending',
-   objective:'Send finish meeting recap; confirm open decisions and due dates.',
-   who:'Sender: Project manager · CC: Superintendent, selections manager, appropriate subs → to customer',
-   roles:[{r:'pm',tasks:['Recap bathroom and kitchen selections decisions; include on marked-up drawings','List items discovered during the meeting','List decisions still to be made with due dates'],done:[]}]},
-
-  {n:16,type:'email',title:'C6 Email — Close Out Steps to Customer',status:'pending',
-   objective:'Notify customer of punchlist walkthrough availability; outline close-out process.',
-   who:'Sender: Project manager · CC: Superintendent → to customer',
-   roles:[{r:'pm',tasks:['Provide available dates and times for punchlist walkthrough','Outline close-out process: permitting, punchlist, and turnover'],done:[]}]},
-
-  {n:17,type:'customer',title:'C6 Meeting — Punchlist Walkthrough',status:'pending',
-   objective:'Walk punchlist items still to be addressed; receive customer confirmation all concerns are resolved.',
-   who:'Project manager, superintendent, customer',
-   roles:[{r:'pm',tasks:['Review BT punchlist with customer','Identify items missing or to be repaired','Receive customer confirmation all concerns are addressed by end of meeting'],done:[]},
-          {r:'super',tasks:['Walk all punchlist items; note any new items raised by customer'],done:[]}]},
-
-  {n:18,type:'email',title:'C7 Email — Punchlist Walkthrough Recap',status:'pending',
-   objective:'Send recap of punchlist walkthrough; outline next steps and send final walkthrough invite if available.',
-   who:'Sender: Project manager · CC: Superintendent → to customer',
-   roles:[{r:'pm',tasks:['Review punchlist walkthrough agenda notes','Include BT punchlist print view with timestamps of completed items','Outline next steps; include final walkthrough meeting invite if available'],done:[]}]},
-
-  {n:19,type:'customer',title:'C7 Meeting — Final Walkthrough with Customer',status:'pending',
-   objective:'Conduct full interior and exterior walkthrough; deliver project to customer; close out certificate of completion.',
-   who:'Project manager, superintendent, marketing manager, customer',
-   roles:[{r:'pm',tasks:['Review status of Certificate of Completion (CO) and permit closing','Conduct interior walkthrough: doors and windows, appliances, walls and rooms, thermostat','Conduct exterior walkthrough: property perimeter, signage','Verify all punchlist items are complete; note any remaining items','Provide customer with ADU best practices sheet and warranty contact info','Provide CASK blueprint gift','Remove construction sign','Confirm testimonial video date/time; encourage online review'],done:[]},
-          {r:'super',tasks:['Confirm punchlist is fully resolved prior to walkthrough'],done:[]},
-          {r:'market',tasks:['Coordinate testimonial video recording','Capture project completion photos/video for marketing'],done:[]}]}
-]
+async function fetchCjSteps(): Promise<CjStep[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('construction_step_definitions')
+    .select('step_number, step_type, title, objective, who, roles')
+    .order('step_number', { ascending: true })
+  if (error) throw new Error(error.message)
+  const rows = (data ?? []) as {
+    step_number: unknown
+    step_type: unknown
+    title: unknown
+    objective: unknown
+    who: unknown
+    roles: unknown
+  }[]
+  if (rows.length === 0) {
+    throw new Error('no step definitions were returned — check the SELECT policy on construction_step_definitions')
+  }
+  return rows.map(row => {
+    const { step_number: n, step_type: type, title, objective, who, roles } = row
+    if (
+      typeof n !== 'number' ||
+      !CJ_STEP_TYPES.includes(type as CjStepType) ||
+      typeof title !== 'string' ||
+      typeof objective !== 'string' ||
+      typeof who !== 'string' ||
+      !Array.isArray(roles)
+    ) {
+      throw new Error(`step ${String(n)} has a malformed definition`)
+    }
+    return {
+      n,
+      type: type as CjStepType,
+      title,
+      objective,
+      who,
+      roles: roles.map((block: unknown): CjRoleBlock => {
+        const role = (block as { role?: unknown } | null)?.role
+        const tasks = (block as { tasks?: unknown } | null)?.tasks
+        if (typeof role !== 'string' || !Array.isArray(tasks) || !tasks.every(t => typeof t === 'string')) {
+          throw new Error(`step ${n} has a malformed role block`)
+        }
+        return { r: role, tasks: tasks as string[] }
+      }),
+    }
+  })
+}
 
 // ── Display config ───────────────────────────────────────────────────────────
 
@@ -5874,22 +5835,24 @@ const CJ_ROLE_COLORS: Record<string, string> = {
 }
 
 // ── Construction adapter ─────────────────────────────────────────────────────
-// "View Agenda" on a Construction meeting step. Maps this step's CJ_STEPS entry onto
-// the same shared view-model the pre-con journey uses (JourneyAgendaModal, defined
-// earlier in this file), so both journeys' agendas render identically.
+// "View Agenda" on a Construction meeting step. Maps this step's definition (from the
+// panel's fetched construction_step_definitions list) onto the same shared view-model
+// the pre-con journey uses (JourneyAgendaModal, defined earlier in this file), so both
+// journeys' agendas render identically.
 //
-// ZERO fetches: CJ_STEPS, CJ_ROLE_NAMES, CJ_ROLE_COLORS and CJ_STEP_TYPE_CONFIG are all
-// module-scope constants — the same footing WORKFLOW_STEPS gave the pre-con fix.
+// ZERO fetches of its own: the step arrives already loaded, and CJ_ROLE_NAMES,
+// CJ_ROLE_COLORS and CJ_STEP_TYPE_CONFIG are module-scope constants. totalSteps is the
+// loaded list's length, handed up with the step (see cjAgendaStep).
 // Unlike WorkflowStepDef, CjStep has a real `objective` prose field and a `who` attendee
 // list, so both are passed through rather than substituted. Role colours come from the
 // CJ_ROLE_COLORS lookup because CjRoleBlock carries no inline colour of its own.
-function CjStepAgendaModal({ step, onClose }: { step: CjStep; onClose: () => void }) {
+function CjStepAgendaModal({ step, totalSteps, onClose }: { step: CjStep; totalSteps: number; onClose: () => void }) {
   const typeCfg = CJ_STEP_TYPE_CONFIG[step.type]
   return (
     <JourneyAgendaModal
       onClose={onClose}
       view={{
-        stepLabel: `Step ${step.n} of ${CJ_STEPS.length}`,
+        stepLabel: `Step ${step.n} of ${totalSteps}`,
         typeLabel: typeCfg.label,
         typeBadgeBg: typeCfg.badgeBg,
         typeBadgeText: typeCfg.badgeText,
@@ -5931,8 +5894,10 @@ const cjBadgeBase: React.CSSProperties = {
 // text keying only fails visibly — a reworded task simply shows unchecked again,
 // which is the known and accepted trade-off.
 //
-// The `||` separator is safe: no CJ_STEPS task string contains it (verified across
-// all 85 task strings, which are plain ASCII apart from an em dash).
+// The `||` separator is safe: no seeded task string contains it (verified across
+// all 85 task strings, which are plain ASCII apart from an em dash). Now that task
+// text lives in construction_step_definitions, the Phase 3 edit UI should keep
+// rejecting `||` in task text to preserve this.
 function cjTaskKey(n: number, role: string, task: string) {
   return `${n}||${role}||${task}`
 }
@@ -6375,10 +6340,10 @@ function CjStepRow({
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
             {/* View Agenda — REAL. Hands this step up to ClientDetailPage, which renders
                 the single agenda modal (objective / who / role-grouped tasks) from the
-                step's own CJ_STEPS entry. The modal is owned up there, not here, because
+                step's own definition. The modal is owned up there, not here, because
                 a `position: fixed` overlay rendered inside this row anchors to the page's
                 transformed scroll container instead of the viewport — see cjAgendaStep.
-                No fetch either way: CJ_STEPS is module-scope data. */}
+                No fetch either way: the step is already loaded by the panel. */}
             {showAgenda && (
               <button
                 type="button"
@@ -6514,8 +6479,8 @@ function CjSubTabBtn({ label, active, onSelect }: { label: string; active: boole
 //
 // The `construction-preview/` root is deliberate and is NOT the same claim as
 // "wired to production construction data". The Construction Journey panel around
-// these folders is still structurally a preview — its 19 steps are hardcoded
-// CJ_STEPS, not per-client records — so these uploads are real, correctly scoped
+// these folders is still structurally a preview — its 19 steps are one shared set
+// (construction_step_definitions), not per-client records — so these uploads are real, correctly scoped
 // files hanging off a panel whose surrounding data is not yet client-driven.
 // Connecting the journey itself to real per-client construction records remains a
 // future step; when it lands, this root is the thing to revisit, not the scoping.
@@ -7148,14 +7113,15 @@ function canSeeCjPreview(email: string | null | undefined): boolean {
 type CjFilter = 'all' | CjStepType
 
 // 'All' carries the live total; the other four are plain labels. The count is
-// derived from CJ_STEPS.length rather than written as a literal 19, so it follows
-// the data if the ported step list ever changes.
+// appended at render from the fetched step list's length (see the CjFilterBtn map in
+// ConstructionJourneyPanel) rather than written as a literal 19, so it follows the
+// data — the list is no longer a module constant, so it cannot be baked in here.
 //
 // NOTE: the 'window' pill reads "Work window" here, while the type badge on each
 // step row reads "Work Window" (from CJ_STEP_TYPE_CONFIG, which is ported data and
 // off-limits). One character of casing; left as specified rather than reconciled.
 const CJ_FILTERS: { id: CjFilter; label: string }[] = [
-  { id: 'all',      label: `All ${CJ_STEPS.length}` },
+  { id: 'all',      label: 'All' },
   { id: 'customer', label: 'Customer' },
   { id: 'email',    label: 'Email' },
   { id: 'internal', label: 'Internal' },
@@ -7201,9 +7167,10 @@ function CjFilterBtn({ label, active, onSelect }: { label: string; active: boole
 // scroll container, no breadcrumb, and no main tab row (this page's own tab row
 // replaces it). One deliberate behavioural change is called out below.
 //
-// The Steps sub-tab is still ZERO data: no Supabase client, no fetch, no effect.
-// Every step is hardcoded in CJ_STEPS and its only state is local, resetting when
-// the tab is left.
+// The Steps sub-tab's step CONTENT (titles, objectives, tasks) is fetched from
+// construction_step_definitions on panel mount — see fetchCjSteps and the cjSteps
+// state below. It replaced a hardcoded CJ_STEPS constant with identical content;
+// until it loads, the Steps sub-tab shows a loading card in place of the list.
 //
 // The Reference Files sub-tab is NOT: it makes real Supabase Storage calls against
 // the construction-files bucket, scoped by clientId. (This comment used to claim
@@ -7230,7 +7197,9 @@ function ConstructionJourneyPanel({
   // Hands a step up to ClientDetailPage, which owns the single agenda-modal instance.
   // It has to live up there: see the cjAgendaStep declaration for why a modal rendered
   // inside this panel would anchor to the page's transformed scroll container.
-  onOpenAgenda: (targetStep: CjStep) => void
+  // totalSteps is supplied here, not by CjStepRow: the step list is this panel's
+  // fetched state, and the modal's "Step n of N" needs its length.
+  onOpenAgenda: (targetStep: CjStep, totalSteps: number) => void
   // Incremented by the page after a post-invite schedule write lands, so the fetch
   // below re-runs and the new badge appears without reopening the tab.
   scheduleRefreshKey: number
@@ -7259,8 +7228,13 @@ function ConstructionJourneyPanel({
   // misread. Nothing outside this panel referenced it.
   const [adminOverride, setAdminOverride] = useState(false)
   const [cjView, setCjView] = useState<CjView>('steps')
+  // The shared step definitions (construction_step_definitions). `null` means "not
+  // loaded yet" — distinct from a loaded list, and never replaced by a fallback: if
+  // the read fails, cjStepsError holds why and the Steps sub-tab says so.
+  const [cjSteps, setCjSteps] = useState<CjStep[] | null>(null)
+  const [cjStepsError, setCjStepsError] = useState<string | null>(null)
   // Real per-task completion state, keyed by cjTaskKey. Starts EMPTY and is filled by
-  // the fetch below — the old cjSeedChecked() seed off CJ_STEPS' hardcoded `done`
+  // the fetch below — the old cjSeedChecked() seed off the former hardcoded `done`
   // arrays is gone, so what renders is what the database actually holds.
   const [completions, setCompletions] = useState<Map<string, ActionCompletion>>(new Map())
   const [cjLoading, setCjLoading] = useState(true)
@@ -7294,6 +7268,23 @@ function ConstructionJourneyPanel({
   // SELECT that exists here, and pre-con's own Journey tab is untouched by it.
   const [precoSteps, setPrecoSteps] = useState<Set<number> | null>(null)
   const [precoLoading, setPrecoLoading] = useState(true)
+
+  // Load the shared step definitions. Once per mount — the panel is conditionally
+  // rendered, so that is once per tab-open, the same timing as every other read here.
+  // Not keyed on clientId: the steps are shared, not per-client. Its own effect and its
+  // own error slot (cjStepsError), because cjError only renders inside the loaded
+  // Steps view and so could not report a failure to load the steps themselves.
+  useEffect(() => {
+    let cancelled = false
+    fetchCjSteps()
+      .then(steps => { if (!cancelled) setCjSteps(steps) })
+      .catch(err => {
+        if (cancelled) return
+        console.error('[cj-step-definitions] load failed:', err)
+        setCjStepsError(`Could not load the Construction Journey steps: ${err instanceof Error ? err.message : String(err)}`)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   // Deliberately its OWN effect, not folded into the completions fetch: a reschedule
   // bumps scheduleRefreshKey, and that must not force the larger completions read to
@@ -7652,20 +7643,24 @@ function ConstructionJourneyPanel({
 
   // ── Real 19-step progress (construction_step_marks) ─────────────────────────
   // Mirrors pre-con's getJourneyState exactly:
-  //  · doneCount is the INTERSECTION with CJ_STEPS, never a raw row count, so a stray
-  //    or retired step_number left in the table cannot inflate it past 19.
+  //  · doneCount is the INTERSECTION with the step definitions, never a raw row count,
+  //    so a stray or retired step_number left in the table cannot inflate it past 19.
   //  · currentStepNumber is the LOWEST-numbered unmarked step — not "highest marked
   //    + 1". Marking step 10 while 5 is still open leaves Current on 5.
   //  · null once all 19 are marked, which is what makes the Current badge disappear
   //    instead of pinning to the last row.
-  const doneCount = CJ_STEPS.filter(s => marks.has(s.n)).length
-  const pct = Math.round((doneCount / CJ_STEPS.length) * 100)
-  const cjCurrentStepNumber = CJ_STEPS.find(s => !marks.has(s.n))?.n ?? null
+  // cjStepList is [] until the definitions load. Nothing below renders from these
+  // values in that window (the Steps sub-tab shows its loading card instead); the
+  // `> 0` guard only stops pct being NaN (0/0) while they wait.
+  const cjStepList = cjSteps ?? []
+  const doneCount = cjStepList.filter(s => marks.has(s.n)).length
+  const pct = cjStepList.length > 0 ? Math.round((doneCount / cjStepList.length) * 100) : 0
+  const cjCurrentStepNumber = cjStepList.find(s => !marks.has(s.n))?.n ?? null
 
   // Presentational filter only: doneCount and pct above deliberately stay on the
   // full set, so the progress bar keeps meaning "progress through the whole
   // journey" instead of rebasing itself every time the filter changes.
-  const visibleSteps = filter === 'all' ? CJ_STEPS : CJ_STEPS.filter(s => s.type === filter)
+  const visibleSteps = filter === 'all' ? cjStepList : cjStepList.filter(s => s.type === filter)
 
   return (
     <div className="flex flex-col gap-5">
@@ -7886,16 +7881,41 @@ function ConstructionJourneyPanel({
                 {cjView === 'steps' ? 'Construction Journey' : 'Reference Files'}
               </h2>
               <span style={{ fontSize: 12, color: 'var(--text3)', fontVariantNumeric: 'tabular-nums' }}>
-                {cjView === 'steps' ? `${doneCount} of ${CJ_STEPS.length} steps` : `${CJ_FOLDER_COUNT} folders`}
+                {/* '—' while the step definitions load (or failed to), matching the
+                    Precon progress strip's own not-yet-known placeholder above. */}
+                {cjView === 'steps'
+                  ? (cjSteps ? `${doneCount} of ${cjSteps.length} steps` : '—')
+                  : `${CJ_FOLDER_COUNT} folders`}
               </span>
             </div>
 
-            {cjView === 'steps' ? (
+            {cjView === 'steps' && !cjSteps ? (
+              // Step definitions still loading, or failed. Stands in for the whole
+              // Steps view (progress, filter, rows) so nothing renders against an
+              // empty list — same approach as the "Checking this client's Precon
+              // progress…" card above; this file has no pulse/skeleton primitive.
+              // A failure is shown here, never papered over with a fallback list.
+              cjStepsError ? (
+                <div
+                  role="alert"
+                  style={{
+                    margin: '16px 20px', padding: '8px 10px', borderRadius: 7, fontSize: 11, lineHeight: 1.45,
+                    color: 'var(--red)', background: 'var(--red-soft)', border: '1px solid var(--red-border)',
+                  }}
+                >
+                  {cjStepsError}
+                </div>
+              ) : (
+                <div style={{ padding: '28px 20px', textAlign: 'center', fontSize: 11.5, color: 'var(--text3)' }}>
+                  Loading Construction Journey steps…
+                </div>
+              )
+            ) : cjView === 'steps' ? (
               <>
                 {/* Progress */}
                 <div className="flex items-center" style={{ gap: 12, padding: '13px 20px', borderBottom: '1px solid var(--border)' }}>
                   <span style={{ fontSize: 12.5, color: 'var(--text2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                    <b style={{ fontWeight: 600, color: 'var(--text)' }}>{doneCount} of {CJ_STEPS.length}</b> steps complete
+                    <b style={{ fontWeight: 600, color: 'var(--text)' }}>{doneCount} of {cjStepList.length}</b> steps complete
                   </span>
                   <span className="flex-1 overflow-hidden" style={{ height: 4, borderRadius: 99, background: 'var(--surface2)' }}>
                     <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: 'var(--green)', borderRadius: 99, transition: 'width 200ms ease' }} />
@@ -7912,7 +7932,7 @@ function ConstructionJourneyPanel({
                   {CJ_FILTERS.map(f => (
                     <CjFilterBtn
                       key={f.id}
-                      label={f.label}
+                      label={f.id === 'all' ? `${f.label} ${cjStepList.length}` : f.label}
                       active={filter === f.id}
                       onSelect={() => setFilter(f.id)}
                     />
@@ -7956,7 +7976,7 @@ function ConstructionJourneyPanel({
                         onToggle={toggleCjTask}
                         clientName={clientName}
                         onCreateInvite={onCreateInvite}
-                        onOpenAgenda={onOpenAgenda}
+                        onOpenAgenda={targetStep => onOpenAgenda(targetStep, cjStepList.length)}
                         schedule={schedules.get(step.n) ?? null}
                         clientId={clientId}
                         // Real step-level completion. isCurrent is computed once for
