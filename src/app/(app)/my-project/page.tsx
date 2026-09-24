@@ -21,21 +21,84 @@
 //    were told not to modify it. To present a fully clean page we render a
 //    position:fixed full-viewport overlay that covers them. (Routing/middleware is
 //    handled separately per the brief.)
-// 3. AGENDA_SECTIONS / SPECIAL_CONDITIONS are inlined (read-only copy) because they
-//    are not exported from customers/[id]/page.tsx and we must not modify that file
-//    beyond adding the single preview button.
+// 3. The inlined standing-agenda "selections" copy (AGENDA_SECTIONS) and the
+//    special-conditions checkbox list were removed with the old Project Details card.
+//    Special conditions now render only the values actually stored for the client.
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Fraunces, DM_Sans } from 'next/font/google'
 import { createClient } from '@/lib/supabase'
 import { WORKFLOW_STEPS, TOTAL_WORKFLOW_STEPS } from '@/lib/workflow-steps'
+import { getClientPhase } from '@/lib/client-phase'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 // ── Fonts (per brief): Fraunces for headings/large numbers, DM Sans for body ──
 const fraunces = Fraunces({ subsets: ['latin'], weight: ['400', '500'], display: 'swap' })
 const dmSans = DM_Sans({ subsets: ['latin'], weight: ['400', '500', '600', '700'], display: 'swap' })
 
 const SERIF = fraunces.style.fontFamily
+
+// Editorial treatment for the hero / "Happening now" card / phase tracker. Both fonts
+// are ALREADY loaded app-wide by src/app/layout.tsx as CSS variables (--font-fraunces,
+// --font-inter), so nothing new is fetched. The global Fraunces is the variable-weight
+// build, which is what allows the lighter 300 display weight the local instance above
+// (400/500 only) cannot render. The other sections keep SERIF / DM Sans until their
+// own restyle.
+const DISPLAY = 'var(--font-fraunces), Georgia, serif'
+const BODY = 'var(--font-inter), system-ui, sans-serif'
+
+// Page-scoped palette. Theme switching is the APP's existing mechanism — the `.dark`
+// class on <html>, toggled by ThemeToggle / useTheme (sessionStorage) — not a second
+// data-theme + localStorage system, which would fight it. Dark mode maps straight onto
+// the existing globals.css tokens (--bg #121110, --red #F0565E, …); only the warm-ivory
+// light values are new, since globals.css defines no ivory family.
+const MP_TOKENS = `
+  .mp-root {
+    --mp-bg: #FAF8F5;
+    --mp-surface: #FFFFFF;
+    --mp-line: #E9E3DA;
+    --mp-ink: #1C1917;
+    --mp-ink2: #6B635A;
+    --mp-ink3: #A0978B;
+    --mp-sketch: #D9D1C5;
+    --mp-accent: var(--red);
+    --mp-accent-soft: rgba(200, 49, 26, 0.12);
+    --mp-ok: #22c55e;
+    /* Phase tracker, UPCOMING state only. Light mode = the shared tokens exactly
+       (no visual change); dark mode raises them below. */
+    --mp-phase-upcoming-text: var(--mp-ink3);
+    --mp-phase-upcoming-track: var(--mp-line);
+  }
+  .dark .mp-root {
+    --mp-bg: var(--bg);
+    --mp-surface: var(--surface);
+    --mp-line: var(--border);
+    --mp-ink: var(--text);
+    --mp-ink2: var(--text2);
+    --mp-ink3: var(--text3);
+    --mp-sketch: rgba(255, 255, 255, 0.12);
+    --mp-accent: var(--red);
+    --mp-accent-soft: rgba(240, 86, 94, 0.16);
+    --mp-ok: #59B87E;
+    /* Dark-mode legibility for upcoming phases, measured on the card (--surface
+       #1A1918): text #908F8B = 5.42:1 (AA for small text; the shared --text3
+       #7B7A77 was 4.09:1), still below the active description (--text2, 7.29:1) and
+       label (--text, 14.73:1). Track white @ 0.34 = 3.12:1 (the UI-graphic 3:1
+       bar; the shared --border @ 0.09 was 1.30:1). */
+    --mp-phase-upcoming-text: #908F8B;
+    --mp-phase-upcoming-track: rgba(255, 255, 255, 0.34);
+  }
+  .mp-hero { position: relative; }
+  .mp-house { position: absolute; right: 0; top: 4px; pointer-events: none; }
+  .mp-hero-name { max-width: calc(100% - 150px); }
+  @media (max-width: 600px) { .mp-house { display: none; } .mp-hero-name { max-width: none; } }
+  @media (max-width: 560px) {
+    .mp-now { flex-direction: column-reverse; align-items: flex-start !important; }
+    .mp-phases > div { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; row-gap: 18px !important; }
+    .mp-details { grid-template-columns: 1fr !important; }
+  }
+`
 
 // ── Step type → badge styling (per brief) ────────────────────────────────────
 const TYPE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
@@ -87,78 +150,81 @@ function getPhaseState(phase: PhaseDef, completed: Set<number>, currentStepNumbe
   return 'upcoming'
 }
 
-function PhaseTracker({ completed, currentStepNumber }: { completed: Set<number>; currentStepNumber: number | null }) {
-  const states = PHASES.map(p => getPhaseState(p, completed, currentStepNumber))
-
-  // A connector (the segment to a phase's RIGHT) is solid green when the phase on
-  // its LEFT is done; otherwise it's a dashed gray line. Each phase draws its own
-  // left + right half so the halves of one connector always match.
-  const solidLine: React.CSSProperties = { flex: 1, height: 2, background: '#22c55e' }
-  const dashedLine: React.CSSProperties = { flex: 1, height: 0, borderTop: '2px dashed var(--border2)' }
-  const blankLine: React.CSSProperties = { flex: 1, height: 2, background: 'transparent' }
+// constructionOverride: supplied only once pre-con is complete, when the last entry
+// ("Construction", mapped above to pre-con step 37 only) must report the REAL
+// Construction Journey instead. Omitted → every state and description is computed
+// exactly as before, so a pre-con client's tracker is unchanged.
+// Rendering: one horizontal bar per phase. The STATE of each bar is computed exactly
+// as before (getPhaseState / constructionOverride — unchanged). Only the fill amount
+// is display-derived here:
+//   done     → 100%
+//   upcoming → 0%
+//   active   → the share of THAT phase's own steps already complete. For the last
+//              entry once pre-con is done this is `constructionFill` (the page's
+//              existing cjPct / 100); null when construction data is unavailable,
+//              which draws the highlighted track with no fill rather than a guess.
+function PhaseTracker({ completed, currentStepNumber, constructionOverride, constructionFill }: {
+  completed: Set<number>
+  currentStepNumber: number | null
+  constructionOverride?: { state: PhaseState; description: string }
+  constructionFill?: number | null
+}) {
+  const lastIdx = PHASES.length - 1
+  const states = PHASES.map((p, i) =>
+    constructionOverride && i === lastIdx ? constructionOverride.state : getPhaseState(p, completed, currentStepNumber)
+  )
 
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', margin: '20px 0' }}>
-      <style>{`
-        @keyframes myProjectPhasePulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(26,25,23,0.3); }
-          50% { box-shadow: 0 0 0 6px rgba(26,25,23,0); }
-        }
-      `}</style>
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PHASES.length}, minmax(0, 1fr))`, gap: 14 }}>
       {PHASES.map((phase, i) => {
         const state = states[i]
-        const leftDone = i > 0 ? states[i - 1] === 'done' : false
-        const rightDone = state === 'done'
-        const leftStyle = i === 0 ? blankLine : leftDone ? solidLine : dashedLine
-        const rightStyle = i === PHASES.length - 1 ? blankLine : rightDone ? solidLine : dashedLine
+        const isOverridden = !!constructionOverride && i === lastIdx
+        const fill =
+          state === 'done' ? 1
+          : state === 'upcoming' ? 0
+          : isOverridden ? (constructionFill ?? 0)
+          : phase.steps.filter(s => completed.has(s)).length / phase.steps.length
 
-        const circleBase: React.CSSProperties = {
-          width: 32,
-          height: 32,
-          borderRadius: '50%',
-          flexShrink: 0,
-          display: 'grid',
-          placeItems: 'center',
-        }
-        let circle: React.CSSProperties
-        let inner: React.ReactNode = null
-        if (state === 'done') {
-          circle = { ...circleBase, background: '#22c55e', border: 'none' }
-          inner = <span style={{ color: '#fff', fontSize: 14, lineHeight: 1 }}>✓</span>
-        } else if (state === 'active') {
-          circle = { ...circleBase, background: '#1a1917', border: 'none', animation: 'myProjectPhasePulse 2s ease-in-out infinite' }
-          inner = <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />
-        } else {
-          circle = { ...circleBase, background: 'var(--surface2)', border: '1.5px solid var(--border)' }
-        }
-
-        const labelColor = state === 'done' ? '#15803d' : state === 'active' ? 'var(--text)' : 'var(--text3)'
-        const labelWeight = state === 'done' ? 600 : state === 'active' ? 700 : 400
-        const descColor = state === 'active' ? 'var(--text2)' : 'var(--text3)'
-
+        const labelColor = state === 'upcoming' ? 'var(--mp-phase-upcoming-text)' : 'var(--mp-ink)'
         return (
-          <div key={phase.label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
-            {/* Circle + connector halves on the same horizontal line */}
-            <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-              <div style={leftStyle} />
-              <div style={circle}>{inner}</div>
-              <div style={rightStyle} />
+          <div key={phase.label} style={{ minWidth: 0 }}>
+            {/* Bar */}
+            <div
+              style={{
+                height: 4,
+                borderRadius: 99,
+                overflow: 'hidden',
+                background: state === 'active' ? 'var(--mp-accent-soft)' : state === 'upcoming' ? 'var(--mp-phase-upcoming-track)' : 'var(--mp-line)',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.round(fill * 100)}%`,
+                  borderRadius: 99,
+                  background: state === 'done' ? 'var(--mp-ok)' : 'var(--mp-accent)',
+                  transition: 'width 500ms ease',
+                }}
+              />
             </div>
 
-            {/* Label + optional CURRENT badge + description */}
-            <div style={{ textAlign: 'center', marginTop: 8, paddingInline: 4 }}>
-              <div style={{ fontSize: 11, fontWeight: labelWeight, color: labelColor, lineHeight: 1.25 }}>
-                {phase.label}
-              </div>
-              {state === 'active' && (
-                <div style={{ marginTop: 4 }}>
-                  <span style={{ fontSize: 9, background: 'var(--red-soft)', color: '#991b1b', borderRadius: 4, padding: '1px 5px', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>
+            {/* Label + state + description */}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, fontWeight: state === 'active' ? 600 : 500, color: labelColor, lineHeight: 1.3 }}>
+                  {phase.label}
+                </span>
+                {state === 'active' && (
+                  <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--mp-accent)' }}>
                     Current
                   </span>
-                </div>
-              )}
-              <div style={{ fontSize: 10, color: descColor, marginTop: 2, lineHeight: 1.3, opacity: state === 'upcoming' ? 0.6 : 1 }}>
-                {phase.description}
+                )}
+                {state === 'done' && (
+                  <span aria-label="complete" style={{ fontSize: 11, color: 'var(--mp-ok)' }}>✓</span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: state === 'active' ? 'var(--mp-ink2)' : state === 'upcoming' ? 'var(--mp-phase-upcoming-text)' : 'var(--mp-ink3)', marginTop: 3, lineHeight: 1.4 }}>
+                {isOverridden && constructionOverride ? constructionOverride.description : phase.description}
               </div>
             </div>
           </div>
@@ -168,102 +234,102 @@ function PhaseTracker({ completed, currentStepNumber }: { completed: Set<number>
   )
 }
 
-// ── Standing-agenda data (read-only inline copy — see note 3) ─────────────────
-interface CustomerAgendaQuestion { key: string; text: string }
-interface CustomerAgendaSection { code: string; name: string; questions: CustomerAgendaQuestion[] }
+// Circular progress ring for the "Happening now" card. Purely presentational: the
+// percentage is passed in already computed (see the call site for what it means).
+function ProgressRing({ value, color, caption }: { value: number; color: string; caption: string }) {
+  const size = 104
+  const stroke = 5
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const clamped = Math.max(0, Math.min(100, value))
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--mp-line)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none"
+          stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={c * (1 - clamped / 100)}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: 'stroke-dashoffset 600ms ease' }}
+        />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+        <div>
+          <div style={{ fontFamily: DISPLAY, fontSize: 26, fontWeight: 300, color: 'var(--mp-ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+            {clamped}%
+          </div>
+          <div style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--mp-ink3)', marginTop: 4 }}>
+            {caption}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-const AGENDA_SECTIONS: CustomerAgendaSection[] = [
-  { code: '01 00 00', name: 'General Requirements', questions: [
-    { key: 'sign_placement', text: 'Construction sign placement — where can it be staked for visibility?' },
-    { key: 'site_access', text: 'Site access — how will construction vehicles and deliveries reach the site?' },
-    { key: 'permitting_path', text: 'Permitting path — municipality, expeditor needed, anticipated review timeline?' },
-  ]},
-  { code: '02 00 00', name: 'Existing Conditions', questions: [
-    { key: 'trees_landscaping', text: 'Trees or landscaping that affect the project — any to be removed or protected?' },
-    { key: 'existing_structures', text: 'Existing structures to demolish (full or selective)? Describe scope.' },
-    { key: 'existing_driveway', text: 'Existing driveway / pavers / hardscape to remove?' },
-  ]},
-  { code: '03 00 00', name: 'Concrete', questions: [
-    { key: 'foundation_type', text: 'Foundation type for site conditions (slab, stem wall, elevated/coastal)?' },
-    { key: 'wall_type', text: 'Wall type / material — block vs. wood by floor' },
-    { key: 'driveway_surface', text: 'Driveway surface selection' },
-    { key: 'parking_pad', text: 'Parking pad / apron surface selection' },
-    { key: 'swale_drainage', text: 'Swale / drainage grading' },
-  ]},
-  { code: '06 00 00', name: 'Wood, Plastics & Composites', questions: [
-    { key: 'num_stories', text: 'Number of stories / floors (drives framing, pilings, structure cost)?' },
-    { key: 'ceiling_height', text: 'Floor-to-ceiling height — by floor?' },
-    { key: 'pilings', text: 'Elevated foundation pilings required (coastal / flood)? Engineered depth?' },
-    { key: 'roof_structure', text: 'Roof structure — vaulted or not vaulted?' },
-    { key: 'staircase', text: 'Staircase & railing — any upgrade?' },
-    { key: 'decking', text: 'Decking material — do they want Trex?' },
-    { key: 'deck_columns', text: 'Wrap the deck columns with siding?' },
-  ]},
-  { code: '07 00 00', name: 'Thermal & Moisture Protection', questions: [
-    { key: 'roof_system', text: 'Roof system selection' },
-    { key: 'insulation', text: 'Insulation approach' },
-    { key: 'garage_insulation', text: 'Does the garage need to be insulated?' },
-    { key: 'gutters', text: 'Gutters — always included; which type?' },
-  ]},
-  { code: '08 00 00', name: 'Openings', questions: [
-    { key: 'window_color', text: 'Window color & brand' },
-    { key: 'window_style', text: 'Window style' },
-    { key: 'frosted_glass', text: 'Frosted glass in the bathroom?' },
-    { key: 'garage_door', text: 'Garage door — included? Height & insulation?' },
-    { key: 'screened_porch', text: 'Screened porch — in scope?' },
-    { key: 'exterior_doors', text: 'Exterior doors — glass & height?' },
-    { key: 'interior_doors', text: 'Interior door height?' },
-  ]},
-  { code: '09 00 00', name: 'Finishes', questions: [
-    { key: 'wall_texture', text: 'Wall & ceiling texture' },
-    { key: 'garage_drywall', text: 'Garage drywall — finish the garage?' },
-    { key: 'flooring', text: 'Flooring — LVP is included throughout. Upgrade?' },
-    { key: 'backsplash', text: 'Backsplash — included?' },
-    { key: 'paint', text: 'Paint — any extra paint scope (e.g. main house)?' },
-    { key: 'window_casing', text: 'Casing around the windows?' },
-  ]},
-  { code: '10 00 00', name: 'Specialties', questions: [
-    { key: 'shower_glass', text: 'Shower / tub glass — do they want custom?' },
-  ]},
-  { code: '11 00 00', name: 'Equipment', questions: [
-    { key: 'appliances', text: 'Appliance package — include all appliances + washer & dryer?' },
-  ]},
-  { code: '12 00 00', name: 'Furnishings', questions: [
-    { key: 'cabinet_construction', text: 'Cabinet construction' },
-    { key: 'cabinet_style', text: 'Cabinet style' },
-    { key: 'vanity', text: 'Vanity' },
-    { key: 'countertop', text: 'Countertop material' },
-    { key: 'kitchen_sink', text: 'Kitchen sink' },
-    { key: 'bathroom_sink', text: 'Bathroom sink' },
-  ]},
-  { code: '22 00 00', name: 'Plumbing', questions: [
-    { key: 'laundry_location', text: 'Laundry location — where do washer/dryer go?' },
-    { key: 'water_heater', text: 'Water heater' },
-    { key: 'plumbing_fixtures', text: 'Plumbing fixtures' },
-    { key: 'gas_service', text: 'Gas service — in scope for this project?' },
-    { key: 'water_utility', text: 'Water utility — connection & metering' },
-  ]},
-  { code: '23 00 00', name: 'HVAC', questions: [
-    { key: 'hvac_type', text: 'HVAC system type & efficiency goal?' },
-    { key: 'air_handler', text: 'Air handler location?' },
-    { key: 'kitchen_hood', text: 'Kitchen hood' },
-  ]},
-  { code: '26 00 00', name: 'Electrical', questions: [
-    { key: 'electrical_meter', text: 'Electrical meter configuration' },
-    { key: 'elevator', text: 'Elevator — in scope?' },
-    { key: 'light_fixtures', text: 'Light fixtures' },
-    { key: 'special_electrical', text: 'Special electrical' },
-  ]},
-]
+// Decorative architectural accent for the hero — thin-stroke house outline.
+function HouseSketch() {
+  return (
+    <svg
+      className="mp-house"
+      aria-hidden="true"
+      focusable="false"
+      width="170" height="120" viewBox="0 0 170 120" fill="none"
+      stroke="var(--mp-sketch)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"
+    >
+      {/* ground */}
+      <line x1="4" y1="112" x2="166" y2="112" />
+      {/* main volume + roof */}
+      <polyline points="22,112 22,56 70,20 118,56 118,112" />
+      <line x1="14" y1="62" x2="70" y2="20" />
+      <line x1="70" y1="20" x2="126" y2="62" />
+      {/* chimney */}
+      <polyline points="94,38 94,24 104,24 104,46" />
+      {/* door */}
+      <rect x="60" y="80" width="20" height="32" />
+      {/* windows */}
+      <rect x="32" y="68" width="18" height="16" />
+      <line x1="41" y1="68" x2="41" y2="84" />
+      <rect x="90" y="68" width="18" height="16" />
+      <line x1="99" y1="68" x2="99" y2="84" />
+      {/* garage wing */}
+      <polyline points="118,112 118,74 158,74 158,112" />
+      <line x1="114" y1="76" x2="162" y2="76" />
+      <line x1="126" y1="86" x2="150" y2="86" />
+      <line x1="126" y1="94" x2="150" y2="94" />
+      <line x1="126" y1="102" x2="150" y2="102" />
+    </svg>
+  )
+}
 
-// Canonical special-condition values (must match stored values for the read-only
-// checkmarks to reflect saved selections).
-const SPECIAL_CONDITIONS = [
-  'Historic district / overlay',
-  'Coastal construction control line',
-  'Flood zone',
-  'None of these',
-]
+// ── Team / Project details cards (C1 styling: page-scoped --mp-* tokens) ─────────
+const MP_CARD: React.CSSProperties = {
+  background: 'var(--mp-surface)',
+  border: '0.5px solid var(--mp-line)',
+  borderRadius: 16,
+  overflow: 'hidden',
+  fontFamily: BODY,
+}
+const MP_CARD_HEADER: React.CSSProperties = {
+  padding: '18px 24px 14px',
+  borderBottom: '0.5px solid var(--mp-line)',
+}
+const MP_CARD_TITLE: React.CSSProperties = {
+  fontFamily: DISPLAY,
+  fontSize: 20,
+  fontWeight: 300,
+  letterSpacing: '-0.01em',
+  color: 'var(--mp-ink)',
+}
+
+// Avatar initials from a real name: first + last word, or the first two letters of
+// a single word. Only ever called with a non-empty trimmed name.
+function personInitials(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return parts[0].slice(0, 2).toUpperCase()
+}
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
 interface ClientRow {
@@ -273,6 +339,9 @@ interface ClientRow {
   location: string | null
   project_value: number | null
   email: string | null
+  // Already returned by the existing select('*'); typed here because Project
+  // details falls back to it when client_agenda_header.project_address is blank.
+  project_address?: string | null
 }
 
 interface AgendaHeaderRow {
@@ -287,8 +356,6 @@ interface AgendaHeaderRow {
   special_conditions?: string[] | null
 }
 
-interface AgendaAnswerEntry { answer: string; selected_options: string[] }
-
 // NEW (additive): a file shared with the customer (read-only on this page).
 interface ProjectFile {
   id: string
@@ -298,24 +365,6 @@ interface ProjectFile {
   file_size: number
   file_type: string
   uploaded_at: string
-}
-
-function agendaKey(sectionCode: string, questionKey: string) {
-  return `${sectionCode}||${questionKey}`
-}
-
-// selected_options may arrive as an array or a JSON string — normalize.
-function normalizeOptions(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === 'string')
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
-    } catch {
-      return raw.trim() ? [raw] : []
-    }
-  }
-  return []
 }
 
 // NEW (additive): human-readable file size + icon for the Your Project Files list.
@@ -395,35 +444,138 @@ function pad2(n: number) {
   return String(n).padStart(2, '0')
 }
 
+// One Project Timeline row. Shared by the pre-con list (its original markup, moved
+// here verbatim) and the Construction list, so both journeys highlight done/current
+// steps identically. `badge` renders for done/current rows only, exactly as the
+// pre-con TypeBadge always did; Construction passes null (see the call site).
+function timelineRow({ stepNumber, title, done, isCurrent, last, badge }: {
+  stepNumber: number
+  title: string
+  done: boolean
+  isCurrent: boolean
+  last: boolean
+  badge: React.ReactNode
+}) {
+  return (
+    <div
+      key={stepNumber}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 11,
+        padding: '9px 20px',
+        borderBottom: last ? undefined : '0.5px solid var(--border)',
+        background: isCurrent ? 'var(--surface2)' : 'transparent',
+      }}
+    >
+      {/* Dot indicator */}
+      {done ? (
+        <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#22c55e', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        </span>
+      ) : isCurrent ? (
+        <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#1a1917', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+        </span>
+      ) : (
+        <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid var(--border2)', flexShrink: 0 }} />
+      )}
+
+      {/* Step number */}
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', width: 20, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+        {pad2(stepNumber)}
+      </span>
+
+      {/* Title */}
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontSize: 13,
+          fontWeight: isCurrent ? 600 : 400,
+          color: done ? 'var(--text3)' : 'var(--text)',
+          textDecoration: done ? 'line-through' : 'none',
+        }}
+      >
+        {title}
+      </span>
+
+      {/* Badge: type for done/current, "You are here" for current; nothing for future */}
+      {isCurrent && (
+        <span style={{ ...STEP_PILL, fontSize: 9.5 }}>You are here</span>
+      )}
+      {(done || isCurrent) && badge}
+    </div>
+  )
+}
+
 export default function MyProjectPage() {
   const [loading, setLoading] = useState(true)
   const [client, setClient] = useState<ClientRow | null>(null)
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const [agendaHeader, setAgendaHeader] = useState<AgendaHeaderRow | null>(null)
-  const [answers, setAnswers] = useState<Map<string, AgendaAnswerEntry>>(new Map())
-  const [openSections, setOpenSections] = useState<Set<string>>(new Set())
   // NEW (additive): files shared with this customer (read-only).
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([])
+  // Set only when an explicit ?client=<id> was given and resolved to no client.
+  // Deliberately separate from `client === null` (the email/John Smith path's own
+  // "No project found" state), so a staff user with a mistyped or stale link sees
+  // that their link is wrong rather than being handed John Smith's project.
+  const [requestedClientNotFound, setRequestedClientNotFound] = useState<string | null>(null)
+  // Construction Journey (read-only). cjSteps is the shared step list from
+  // construction_step_definitions — `null` means it could not be loaded (error or
+  // zero rows), never a fallback list. cjMarks holds this client's marked step
+  // numbers from construction_step_marks; row presence IS completion.
+  // Only consulted once every pre-con step is done — see the phase derivation.
+  const [cjSteps, setCjSteps] = useState<{ n: number; title: string }[] | null>(null)
+  const [cjMarks, setCjMarks] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     async function load() {
       const supabase = createClient()
       try {
-        // 1. Current logged-in user.
-        const { data: { user } } = await supabase.auth.getUser()
+        // 0. Explicit client (staff preview from a client profile's "Customer View"
+        //    button). window.location rather than useSearchParams() so this page
+        //    needs no Suspense boundary — same approach as customers/[id]/page.tsx.
+        //    Mutually exclusive with steps 1-3: when the param is PRESENT (even if
+        //    empty), the page resolves by id or shows "Client not found" — it never
+        //    falls through to the email match or the John Smith fallback.
+        const q = new URLSearchParams(window.location.search)
+        const hasClientParam = q.has('client')
+        const requestedClientId = (q.get('client') ?? '').trim()
 
-        // 2. Match a client by email. (maybeSingle avoids throwing when there's no
-        //    row — the brief's .single() would error in that case.)
         let clientRow: ClientRow | null = null
-        if (user?.email) {
-          const { data } = await supabase.from('clients').select('*').eq('email', user.email).maybeSingle()
-          clientRow = (data as ClientRow | null) ?? null
-        }
+        if (hasClientParam) {
+          // An empty or malformed id is simply "not found": a non-uuid value makes
+          // PostgREST return an error rather than a row, and either way no row means
+          // the requested client could not be shown.
+          if (requestedClientId) {
+            const { data, error } = await supabase.from('clients').select('*').eq('id', requestedClientId).maybeSingle()
+            if (error) console.error('[my-project] client-by-id lookup error:', error)
+            clientRow = (data as ClientRow | null) ?? null
+          }
+          if (!clientRow) {
+            setRequestedClientNotFound(requestedClientId)
+            setClient(null)
+            setLoading(false)
+            return
+          }
+        } else {
+          // ── Existing resolution, unchanged ──────────────────────────────────
+          // 1. Current logged-in user.
+          const { data: { user } } = await supabase.auth.getUser()
 
-        // 3. Demo fallback → John Smith.
-        if (!clientRow) {
-          const { data } = await supabase.from('clients').select('*').eq('name', 'John Smith').maybeSingle()
-          clientRow = (data as ClientRow | null) ?? null
+          // 2. Match a client by email. (maybeSingle avoids throwing when there's no
+          //    row — the brief's .single() would error in that case.)
+          if (user?.email) {
+            const { data } = await supabase.from('clients').select('*').eq('email', user.email).maybeSingle()
+            clientRow = (data as ClientRow | null) ?? null
+          }
+
+          // 3. Demo fallback → John Smith.
+          if (!clientRow) {
+            const { data } = await supabase.from('clients').select('*').eq('name', 'John Smith').maybeSingle()
+            clientRow = (data as ClientRow | null) ?? null
+          }
         }
 
         if (!clientRow) {
@@ -433,26 +585,49 @@ export default function MyProjectPage() {
         }
         setClient(clientRow)
 
-        // 4-7. Completed steps, agenda header, agenda answers, shared files — in parallel.
-        const [{ data: completions }, { data: header }, { data: agendaAnswers }, { data: files }] = await Promise.all([
+        // 4-8. Completed steps, agenda header, shared files, and the Construction
+        //      Journey (definitions + this client's marks) — in parallel, so the one
+        //      existing `loading` gate covers all of them. (client_standing_agenda is no
+        //      longer read: the selections section it fed has been removed.)
+        const [
+          { data: completions },
+          { data: header },
+          { data: files },
+          { data: cjDefRows, error: cjDefErr },
+          { data: cjMarkRows, error: cjMarkErr },
+        ] = await Promise.all([
           supabase.from('workflow_step_completions').select('step_number').eq('client_id', clientRow.id),
           supabase.from('client_agenda_header').select('*').eq('client_id', clientRow.id).maybeSingle(),
-          supabase.from('client_standing_agenda').select('*').eq('client_id', clientRow.id),
           supabase.from('client_files').select('*').eq('client_id', clientRow.id).order('uploaded_at', { ascending: false }),
+          // Same table and order as the Construction panel's fetchCjSteps (not
+          // importable — module-local to customers/[id]/page.tsx); only the two
+          // columns this page renders.
+          supabase.from('construction_step_definitions').select('step_number, title').order('step_number', { ascending: true }),
+          supabase.from('construction_step_marks').select('step_number').eq('client_id', clientRow.id),
         ])
 
         setCompletedSteps(new Set((completions ?? []).map((c: { step_number: number }) => c.step_number)))
+
+        // Construction: fail to "unavailable", never to a guess. Zero definition rows
+        // is treated as a failure too (an RLS denial comes back as an empty 200), and
+        // a failed marks read leaves the whole journey unavailable rather than reading
+        // as "nothing done yet".
+        if (cjDefErr || cjMarkErr) {
+          console.error('[my-project] construction load error:', cjDefErr ?? cjMarkErr)
+        } else {
+          const rawDefs = (cjDefRows ?? []) as { step_number: unknown; title: unknown }[]
+          const defs = rawDefs
+            .filter((r): r is { step_number: number; title: string } => typeof r.step_number === 'number' && typeof r.title === 'string')
+            .map(r => ({ n: r.step_number, title: r.title }))
+          // A malformed row makes the whole list unavailable (as fetchCjSteps throws)
+          // rather than being skipped — dropping a step would silently shrink the total.
+          if (defs.length > 0 && defs.length === rawDefs.length) {
+            setCjSteps(defs)
+            setCjMarks(new Set(((cjMarkRows ?? []) as { step_number: number }[]).map(r => r.step_number)))
+          }
+        }
         setAgendaHeader((header as AgendaHeaderRow | null) ?? null)
         setProjectFiles((files as ProjectFile[] | null) ?? [])
-
-        const map = new Map<string, AgendaAnswerEntry>()
-        for (const r of (agendaAnswers ?? []) as { section_code: string; question_key: string; answer: string | null; selected_options: unknown }[]) {
-          map.set(agendaKey(r.section_code, r.question_key), {
-            answer: r.answer ?? '',
-            selected_options: normalizeOptions(r.selected_options),
-          })
-        }
-        setAnswers(map)
       } catch (err) {
         console.error('[my-project] load error:', err)
       } finally {
@@ -468,17 +643,77 @@ export default function MyProjectPage() {
   const pct = TOTAL_WORKFLOW_STEPS > 0 ? Math.round((completedCount / TOTAL_WORKFLOW_STEPS) * 100) : 0
   const currentStep = WORKFLOW_STEPS.find(s => !completedSteps.has(s.step)) ?? null
 
-  const headerFields: { label: string; value: string }[] = [
-    { label: 'Project Name', value: agendaHeader?.project_name ?? '' },
-    { label: 'Project Address', value: agendaHeader?.project_address ?? '' },
-    { label: 'Architect', value: agendaHeader?.architect ?? '' },
-    { label: 'Project Specialist', value: agendaHeader?.project_specialist ?? '' },
-    { label: 'Estimator', value: agendaHeader?.estimator ?? '' },
-    { label: 'Target Permit Date', value: fmtMaybeDate(agendaHeader?.target_permit_date) },
-    { label: 'Homeowners', value: agendaHeader?.homeowners ?? '' },
-    { label: 'Zoning', value: agendaHeader?.zoning ?? '' },
+  // ── Journey phase ───────────────────────────────────────────────────────────
+  // Only matters once pre-con is done (currentStep === null); for every pre-con
+  // client getClientPhase returns 'precon' and nothing below changes the render.
+  // Mirrors the Construction panel / internal Overview exactly: done count is the
+  // INTERSECTION of marks with the definitions, and the current step is the
+  // LOWEST-numbered unmarked step (not "highest marked + 1").
+  // cjAvailable false (read failed / no definitions) → phase is left null past
+  // pre-con, and the page says progress is unavailable instead of guessing.
+  const cjAvailable = cjSteps !== null
+  const cjTotal = cjSteps?.length ?? 0
+  const cjDoneCount = cjSteps ? cjSteps.filter(s => cjMarks.has(s.n)).length : 0
+  const cjCurrentStep = cjSteps ? cjSteps.find(s => !cjMarks.has(s.n)) ?? null : null
+  // getClientPhase is the sole decider. Mid-pre-con it returns 'precon' whatever the
+  // construction values are (completedCount !== 37), so it is safe to call even when
+  // the construction read failed; only past pre-con does an unavailable read matter.
+  const phase = currentStep !== null || cjAvailable
+    ? getClientPhase(completedCount, cjDoneCount, cjTotal)
+    : null
+  const cjPct = cjTotal > 0 ? Math.round((cjDoneCount / cjTotal) * 100) : 0
+  // The progress headline/bar switch to the Construction count only in the two
+  // past-pre-con phases with real data; pre-con (and "unavailable") keep 37-step.
+  const showCjProgress = phase === 'construction' || phase === 'completed'
+  // Replaces the tracker's cosmetic "Construction" entry (which is really pre-con
+  // step 37) once pre-con is done. undefined for pre-con → original tracker render.
+  const constructionOverride: { state: PhaseState; description: string } | undefined =
+    phase === 'precon'
+      ? undefined
+      : phase === 'completed'
+        ? { state: 'done', description: 'Your home is complete' }
+        : phase === 'construction' && cjCurrentStep
+          ? { state: 'active', description: `Step ${cjCurrentStep.n} of ${cjTotal} · ${cjCurrentStep.title}` }
+          // Past pre-con but construction progress could not be read.
+          : { state: 'active', description: 'Progress details unavailable right now' }
+
+  // ── Your team / Project details ─────────────────────────────────────────────
+  // Every value is a real column or ''. `text()` is the fetch-boundary guard: a
+  // non-string (or whitespace-only) value reads as absent rather than being rendered.
+  const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+
+  // Team — client_agenda_header only. No fallback: the clients table has no column
+  // for these roles (clients.owner is the Client Solution Manager, a different role).
+  const team: { role: string; name: string }[] = [
+    { role: 'Architect', name: text(agendaHeader?.architect) },
+    { role: 'Project Specialist', name: text(agendaHeader?.project_specialist) },
+    { role: 'Estimator', name: text(agendaHeader?.estimator) },
   ]
-  const selectedConditions = agendaHeader?.special_conditions ?? []
+  const teamHasAnyone = team.some(m => m.name !== '')
+  // Footer CTA reuses the Team card's own value ('' when not assigned).
+  const specialistName = team.find(m => m.role === 'Project Specialist')?.name ?? ''
+
+  // Project details. Name / address / homeowners use the SAME fallback as the staff
+  // Standing Agenda (customers/[id]/page.tsx:1947-1953): header value, else the
+  // clients row (`h?.project_name || clientName`, `h?.project_address ||
+  // client.project_address`, `h?.homeowners || clientName`). Permit date and zoning
+  // exist only on client_agenda_header, so they have no fallback.
+  const details: { label: string; value: string }[] = [
+    { label: 'Project name', value: text(agendaHeader?.project_name) || text(client?.name) },
+    { label: 'Address', value: text(agendaHeader?.project_address) || text(client?.project_address) },
+    { label: 'Homeowners', value: text(agendaHeader?.homeowners) || text(client?.name) },
+    { label: 'Target permit date', value: fmtMaybeDate(text(agendaHeader?.target_permit_date)) },
+    { label: 'Zoning', value: text(agendaHeader?.zoning) },
+  ]
+
+  // Special conditions — rendered only when a header row exists AND its array holds
+  // at least one real value. 'None of these' is an explicit answer, not an empty one,
+  // so it renders as "No special conditions" rather than being dropped.
+  const conditionValues = Array.isArray(agendaHeader?.special_conditions)
+    ? (agendaHeader.special_conditions as unknown[]).map(text).filter(v => v !== '')
+    : []
+  const realConditions = conditionValues.filter(v => v !== 'None of these')
+  const showConditions = agendaHeader !== null && conditionValues.length > 0
 
   // NEW (additive): open a shared file via a short-lived signed URL.
   async function handleFileDownload(file: ProjectFile) {
@@ -511,6 +746,26 @@ export default function MyProjectPage() {
     )
   }
 
+  if (!client && requestedClientNotFound !== null) {
+    return (
+      <div className={dmSans.className} style={{ ...overlay, display: 'grid', placeItems: 'center', padding: 24 }}>
+        <div style={{ textAlign: 'center', maxWidth: 420 }}>
+          <div style={{ fontFamily: SERIF, fontSize: 24, color: 'var(--text)', marginBottom: 8 }}>
+            Client not found
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.5 }}>
+            {requestedClientNotFound
+              ? <>No client matches the id <code style={{ fontSize: 12 }}>{requestedClientNotFound}</code>. The link may be mistyped or out of date.</>
+              : <>This link names no client. Open Customer View from a client&apos;s profile instead.</>}
+          </div>
+          <Link href="/customers" style={{ display: 'inline-block', marginTop: 16, fontSize: 13, color: 'var(--text)' }}>
+            ← Back to Active Clients
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   if (!client) {
     return (
       <div className={dmSans.className} style={{ ...overlay, display: 'grid', placeItems: 'center', padding: 24 }}>
@@ -527,8 +782,64 @@ export default function MyProjectPage() {
     )
   }
 
+  // ── "Happening now" display model ────────────────────────────────────────────
+  // Display-only: every value is one the page already computed above (phase,
+  // currentStep, cjCurrentStep, cjTotal, pct, cjPct, showCjProgress). The branch
+  // order is exactly the old current-step row's: pre-con row → construction row →
+  // completed → construction-unavailable.
+  // RING = progress through the client's CURRENT JOURNEY — the same number the old
+  // "% complete" pill showed (`showCjProgress ? cjPct : pct`), not a new metric.
+  const ringValue = showCjProgress ? cjPct : pct
+  const happening: {
+    eyebrow: string
+    title: string
+    meta: React.ReactNode
+    ringCaption: string
+    ringColor: string
+  } = currentStep
+    ? {
+        eyebrow: 'Happening now · Pre-construction',
+        title: currentStep.title,
+        meta: (
+          <>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>Step {pad2(currentStep.step)} of {TOTAL_WORKFLOW_STEPS}</span>
+            <TypeBadge type={currentStep.type} />
+          </>
+        ),
+        ringCaption: 'Pre-construction',
+        ringColor: 'var(--mp-accent)',
+      }
+    : phase === 'construction' && cjCurrentStep
+      ? {
+          eyebrow: 'Happening now · Construction',
+          title: cjCurrentStep.title,
+          // No TypeBadge: its config is pre-con's three types (see Phase B).
+          meta: <span style={{ fontVariantNumeric: 'tabular-nums' }}>Step {pad2(cjCurrentStep.n)} of {cjTotal}</span>,
+          ringCaption: 'Construction',
+          ringColor: 'var(--mp-accent)',
+        }
+      : phase === 'completed'
+        ? {
+            eyebrow: 'Complete',
+            title: 'Your home is complete',
+            meta: <span>Pre-construction and all {cjTotal} construction steps are finished.</span>,
+            ringCaption: 'Construction',
+            ringColor: 'var(--mp-ok)',
+          }
+        : {
+            // Past pre-con, construction progress could not be read. The ring shows
+            // the pre-con figure (which is real and 100%), captioned as such, rather
+            // than any construction number.
+            eyebrow: 'Pre-construction complete',
+            title: 'Construction progress is not available right now',
+            meta: <span>All {TOTAL_WORKFLOW_STEPS} pre-construction steps are done — please check back soon.</span>,
+            ringCaption: 'Pre-construction',
+            ringColor: 'var(--mp-ok)',
+          }
+
   return (
-    <div className={dmSans.className} style={{ ...overlay, fontFamily: dmSans.style.fontFamily }}>
+    <div className={`${dmSans.className} mp-root`} style={{ ...overlay, background: 'var(--mp-bg)', fontFamily: dmSans.style.fontFamily }}>
+      <style>{MP_TOKENS}</style>
       {/* ── SECTION 1 — Top bar ─────────────────────────────────────────────── */}
       <div
         style={{
@@ -547,51 +858,58 @@ export default function MyProjectPage() {
             style={{ height: 32, width: 'auto' }}
           />
         </div>
-        {firstName && (
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: '#fff',
-              background: 'rgba(255,255,255,0.08)',
-              border: '0.5px solid rgba(255,255,255,0.2)',
-              borderRadius: 99,
-              padding: '6px 13px',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Welcome back, {firstName}
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {firstName && (
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: '#fff',
+                background: 'rgba(255,255,255,0.08)',
+                border: '0.5px solid rgba(255,255,255,0.2)',
+                borderRadius: 99,
+                padding: '6px 13px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Welcome back, {firstName}
+            </span>
+          )}
+          {/* The app's own toggle (useTheme / `.dark` on <html>), so this page and
+              the rest of the Hub can never disagree about the current theme. */}
+          <ThemeToggle />
+        </div>
       </div>
 
       {/* Centered content column */}
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '32px 24px 80px' }}>
         {/* ── SECTION 2 — Hero ─────────────────────────────────────────────── */}
-        <div style={{ marginBottom: 28 }}>
+        <div className="mp-hero" style={{ marginBottom: 36, paddingTop: 8, fontFamily: BODY }}>
+          <HouseSketch />
           <div
             style={{
+              position: 'relative',
               fontSize: 11,
               textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              color: 'var(--text2)',
+              letterSpacing: '0.14em',
+              color: 'var(--mp-ink3)',
               fontWeight: 500,
             }}
           >
             Your project
           </div>
-          <h1 style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 400, color: 'var(--text)', lineHeight: 1.1, margin: '8px 0 0' }}>
+          <h1 style={{ position: 'relative', fontFamily: DISPLAY, fontSize: 52, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--mp-ink)', lineHeight: 1.04, margin: '14px 0 0' }} className="mp-hero-name">
             {client.name}
           </h1>
           {client.project_type && (
-            <div style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 400, color: 'var(--text2)', lineHeight: 1.1 }}>
+            <div style={{ position: 'relative', fontFamily: DISPLAY, fontSize: 26, fontWeight: 300, fontStyle: 'italic', color: 'var(--mp-ink2)', lineHeight: 1.2, marginTop: 6 }}>
               {client.project_type}
             </div>
           )}
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: 'var(--text2)' }}>
+          <div style={{ position: 'relative', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 18, fontSize: 13, color: 'var(--mp-ink3)', letterSpacing: '0.01em' }}>
             {client.location && <span>{client.location}</span>}
             {client.location && fmtCurrency(client.project_value) && (
-              <span style={{ color: 'var(--text3)' }}>·</span>
+              <span aria-hidden="true">·</span>
             )}
             {fmtCurrency(client.project_value) && (
               <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtCurrency(client.project_value)}</span>
@@ -599,123 +917,97 @@ export default function MyProjectPage() {
           </div>
         </div>
 
-        {/* ── SECTION 3 — Progress card ────────────────────────────────────── */}
-        <div style={{ ...CARD, padding: '20px 22px', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-            <div>
-              <div style={{ ...SECTION_TITLE }}>Project progress</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
-                <span style={{ fontFamily: SERIF, fontSize: 42, fontWeight: 400, color: 'var(--text)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-                  {completedCount} of {TOTAL_WORKFLOW_STEPS}
-                </span>
+        {/* ── SECTION 3 — Happening now ────────────────────────────────────── */}
+        <div
+          style={{
+            background: 'var(--mp-surface)',
+            border: '0.5px solid var(--mp-line)',
+            borderRadius: 16,
+            padding: '26px 28px 24px',
+            marginBottom: 20,
+            fontFamily: BODY,
+          }}
+        >
+          <div className="mp-now" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--mp-accent)' }}>
+                {happening.eyebrow}
               </div>
-              <div style={{ fontSize: 12.5, color: 'var(--text2)', marginTop: 6 }}>steps complete</div>
+              <div style={{ fontFamily: DISPLAY, fontSize: 28, fontWeight: 300, letterSpacing: '-0.01em', color: 'var(--mp-ink)', lineHeight: 1.2, marginTop: 10 }}>
+                {happening.title}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, color: 'var(--mp-ink2)', lineHeight: 1.5 }}>
+                {happening.meta}
+              </div>
+              {/* The step count the old headline showed — same values, same wording. */}
+              <div style={{ fontSize: 12, color: 'var(--mp-ink3)', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+                {showCjProgress ? cjDoneCount : completedCount} of {showCjProgress ? cjTotal : TOTAL_WORKFLOW_STEPS} {showCjProgress ? 'construction steps complete' : 'steps complete'}
+              </div>
             </div>
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: 'var(--green)',
-                background: 'var(--green-bg)',
-                border: '0.5px solid var(--pill-green-border)',
-                borderRadius: 99,
-                padding: '5px 11px',
-                whiteSpace: 'nowrap',
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              {pct}% complete
-            </span>
+            <ProgressRing value={ringValue} color={happening.ringColor} caption={happening.ringCaption} />
           </div>
 
-          {/* Progress bar */}
-          <div style={{ height: 6, background: 'var(--surface2)', borderRadius: 99, marginTop: 18, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: '#22c55e', borderRadius: 99, transition: 'width 500ms ease' }} />
+          {/* 4-phase tracker — horizontal bars */}
+          <div className="mp-phases" style={{ marginTop: 26, paddingTop: 22, borderTop: '0.5px solid var(--mp-line)' }}>
+            <PhaseTracker
+              completed={completedSteps}
+              currentStepNumber={currentStep?.step ?? null}
+              constructionOverride={constructionOverride}
+              constructionFill={showCjProgress ? cjPct / 100 : null}
+            />
           </div>
-
-          {/* NEW (additive): 4-phase milestone tracker */}
-          <PhaseTracker completed={completedSteps} currentStepNumber={currentStep?.step ?? null} />
-
-          {/* Current step row */}
-          {currentStep ? (
-            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
-              <span style={STEP_PILL}>STEP {pad2(currentStep.step)}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{currentStep.title}</span>
-              <TypeBadge type={currentStep.type} />
-              <span style={{ fontSize: 11, color: 'var(--text3)' }}>← You are here</span>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
-              <span style={{ ...STEP_PILL, background: '#22c55e' }}>DONE</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>All steps complete — your project journey is finished.</span>
-            </div>
-          )}
         </div>
 
         {/* ── SECTION 4 — Project Timeline ─────────────────────────────────── */}
         <div style={{ ...CARD, marginBottom: 20 }}>
+          {/* Which journey this card lists follows Phase B's derivation, never its own:
+              the 37 pre-con steps while phase is 'precon' (unchanged), the fetched
+              Construction steps once phase is 'construction' / 'completed'
+              (showCjProgress), and an explicit notice when pre-con is done but the
+              Construction reads failed (phase === null). */}
           <div style={SECTION_HEADER}>
             <span style={SECTION_TITLE}>Project timeline</span>
-            <span style={SECTION_META}>{TOTAL_WORKFLOW_STEPS} steps total</span>
+            <span style={SECTION_META}>
+              {showCjProgress
+                ? `${cjTotal} construction steps total`
+                : phase === null
+                  ? 'Construction'
+                  : <>{TOTAL_WORKFLOW_STEPS} steps total</>}
+            </span>
           </div>
-          <div style={{ maxHeight: 500, overflowY: 'auto' }}>
-            {WORKFLOW_STEPS.map((s, i) => {
-              const done = completedSteps.has(s.step)
-              const isCurrent = currentStep?.step === s.step
-              const last = i === WORKFLOW_STEPS.length - 1
-              return (
-                <div
-                  key={s.step}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 11,
-                    padding: '9px 20px',
-                    borderBottom: last ? undefined : '0.5px solid var(--border)',
-                    background: isCurrent ? 'var(--surface2)' : 'transparent',
-                  }}
-                >
-                  {/* Dot indicator */}
-                  {done ? (
-                    <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#22c55e', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                    </span>
-                  ) : isCurrent ? (
-                    <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#1a1917', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-                    </span>
-                  ) : (
-                    <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid var(--border2)', flexShrink: 0 }} />
-                  )}
-
-                  {/* Step number */}
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', width: 20, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-                    {pad2(s.step)}
-                  </span>
-
-                  {/* Title */}
-                  <span
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontSize: 13,
-                      fontWeight: isCurrent ? 600 : 400,
-                      color: done ? 'var(--text3)' : 'var(--text)',
-                      textDecoration: done ? 'line-through' : 'none',
-                    }}
-                  >
-                    {s.title}
-                  </span>
-
-                  {/* Badge: type for done/current, "You are here" for current; nothing for future */}
-                  {isCurrent && (
-                    <span style={{ ...STEP_PILL, fontSize: 9.5 }}>You are here</span>
-                  )}
-                  {(done || isCurrent) && <TypeBadge type={s.type} />}
-                </div>
-              )
-            })}
-          </div>
+          {showCjProgress && cjSteps ? (
+            <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+              {/* cjSteps is already in step_number order (Phase B's query). Current =
+                  cjCurrentStep, Phase B's lowest-unmarked step — not recomputed here.
+                  No type badge: this page's TypeBadge only knows pre-con's three types,
+                  and Phase B's read does not select step_type, so there is no accurate
+                  label to show without widening that query. */}
+              {cjSteps.map((s, i) => timelineRow({
+                stepNumber: s.n,
+                title: s.title,
+                done: cjMarks.has(s.n),
+                isCurrent: cjCurrentStep?.n === s.n,
+                last: i === cjSteps.length - 1,
+                badge: null,
+              }))}
+            </div>
+          ) : phase === null ? (
+            // Same wording as Phase B's unavailable step row, so the two cards agree.
+            <div style={{ padding: '18px 20px', fontSize: 13, color: 'var(--text3)', lineHeight: 1.5 }}>
+              Construction progress is not available right now — please check back soon.
+            </div>
+          ) : (
+            <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+              {WORKFLOW_STEPS.map((s, i) => timelineRow({
+                stepNumber: s.step,
+                title: s.title,
+                done: completedSteps.has(s.step),
+                isCurrent: currentStep?.step === s.step,
+                last: i === WORKFLOW_STEPS.length - 1,
+                badge: <TypeBadge type={s.type} />,
+              }))}
+            </div>
+          )}
         </div>
 
         {/* ── SECTION 4.5 — Your Project Files (NEW · additive · read-only) ── */}
@@ -783,166 +1075,154 @@ export default function MyProjectPage() {
           </div>
         </div>
 
-        {/* ── SECTION 5 — Project Details (Standing Agenda, read-only) ──────── */}
-        <div style={{ ...CARD, marginBottom: 20 }}>
-          <div style={SECTION_HEADER}>
-            <span style={SECTION_TITLE}>Project details</span>
-            <span style={SECTION_META}>Standing agenda</span>
+        {/* ── SECTION 5a — Your team ───────────────────────────────────────── */}
+        {/* One card, one of two shapes. With at least one name on file: all three
+            roles as person rows, unfilled ones quietly marked "Not yet assigned". With
+            no names at all (no header row, or a row with none of the three): a single
+            card-level note instead of three repeated placeholders. */}
+        <div style={{ ...MP_CARD, marginBottom: 20 }}>
+          <div style={MP_CARD_HEADER}>
+            <span style={MP_CARD_TITLE}>Your team</span>
           </div>
+          {teamHasAnyone ? (
+            <div>
+              {team.map((m, i) => {
+                const assigned = m.name !== ''
+                return (
+                  <div
+                    key={m.role}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      padding: '14px 24px',
+                      borderTop: i === 0 ? undefined : '0.5px solid var(--mp-line)',
+                    }}
+                  >
+                    {assigned ? (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+                          display: 'grid', placeItems: 'center',
+                          background: 'var(--mp-accent-soft)', color: 'var(--mp-accent)',
+                          fontFamily: DISPLAY, fontSize: 15, fontWeight: 400, letterSpacing: '0.02em',
+                        }}
+                      >
+                        {personInitials(m.name)}
+                      </span>
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+                          border: '1px dashed var(--mp-line)',
+                        }}
+                      />
+                    )}
+                    <div style={{ minWidth: 0 }}>
+                      {assigned ? (
+                        <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--mp-ink)', lineHeight: 1.3 }}>{m.name}</div>
+                      ) : (
+                        <div style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--mp-ink3)', lineHeight: 1.3 }}>Not yet assigned</div>
+                      )}
+                      <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mp-ink3)', marginTop: 3 }}>
+                        {m.role}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div style={{ padding: '20px 24px', fontSize: 13, color: 'var(--mp-ink3)', lineHeight: 1.6 }}>
+              Your architect, project specialist and estimator will appear here once
+              they&apos;re assigned to your project.
+            </div>
+          )}
+        </div>
 
-          {/* Project info grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px', padding: '18px 20px', borderBottom: '0.5px solid var(--border)' }}>
-            {headerFields.map(f => (
-              <div key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text3)' }}>
+        {/* ── SECTION 5b — Project details ─────────────────────────────────── */}
+        <div style={{ ...MP_CARD, marginBottom: 20 }}>
+          <div style={MP_CARD_HEADER}>
+            <span style={MP_CARD_TITLE}>Project details</span>
+          </div>
+          <div className="mp-details" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px 24px', padding: '20px 24px' }}>
+            {details.map(f => (
+              <div key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
+                <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mp-ink3)' }}>
                   {f.label}
                 </span>
-                <span style={{ fontSize: 13, color: f.value ? 'var(--text)' : 'var(--text3)', lineHeight: 1.4, wordBreak: 'break-word' }}>
-                  {f.value || 'Not yet confirmed'}
-                </span>
+                {f.value ? (
+                  <span style={{ fontSize: 14, color: 'var(--mp-ink)', lineHeight: 1.45, wordBreak: 'break-word' }}>{f.value}</span>
+                ) : (
+                  <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--mp-ink3)', lineHeight: 1.45 }}>Not yet confirmed</span>
+                )}
               </div>
             ))}
           </div>
 
-          {/* Special conditions — read-only checkboxes */}
-          <div style={{ padding: '16px 20px', borderBottom: '0.5px solid var(--border)' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 10 }}>
-              Special Conditions
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', pointerEvents: 'none' }}>
-              {SPECIAL_CONDITIONS.map(cond => {
-                const checked = selectedConditions.includes(cond)
-                return (
-                  <span key={cond} style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+          {/* Special conditions — omitted entirely unless there is a real answer. */}
+          {showConditions && (
+            <div style={{ padding: '16px 24px 20px', borderTop: '0.5px solid var(--mp-line)' }}>
+              <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--mp-ink3)', marginBottom: 10 }}>
+                Special conditions
+              </div>
+              {realConditions.length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {realConditions.map(cond => (
                     <span
+                      key={cond}
                       style={{
-                        width: 14,
-                        height: 14,
-                        borderRadius: 3,
-                        border: checked ? '1.5px solid var(--checkbox-checked-bg, var(--charcoal))' : '1.5px solid var(--border2)',
-                        background: checked ? 'var(--checkbox-checked-bg, var(--charcoal))' : 'transparent',
-                        display: 'grid',
-                        placeItems: 'center',
-                        marginTop: 1,
-                        flexShrink: 0,
+                        fontSize: 12.5, color: 'var(--mp-ink)', lineHeight: 1.3,
+                        border: '0.5px solid var(--mp-line)', borderRadius: 99, padding: '5px 12px',
                       }}
                     >
-                      {checked && (
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" style={{ stroke: 'var(--checkbox-checked-fg, #fff)' }} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                      )}
+                      {cond}
                     </span>
-                    <span style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.4 }}>{cond}</span>
-                  </span>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Collapsible agenda sections */}
-          <div>
-            {AGENDA_SECTIONS.map((section, si) => {
-              const open = openSections.has(section.code)
-              const answeredQuestions = section.questions.filter(q => {
-                const a = answers.get(agendaKey(section.code, q.key))
-                return !!a && (a.answer.trim().length > 0 || a.selected_options.length > 0)
-              })
-              const lastSection = si === AGENDA_SECTIONS.length - 1
-              return (
-                <div key={section.code} style={{ borderBottom: lastSection ? undefined : '0.5px solid var(--border)' }}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOpenSections(prev => {
-                        const s = new Set(prev)
-                        if (s.has(section.code)) s.delete(section.code)
-                        else s.add(section.code)
-                        return s
-                      })
-                    }
-                    className="my-project-agenda-row"
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '12px 20px',
-                      background: 'transparent',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                      textAlign: 'left',
-                    }}
-                  >
-                    <span style={{ color: '#c8311a', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                      {section.code}
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{section.name}</span>
-                    <span style={SECTION_META}>{answeredQuestions.length} of {section.questions.length} answered</span>
-                    <span style={{ color: 'var(--text3)', fontSize: 10, transition: 'transform 200ms ease', transform: open ? 'rotate(180deg)' : 'none' }}>▾</span>
-                  </button>
-
-                  {open && (
-                    <div style={{ padding: '4px 20px 16px' }}>
-                      {answeredQuestions.length === 0 ? (
-                        <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>No details confirmed yet for this section.</div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                          {answeredQuestions.map(q => {
-                            const entry = answers.get(agendaKey(section.code, q.key))!
-                            return (
-                              <div key={q.key} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4 }}>{q.text}</span>
-                                {entry.selected_options.length > 0 && (
-                                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                    {entry.selected_options.map(opt => (
-                                      <li
-                                        key={opt}
-                                        style={{
-                                          fontSize: 12,
-                                          color: 'var(--text2)',
-                                          background: 'var(--surface2)',
-                                          border: '0.5px solid var(--border)',
-                                          borderRadius: 6,
-                                          padding: '3px 9px',
-                                        }}
-                                      >
-                                        {opt}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                                {entry.answer.trim().length > 0 && (
-                                  <span style={{ fontSize: 12.5, color: 'var(--text2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                                    {entry.answer}
-                                  </span>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  ))}
                 </div>
-              )
-            })}
-          </div>
+              ) : (
+                <span style={{ fontSize: 13, color: 'var(--mp-ink2)' }}>No special conditions</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── SECTION 6 — Footer ───────────────────────────────────────────── */}
-        <div style={{ textAlign: 'center', marginTop: 36 }}>
-          <div style={{ fontSize: 13, color: 'var(--text2)' }}>Questions about your project?</div>
-          <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 4 }}>
-            Contact your Project Specialist · CASK Construction
+        {/* Primary CTA names the real project specialist when one is on file — the
+            same value the Team card shows (team[], from client_agenda_header; no new
+            read) — else keeps the generic wording, like the Team card's empty state.
+            Below it: static company contact info, identical for every client. No
+            social links and no second logo, by decision. */}
+        <div style={{ textAlign: 'center', marginTop: 44, fontFamily: BODY }}>
+          <div style={{ fontSize: 13, color: 'var(--mp-ink2)' }}>Questions about your project?</div>
+          <div style={{ fontFamily: DISPLAY, fontSize: 19, fontWeight: 300, letterSpacing: '-0.01em', color: 'var(--mp-ink)', marginTop: 6, lineHeight: 1.3 }}>
+            {specialistName
+              ? <>Contact {specialistName}, your Project Specialist</>
+              : <>Contact your Project Specialist · CASK Construction</>}
           </div>
+
+          <div
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              marginTop: 18, paddingTop: 16, borderTop: '0.5px solid var(--mp-line)',
+              maxWidth: 360, marginInline: 'auto',
+              fontSize: 12, color: 'var(--mp-ink3)', lineHeight: 1.55,
+            }}
+          >
+            <div>
+              <a href="tel:+17272012551" style={{ color: 'inherit', textDecoration: 'none' }}>(727) 201-2551</a>
+              <span aria-hidden="true" style={{ margin: '0 8px' }}>·</span>
+              <a href="mailto:info@caskconstruction.com" style={{ color: 'inherit', textDecoration: 'none' }}>info@caskconstruction.com</a>
+            </div>
+            <div>900 16th St. N., St Petersburg, FL 33705</div>
+            <div>Mon thru Fri: 9am – 5pm · Sat and Sun: Closed</div>
+          </div>
+
           <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 14 }}>Powered by CASK Hub</div>
         </div>
       </div>
-
-      {/* Hover affordance for agenda rows (matches spec: hover background --surface-1) */}
-      <style>{`
-        .my-project-agenda-row:hover { background: var(--surface2); }
-      `}</style>
     </div>
   )
 }

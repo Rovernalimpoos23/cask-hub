@@ -5028,12 +5028,11 @@ Today's date is ${today}.
                 >
                   ✏️
                 </button>
-                {/* NEW (additive): preview the customer-facing /my-project view. Gated to the
-                    John Smith demo client because /my-project resolves to the logged-in user
-                    (or the John Smith fallback), not this profile's id. */}
-                {client.name === 'John Smith' && (
-                  <Link
-                    href="/my-project"
+                {/* Preview the customer-facing /my-project view for THIS client. Shown on
+                    every profile: ?client=<id> makes /my-project resolve by id instead of
+                    by the viewer's email / the John Smith fallback. */}
+                <Link
+                    href={`/my-project?client=${encodeURIComponent(client.id)}`}
                     title="Preview customer view"
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -5049,8 +5048,7 @@ Today's date is ${today}.
                     onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)' }}
                   >
                     Customer View →
-                  </Link>
-                )}
+                </Link>
               </div>
 
               {/* Meta row — only non-empty fields, separators interleaved cleanly */}
