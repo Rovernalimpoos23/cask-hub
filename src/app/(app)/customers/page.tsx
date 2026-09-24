@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { WORKFLOW_STEPS, TOTAL_WORKFLOW_STEPS } from '@/lib/workflow-steps'
+import { getClientPhase, type ClientPhase as Phase } from '@/lib/client-phase'
 import { ArtifactContent } from '@/components/ai-panel/artifacts'
 
 type Happiness = 'green' | 'yellow' | 'red'
@@ -61,16 +62,12 @@ function countConstructionSteps(completed: Set<number> | undefined): number {
   return CONSTRUCTION_STEP_NUMBERS.filter(n => completed.has(n)).length
 }
 
-type Phase = 'precon' | 'construction' | 'completed'
-
-// Pre-con gates construction, matching the detail page's own gate
-// (`precoCompletedCount === precoTotal` is what unlocks the Construction tab): a
-// client is in Construction only once all 37 pre-con steps are done, and Completed
-// only once all 19 construction steps are done on top of that. Both arguments come
-// from the capped intersections above, so neither can overshoot its total.
+// The phase rule itself lives in lib/client-phase.ts, shared with the detail page's
+// Overview. Both counts passed to it come from the capped intersections above, and
+// the construction total is this page's TOTAL_CONSTRUCTION_STEPS — the same number
+// the intersection above is capped at, so the two stay consistent with each other.
 function getPhase(preconCompleted: number, constructionCompleted: number): Phase {
-  if (preconCompleted !== TOTAL_WORKFLOW_STEPS) return 'precon'
-  return constructionCompleted === TOTAL_CONSTRUCTION_STEPS ? 'completed' : 'construction'
+  return getClientPhase(preconCompleted, constructionCompleted, TOTAL_CONSTRUCTION_STEPS)
 }
 
 // ── Phase filter tabs ────────────────────────────────────────────────────────

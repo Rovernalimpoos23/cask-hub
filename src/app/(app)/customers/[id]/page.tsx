@@ -25,6 +25,7 @@ import {
   daysUntilDue,
   type WorkflowStepDef,
 } from '@/lib/workflow-steps'
+import { getClientPhase } from '@/lib/client-phase'
 
 // ReactQuill must load client-side only — Quill references `document` at import time,
 // which would crash Next.js server rendering of this client component.
@@ -2830,6 +2831,19 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [stepMarking, setStepMarking] = useState<Set<number>>(new Set())
   // NEW (additive): when each step started (journey_step_start). Drives task due dates.
   const [stepStartMap, setStepStartMap] = useState<Map<number, Date>>(new Map())
+  // ── Overview's Construction progress — READ-ONLY ────────────────────────────
+  // Overview's OWN copy of the two reads ConstructionJourneyPanel makes, because that
+  // panel is mount-gated on its tab and so its state does not exist while Overview is
+  // showing. Only consulted once all pre-con steps are done; a pre-con client's
+  // Overview renders exactly as before whatever these hold.
+  // Same guard shape as the panel: `null` means "not loaded yet" (distinct from a
+  // loaded empty list), never replaced by a fallback, and a failed read lands in an
+  // error slot rather than looking like "nothing done yet". Two slots, not one, so a
+  // later successful marks re-read can clear its own error without hiding the other's.
+  const [ovCjSteps, setOvCjSteps] = useState<CjStep[] | null>(null)
+  const [ovCjStepsError, setOvCjStepsError] = useState<string | null>(null)
+  const [ovCjMarks, setOvCjMarks] = useState<Set<number> | null>(null)
+  const [ovCjMarksError, setOvCjMarksError] = useState<string | null>(null)
 
   // ── Recap action-item completion (client_meeting_action_items) ───────────────
   // Keyed by actionKey(client_meeting_id, task) so every loaded meeting's items
@@ -2966,6 +2980,49 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     }
     fetchChecklist()
   }, [params.id])
+
+  // ── Overview: Construction step definitions (construction_step_definitions) ──
+  // Reuses the panel's own fetchCjSteps, so the step list — and therefore the total
+  // and the step titles — is by construction the one the Construction tab shows.
+  // Once per mount: the definitions are shared, not per-client.
+  useEffect(() => {
+    let cancelled = false
+    fetchCjSteps()
+      .then(steps => { if (!cancelled) setOvCjSteps(steps) })
+      .catch(err => {
+        if (cancelled) return
+        console.error('[overview-cj-steps] load failed:', err)
+        setOvCjStepsError(`Could not load the Construction Journey steps: ${err instanceof Error ? err.message : String(err)}`)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  // ── Overview: Construction step marks (construction_step_marks) ─────────────
+  // Same table and client filter as the panel's marks read; only step_number is
+  // selected because presence IS completion and Overview renders nothing else.
+  // Re-read each time Overview becomes the active tab (the panel re-reads on its own
+  // tab-open for the same reason): a step marked on the Construction tab must show
+  // here on return. Previous marks stay on screen during the re-read, so no flash.
+  const overviewActive = activeTab === 'overview'
+  useEffect(() => {
+    if (!overviewActive) return
+    let cancelled = false
+    ;(async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('construction_step_marks')
+        .select('step_number')
+        .eq('client_id', params.id)
+      if (cancelled) return
+      if (error) {
+        setOvCjMarksError(`Could not load Construction step completion: ${error.message}`)
+        return
+      }
+      setOvCjMarksError(null)
+      setOvCjMarks(new Set(((data ?? []) as { step_number: number }[]).map(r => r.step_number)))
+    })()
+    return () => { cancelled = true }
+  }, [params.id, overviewActive])
 
   // ── Fetch this client's uploaded files (NEW · additive) ─────────────────────
   // Loads once on mount; local state is the source of truth thereafter (upload /
@@ -4075,6 +4132,19 @@ Today's date is ${today}.
   const hasComm = !!client.communication_style && client.communication_style !== COMM_PLACEHOLDER
   const hasTip = !!client.ai_tip && client.ai_tip !== 'Add personality details to get AI communication tips.'
 
+  // ── Overview phase — only consulted once every pre-con step is done ──────────
+  // Mirrors ConstructionJourneyPanel's 19-step progress exactly: doneCount is the
+  // INTERSECTION of marks with the step definitions (a stray step_number cannot
+  // inflate it), and the current step is the LOWEST-numbered unmarked step, not
+  // "highest marked + 1". Both stay null/0 until both reads have landed, and
+  // overviewPhase stays null in that window — the render shows a loading line then.
+  const ovCjLoaded = ovCjSteps !== null && ovCjMarks !== null
+  const ovCjDoneCount = ovCjSteps && ovCjMarks ? ovCjSteps.filter(s => ovCjMarks.has(s.n)).length : 0
+  const ovCjCurrentStep = ovCjSteps && ovCjMarks ? ovCjSteps.find(s => !ovCjMarks.has(s.n)) ?? null : null
+  const ovCjTotal = ovCjSteps?.length ?? 0
+  const ovCjError = ovCjStepsError ?? ovCjMarksError
+  const overviewPhase = ovCjLoaded ? getClientPhase(stepsCompletedCount, ovCjDoneCount, ovCjTotal) : null
+
   // ── Recent Meeting Recaps — last 4 completed workflow steps with a saved recap.
   // journeyRows is keyed by meeting_id (e.g. "step_04"); we match each to its
   // WORKFLOW_STEPS definition for the title + step type (dot color).
@@ -5126,11 +5196,87 @@ Today's date is ${today}.
           </section>
         )}
 
+        {/* ── Past Precon: Construction / Completed summary ─────────────────
+            Renders ONLY when there is no pre-con step left (currentStepDef null),
+            i.e. exactly the case that used to hide the banner above and read "All
+            steps complete" below. A pre-con client never reaches this block, and
+            the banner above and the to-do card below are untouched for them.
+            Task-level detail stays on the Construction Journey tab; this is a
+            summary plus a way there, not a Construction rebuild of CurrentStepTodos. */}
+        {!currentStepDef && (
+          <section
+            className="rounded-[12px]"
+            style={{
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 18,
+              padding: '16px 20px',
+              marginBottom: 20,
+            }}
+          >
+            <span
+              style={{
+                width: 3, alignSelf: 'stretch', borderRadius: 3, flexShrink: 0,
+                background: overviewPhase === 'completed' ? 'var(--fable-ok)' : 'var(--fable-red)',
+              }}
+            />
+            <div className="flex-1 min-w-0">
+              {ovCjError ? (
+                // Surfaced, never swallowed — a failed read must not read as a phase.
+                <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.5 }}>{ovCjError}</div>
+              ) : overviewPhase === null ? (
+                <div style={{ fontSize: 13, color: 'var(--text3)' }}>Loading Construction Journey progress…</div>
+              ) : overviewPhase === 'completed' ? (
+                <>
+                  <div className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.12em', color: 'var(--text3)', fontWeight: 700 }}>
+                    Completed
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em', marginTop: 4, color: 'var(--text)' }}>
+                    Project complete
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.5, marginTop: 4 }}>
+                    All {TOTAL_WORKFLOW_STEPS} Precon steps and all {ovCjTotal} Construction steps are complete.
+                  </div>
+                </>
+              ) : (
+                // 'construction'. getClientPhase cannot return 'precon' here: this
+                // block only renders once every pre-con step is in stepCompletions,
+                // which is exactly stepsCompletedCount === TOTAL_WORKFLOW_STEPS.
+                <>
+                  <div className="uppercase" style={{ fontSize: 10.5, letterSpacing: '0.12em', color: 'var(--text3)', fontWeight: 700 }}>
+                    Construction{ovCjCurrentStep ? ` · Next step · Step ${ovCjCurrentStep.n} of ${ovCjTotal}` : ''}
+                  </div>
+                  {ovCjCurrentStep && (
+                    <div style={{ fontFamily: 'var(--font-instrument), Georgia, serif', fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em', marginTop: 4, color: 'var(--text)' }}>
+                      {ovCjCurrentStep.title}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.5, marginTop: 4 }}>
+                    {ovCjDoneCount} of {ovCjTotal} Construction steps complete · Precon complete ({TOTAL_WORKFLOW_STEPS} of {TOTAL_WORKFLOW_STEPS}).
+                  </div>
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => setActiveTab('construction')}
+              style={nextBtn}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+            >
+              Open Construction Journey →
+            </button>
+          </section>
+        )}
+
         {/* ── Full-width stacked layout ─────────────────────────────────── */}
         <div className="flex flex-col gap-5">
 
             {/* ── Current Step To-Do's (NEW) — full width ──────────────────── */}
-            <CurrentStepTodos
+            {/* Gated on currentStepDef: past Precon its only content was "All steps
+                complete", which the summary above now replaces. Unchanged otherwise. */}
+            {currentStepDef && <CurrentStepTodos
               currentStepNumber={currentStepNumber}
               checklistRows={checklistRows}
               checklistToggling={checklistToggling}
@@ -5140,7 +5286,7 @@ Today's date is ${today}.
               actionCompletions={actionCompletions}
               actionToggling={actionToggling}
               onToggleActionItem={toggleRecapActionItem}
-            />
+            />}
 
         </div>{/* /full-width stacked layout */}
         </section>{/* /OVERVIEW */}
