@@ -440,6 +440,181 @@ type ClientTab = 'overview' | 'journey' | 'communication' | 'files' | 'construct
 // table; every other ClientTab maps to null and writes nothing.
 type ScheduleTable = 'construction_step_schedules' | 'workflow_step_schedules'
 
+// ── Copy client link ─────────────────────────────────────────────────────────
+// Issues a read-only share link for this client via POST
+// /api/clients/[id]/share-link (admin-only, enforced by the route) and copies it to
+// the clipboard in one motion, ready to paste into an email or text.
+//
+// EVERY issue revokes the client's previous link (show-once design: only a hash is
+// stored, so an existing link can never be shown again). The page cannot tell
+// whether a link already exists — client_share_tokens is service-role only — so the
+// confirm() runs on every click and is worded to be true either way.
+//
+// The URL is a LIVE CREDENTIAL. It lives only in this component's React state:
+// never written to localStorage / sessionStorage, never logged, cleared on dismiss
+// or the next attempt, and gone on navigation (the component unmounts).
+// If the clipboard write fails (permissions, insecure context, older browser) the
+// link is shown in a read-only, pre-selected field instead, so it is still
+// retrievable exactly once.
+//
+// Visibility matches the adjacent "Customer View" button (everyone who can see this
+// page); a non-admin click gets the route's 403, shown in plain language below.
+const SHARE_LINK_ERRORS: Record<number, string> = {
+  401: 'Your session has expired — sign in again, then retry.',
+  403: 'Only admins can create client links.',
+  404: 'This client could not be found. Refresh the page and try again.',
+  409: 'A link was just issued for this client — try again in a moment.',
+}
+
+function CopyClientLinkButton({ clientId, clientName }: { clientId: string; clientName: string }) {
+  const [busy, setBusy] = useState(false)
+  // 'copied'  → brief confirmation, auto-dismisses
+  // 'manual'  → clipboard failed; show the link in a field (url set)
+  // 'error'   → message set
+  const [status, setStatus] = useState<'idle' | 'copied' | 'manual' | 'error'>('idle')
+  const [url, setUrl] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+
+  // Auto-dismiss the "copied" confirmation. The URL is dropped from state with it.
+  useEffect(() => {
+    if (status !== 'copied') return
+    const t = setTimeout(() => { setStatus('idle'); setUrl(null) }, 3000)
+    return () => clearTimeout(t)
+  }, [status])
+
+  function dismiss() {
+    setStatus('idle')
+    setUrl(null)
+    setMessage(null)
+  }
+
+  async function issue() {
+    const ok = window.confirm(
+      `Create a new link for ${clientName}?\n\n` +
+      'This will invalidate any link already sent to this client — they will need the new one.'
+    )
+    if (!ok) return
+
+    setBusy(true)
+    dismiss()
+    try {
+      const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}/share-link`, { method: 'POST' })
+      let body: Record<string, unknown> = {}
+      try {
+        body = (await res.json()) as Record<string, unknown>
+      } catch {
+        // Non-JSON (e.g. a redirect to the login page) — handled as a failure below.
+      }
+
+      if (!res.ok || typeof body.url !== 'string') {
+        // The previous link may already be revoked on a 500 (revoke succeeded, insert
+        // failed) — the route says so in its message, which is surfaced here.
+        const routeMsg = typeof body.message === 'string' ? body.message : null
+        setMessage(
+          SHARE_LINK_ERRORS[res.status]
+          ?? routeMsg
+          ?? (res.ok ? 'The server returned an unexpected response.' : `Something went wrong (HTTP ${res.status}). Please try again.`)
+        )
+        setStatus('error')
+        return
+      }
+
+      const link = body.url
+      try {
+        await navigator.clipboard.writeText(link)
+        setUrl(null)          // copied — no need to keep it in state at all
+        setStatus('copied')
+      } catch {
+        setUrl(link)          // clipboard unavailable — show it once for manual copy
+        setStatus('manual')
+      }
+    } catch {
+      setMessage('Could not reach the server. Check your connection and try again.')
+      setStatus('error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={issue}
+        disabled={busy}
+        title="Create a read-only link for this client and copy it"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          height: 28, padding: '0 11px', borderRadius: 7,
+          background: 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.3)',
+          color: '#ffffff',
+          fontSize: 11.5, fontWeight: 600, lineHeight: 1,
+          cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.6 : 1,
+          fontFamily: 'inherit', whiteSpace: 'nowrap',
+          transition: 'background 150ms ease, border-color 150ms ease',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.28)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)' }}
+      >
+        {busy ? 'Creating link…' : status === 'copied' ? 'Link copied ✓' : 'Copy client link'}
+      </button>
+
+      {(status === 'manual' || status === 'error' || status === 'copied') && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 30,
+            width: status === 'manual' ? 440 : 300, maxWidth: '80vw',
+            padding: '10px 12px', borderRadius: 8,
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)', color: 'var(--text)',
+            fontSize: 12, lineHeight: 1.45,
+          }}
+        >
+          {status === 'copied' && (
+            <div style={{ color: 'var(--text2)' }}>
+              Link copied — paste it into an email or text to {clientName}. Any earlier link no longer works.
+            </div>
+          )}
+          {status === 'manual' && url && (
+            <>
+              <div style={{ color: 'var(--text2)', marginBottom: 6 }}>
+                Couldn&apos;t copy automatically. Copy this link now — it won&apos;t be shown again.
+              </div>
+              <input
+                readOnly
+                autoFocus
+                value={url}
+                onFocus={e => e.currentTarget.select()}
+                onClick={e => e.currentTarget.select()}
+                aria-label="Client link"
+                style={{
+                  width: '100%', fontSize: 12, fontFamily: 'monospace', padding: '6px 8px',
+                  borderRadius: 6, border: '1px solid var(--border2)', background: 'var(--surface2)', color: 'var(--text)',
+                }}
+              />
+            </>
+          )}
+          {status === 'error' && (
+            <div style={{ color: 'var(--red)', wordBreak: 'break-word' }}>{message}</div>
+          )}
+          {status !== 'copied' && (
+            <button
+              type="button"
+              onClick={dismiss}
+              style={{ marginTop: 8, fontSize: 11, color: 'var(--text2)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              {status === 'manual' ? 'Done' : 'Dismiss'}
+            </button>
+          )}
+        </div>
+      )}
+    </span>
+  )
+}
+
 function ClientTabBtn({ id, cur, set, children }: {
   id: ClientTab
   cur: ClientTab
@@ -5049,6 +5224,8 @@ Today's date is ${today}.
                   >
                     Customer View →
                 </Link>
+                {/* Issue + copy a read-only share link for this client (see CopyClientLinkButton). */}
+                <CopyClientLinkButton clientId={client.id} clientName={client.name} />
               </div>
 
               {/* Meta row — only non-empty fields, separators interleaved cleanly */}

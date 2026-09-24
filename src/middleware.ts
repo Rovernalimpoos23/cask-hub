@@ -90,8 +90,16 @@ export async function middleware(request: NextRequest) {
   // Allow authenticated users to access reset-password (recovery session must land here)
   const isPasswordReset = pathname === '/auth/reset-password'
   const isWebhook = pathname.startsWith('/api/webhooks/')
+  // Public, token-authorised customer view: the page (/client-view/<token>) and its
+  // read-only data route (/api/client-view/<token>). The token in the URL is the
+  // authorisation — validated server-side by src/lib/validate-share-token.ts — so a
+  // signed-out visitor must reach both. Both prefixes end in "/" and neither is a
+  // prefix of /api/clients/ (the admin-gated share-link ISSUING route), which stays
+  // behind the login redirect below and its own ADMIN_ROLES check.
+  const isClientView =
+    pathname.startsWith('/client-view/') || pathname.startsWith('/api/client-view/')
 
-  if (!user && !isAuthPage && !isWebhook) {
+  if (!user && !isAuthPage && !isWebhook && !isClientView) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/auth/login'
     return NextResponse.redirect(loginUrl)
@@ -256,6 +264,17 @@ export async function middleware(request: NextRequest) {
       dashboardUrl.search = ''
       return NextResponse.redirect(dashboardUrl)
     }
+  }
+
+  // Token-bearing URLs: never send the URL (and so the token) as a Referer to any
+  // other origin, and never let a crawler index or follow one. Set here rather than
+  // in next.config.js because a client-component page cannot export metadata, and
+  // this is already where these two paths are identified. Applied last, to whatever
+  // response is being returned (supabaseResponse can be replaced by the cookie
+  // setAll above).
+  if (isClientView) {
+    supabaseResponse.headers.set('Referrer-Policy', 'no-referrer')
+    supabaseResponse.headers.set('X-Robots-Tag', 'noindex, nofollow')
   }
 
   return supabaseResponse

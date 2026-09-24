@@ -30,7 +30,31 @@ import Link from 'next/link'
 import { Fraunces, DM_Sans } from 'next/font/google'
 import { createClient } from '@/lib/supabase'
 import { WORKFLOW_STEPS, TOTAL_WORKFLOW_STEPS } from '@/lib/workflow-steps'
-import { getClientPhase } from '@/lib/client-phase'
+import { computeProjectProgress } from '@/lib/project-progress'
+// Presentational pieces + style constants, moved verbatim to a shared module so the
+// customer-facing /client-view page renders with the exact same components.
+import {
+  DISPLAY,
+  BODY,
+  MP_TOKENS,
+  TypeBadge,
+  PhaseTracker,
+  ProgressRing,
+  HouseSketch,
+  MP_CARD,
+  MP_CARD_HEADER,
+  MP_CARD_TITLE,
+  personInitials,
+  fmtFileSize,
+  fileIcon,
+  fmtCurrency,
+  CARD,
+  SECTION_HEADER,
+  SECTION_TITLE,
+  SECTION_META,
+  pad2,
+  timelineRow,
+} from '@/components/project-view/shared'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 // ── Fonts (per brief): Fraunces for headings/large numbers, DM Sans for body ──
@@ -38,298 +62,6 @@ const fraunces = Fraunces({ subsets: ['latin'], weight: ['400', '500'], display:
 const dmSans = DM_Sans({ subsets: ['latin'], weight: ['400', '500', '600', '700'], display: 'swap' })
 
 const SERIF = fraunces.style.fontFamily
-
-// Editorial treatment for the hero / "Happening now" card / phase tracker. Both fonts
-// are ALREADY loaded app-wide by src/app/layout.tsx as CSS variables (--font-fraunces,
-// --font-inter), so nothing new is fetched. The global Fraunces is the variable-weight
-// build, which is what allows the lighter 300 display weight the local instance above
-// (400/500 only) cannot render. The other sections keep SERIF / DM Sans until their
-// own restyle.
-const DISPLAY = 'var(--font-fraunces), Georgia, serif'
-const BODY = 'var(--font-inter), system-ui, sans-serif'
-
-// Page-scoped palette. Theme switching is the APP's existing mechanism — the `.dark`
-// class on <html>, toggled by ThemeToggle / useTheme (sessionStorage) — not a second
-// data-theme + localStorage system, which would fight it. Dark mode maps straight onto
-// the existing globals.css tokens (--bg #121110, --red #F0565E, …); only the warm-ivory
-// light values are new, since globals.css defines no ivory family.
-const MP_TOKENS = `
-  .mp-root {
-    --mp-bg: #FAF8F5;
-    --mp-surface: #FFFFFF;
-    --mp-line: #E9E3DA;
-    --mp-ink: #1C1917;
-    --mp-ink2: #6B635A;
-    --mp-ink3: #A0978B;
-    --mp-sketch: #D9D1C5;
-    --mp-accent: var(--red);
-    --mp-accent-soft: rgba(200, 49, 26, 0.12);
-    --mp-ok: #22c55e;
-    /* Phase tracker, UPCOMING state only. Light mode = the shared tokens exactly
-       (no visual change); dark mode raises them below. */
-    --mp-phase-upcoming-text: var(--mp-ink3);
-    --mp-phase-upcoming-track: var(--mp-line);
-  }
-  .dark .mp-root {
-    --mp-bg: var(--bg);
-    --mp-surface: var(--surface);
-    --mp-line: var(--border);
-    --mp-ink: var(--text);
-    --mp-ink2: var(--text2);
-    --mp-ink3: var(--text3);
-    --mp-sketch: rgba(255, 255, 255, 0.12);
-    --mp-accent: var(--red);
-    --mp-accent-soft: rgba(240, 86, 94, 0.16);
-    --mp-ok: #59B87E;
-    /* Dark-mode legibility for upcoming phases, measured on the card (--surface
-       #1A1918): text #908F8B = 5.42:1 (AA for small text; the shared --text3
-       #7B7A77 was 4.09:1), still below the active description (--text2, 7.29:1) and
-       label (--text, 14.73:1). Track white @ 0.34 = 3.12:1 (the UI-graphic 3:1
-       bar; the shared --border @ 0.09 was 1.30:1). */
-    --mp-phase-upcoming-text: #908F8B;
-    --mp-phase-upcoming-track: rgba(255, 255, 255, 0.34);
-  }
-  .mp-hero { position: relative; }
-  .mp-house { position: absolute; right: 0; top: 4px; pointer-events: none; }
-  .mp-hero-name { max-width: calc(100% - 150px); }
-  @media (max-width: 600px) { .mp-house { display: none; } .mp-hero-name { max-width: none; } }
-  @media (max-width: 560px) {
-    .mp-now { flex-direction: column-reverse; align-items: flex-start !important; }
-    .mp-phases > div { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; row-gap: 18px !important; }
-    .mp-details { grid-template-columns: 1fr !important; }
-  }
-`
-
-// ── Step type → badge styling (per brief) ────────────────────────────────────
-const TYPE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
-  internal: { label: 'Internal', bg: 'var(--purple-bg)', color: '#4c1d95' },
-  window: { label: 'Work Window', bg: 'var(--amber-bg)', color: '#78350f' },
-  customer: { label: 'Customer', bg: 'var(--red-soft)', color: '#7f1d1d' },
-}
-
-function TypeBadge({ type }: { type: string }) {
-  const cfg = TYPE_BADGE[type] ?? TYPE_BADGE.internal
-  return (
-    <span
-      style={{
-        fontSize: 9.5,
-        fontWeight: 700,
-        letterSpacing: '0.03em',
-        color: cfg.color,
-        background: cfg.bg,
-        padding: '2px 7px',
-        borderRadius: 5,
-        whiteSpace: 'nowrap',
-        flexShrink: 0,
-      }}
-    >
-      {cfg.label}
-    </span>
-  )
-}
-
-// ── Phase progress tracker (NEW, additive) ────────────────────────────────────
-// 4 major milestone phases mapped onto the 37 workflow steps. CSS-var mapping
-// follows the same convention documented at the top of this file:
-//   --text-muted → --text3 · --text-primary → --text · --text-secondary → --text2
-//   --surface-1 → --surface2 · --border-strong → --border2
-interface PhaseDef { label: string; steps: number[]; description: string }
-
-const PHASES: PhaseDef[] = [
-  { label: 'Design & Planning', steps: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], description: 'Meetings, drawings & design decisions' },
-  { label: 'Permit', steps: [17, 18, 19, 20, 21], description: 'Permit submission & approval' },
-  { label: 'Contract & Selections', steps: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36], description: 'Contract signing & material selections' },
-  { label: 'Construction', steps: [37], description: 'Building your home' },
-]
-
-type PhaseState = 'done' | 'active' | 'upcoming'
-
-function getPhaseState(phase: PhaseDef, completed: Set<number>, currentStepNumber: number | null): PhaseState {
-  if (phase.steps.every(s => completed.has(s))) return 'done'
-  if (currentStepNumber != null && phase.steps.includes(currentStepNumber)) return 'active'
-  return 'upcoming'
-}
-
-// constructionOverride: supplied only once pre-con is complete, when the last entry
-// ("Construction", mapped above to pre-con step 37 only) must report the REAL
-// Construction Journey instead. Omitted → every state and description is computed
-// exactly as before, so a pre-con client's tracker is unchanged.
-// Rendering: one horizontal bar per phase. The STATE of each bar is computed exactly
-// as before (getPhaseState / constructionOverride — unchanged). Only the fill amount
-// is display-derived here:
-//   done     → 100%
-//   upcoming → 0%
-//   active   → the share of THAT phase's own steps already complete. For the last
-//              entry once pre-con is done this is `constructionFill` (the page's
-//              existing cjPct / 100); null when construction data is unavailable,
-//              which draws the highlighted track with no fill rather than a guess.
-function PhaseTracker({ completed, currentStepNumber, constructionOverride, constructionFill }: {
-  completed: Set<number>
-  currentStepNumber: number | null
-  constructionOverride?: { state: PhaseState; description: string }
-  constructionFill?: number | null
-}) {
-  const lastIdx = PHASES.length - 1
-  const states = PHASES.map((p, i) =>
-    constructionOverride && i === lastIdx ? constructionOverride.state : getPhaseState(p, completed, currentStepNumber)
-  )
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PHASES.length}, minmax(0, 1fr))`, gap: 14 }}>
-      {PHASES.map((phase, i) => {
-        const state = states[i]
-        const isOverridden = !!constructionOverride && i === lastIdx
-        const fill =
-          state === 'done' ? 1
-          : state === 'upcoming' ? 0
-          : isOverridden ? (constructionFill ?? 0)
-          : phase.steps.filter(s => completed.has(s)).length / phase.steps.length
-
-        const labelColor = state === 'upcoming' ? 'var(--mp-phase-upcoming-text)' : 'var(--mp-ink)'
-        return (
-          <div key={phase.label} style={{ minWidth: 0 }}>
-            {/* Bar */}
-            <div
-              style={{
-                height: 4,
-                borderRadius: 99,
-                overflow: 'hidden',
-                background: state === 'active' ? 'var(--mp-accent-soft)' : state === 'upcoming' ? 'var(--mp-phase-upcoming-track)' : 'var(--mp-line)',
-              }}
-            >
-              <div
-                style={{
-                  height: '100%',
-                  width: `${Math.round(fill * 100)}%`,
-                  borderRadius: 99,
-                  background: state === 'done' ? 'var(--mp-ok)' : 'var(--mp-accent)',
-                  transition: 'width 500ms ease',
-                }}
-              />
-            </div>
-
-            {/* Label + state + description */}
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, fontWeight: state === 'active' ? 600 : 500, color: labelColor, lineHeight: 1.3 }}>
-                  {phase.label}
-                </span>
-                {state === 'active' && (
-                  <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--mp-accent)' }}>
-                    Current
-                  </span>
-                )}
-                {state === 'done' && (
-                  <span aria-label="complete" style={{ fontSize: 11, color: 'var(--mp-ok)' }}>✓</span>
-                )}
-              </div>
-              <div style={{ fontSize: 11, color: state === 'active' ? 'var(--mp-ink2)' : state === 'upcoming' ? 'var(--mp-phase-upcoming-text)' : 'var(--mp-ink3)', marginTop: 3, lineHeight: 1.4 }}>
-                {isOverridden && constructionOverride ? constructionOverride.description : phase.description}
-              </div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// Circular progress ring for the "Happening now" card. Purely presentational: the
-// percentage is passed in already computed (see the call site for what it means).
-function ProgressRing({ value, color, caption }: { value: number; color: string; caption: string }) {
-  const size = 104
-  const stroke = 5
-  const r = (size - stroke) / 2
-  const c = 2 * Math.PI * r
-  const clamped = Math.max(0, Math.min(100, value))
-  return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--mp-line)" strokeWidth={stroke} />
-        <circle
-          cx={size / 2} cy={size / 2} r={r} fill="none"
-          stroke={color} strokeWidth={stroke} strokeLinecap="round"
-          strokeDasharray={c} strokeDashoffset={c * (1 - clamped / 100)}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: 'stroke-dashoffset 600ms ease' }}
-        />
-      </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
-        <div>
-          <div style={{ fontFamily: DISPLAY, fontSize: 26, fontWeight: 300, color: 'var(--mp-ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-            {clamped}%
-          </div>
-          <div style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--mp-ink3)', marginTop: 4 }}>
-            {caption}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Decorative architectural accent for the hero — thin-stroke house outline.
-function HouseSketch() {
-  return (
-    <svg
-      className="mp-house"
-      aria-hidden="true"
-      focusable="false"
-      width="170" height="120" viewBox="0 0 170 120" fill="none"
-      stroke="var(--mp-sketch)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"
-    >
-      {/* ground */}
-      <line x1="4" y1="112" x2="166" y2="112" />
-      {/* main volume + roof */}
-      <polyline points="22,112 22,56 70,20 118,56 118,112" />
-      <line x1="14" y1="62" x2="70" y2="20" />
-      <line x1="70" y1="20" x2="126" y2="62" />
-      {/* chimney */}
-      <polyline points="94,38 94,24 104,24 104,46" />
-      {/* door */}
-      <rect x="60" y="80" width="20" height="32" />
-      {/* windows */}
-      <rect x="32" y="68" width="18" height="16" />
-      <line x1="41" y1="68" x2="41" y2="84" />
-      <rect x="90" y="68" width="18" height="16" />
-      <line x1="99" y1="68" x2="99" y2="84" />
-      {/* garage wing */}
-      <polyline points="118,112 118,74 158,74 158,112" />
-      <line x1="114" y1="76" x2="162" y2="76" />
-      <line x1="126" y1="86" x2="150" y2="86" />
-      <line x1="126" y1="94" x2="150" y2="94" />
-      <line x1="126" y1="102" x2="150" y2="102" />
-    </svg>
-  )
-}
-
-// ── Team / Project details cards (C1 styling: page-scoped --mp-* tokens) ─────────
-const MP_CARD: React.CSSProperties = {
-  background: 'var(--mp-surface)',
-  border: '0.5px solid var(--mp-line)',
-  borderRadius: 16,
-  overflow: 'hidden',
-  fontFamily: BODY,
-}
-const MP_CARD_HEADER: React.CSSProperties = {
-  padding: '18px 24px 14px',
-  borderBottom: '0.5px solid var(--mp-line)',
-}
-const MP_CARD_TITLE: React.CSSProperties = {
-  fontFamily: DISPLAY,
-  fontSize: 20,
-  fontWeight: 300,
-  letterSpacing: '-0.01em',
-  color: 'var(--mp-ink)',
-}
-
-// Avatar initials from a real name: first + last word, or the first two letters of
-// a single word. Only ever called with a non-empty trimmed name.
-function personInitials(name: string): string {
-  const parts = name.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-  return parts[0].slice(0, 2).toUpperCase()
-}
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
 interface ClientRow {
@@ -365,148 +97,6 @@ interface ProjectFile {
   file_size: number
   file_type: string
   uploaded_at: string
-}
-
-// NEW (additive): human-readable file size + icon for the Your Project Files list.
-function fmtFileSize(bytes: number): string {
-  if (bytes == null || Number.isNaN(bytes)) return ''
-  if (bytes < 1024) return `${bytes} B`
-  const kb = bytes / 1024
-  if (kb < 1024) return `${Math.round(kb)} KB`
-  return `${(kb / 1024).toFixed(1)} MB`
-}
-
-function fileIcon(type: string, name: string): string {
-  const t = (type || '').toLowerCase()
-  const n = (name || '').toLowerCase()
-  if (t.includes('image') || /\.(jpe?g|png|gif|webp)$/.test(n)) return '🖼'
-  if (t.includes('sheet') || t.includes('excel') || /\.(xlsx?|csv)$/.test(n)) return '📊'
-  return '📄'
-}
-
-function fmtCurrency(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return ''
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
-}
-
-function fmtMaybeDate(value: string | null | undefined): string {
-  if (!value) return ''
-  // ISO date (YYYY-MM-DD) → friendly format; otherwise show raw.
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
-    const d = new Date(value.slice(0, 10) + 'T00:00:00')
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    }
-  }
-  return value
-}
-
-// ── Shared style fragments ────────────────────────────────────────────────────
-const CARD: React.CSSProperties = {
-  background: 'var(--surface)',
-  border: '0.5px solid var(--border)',
-  borderRadius: 12,
-  overflow: 'hidden',
-}
-const SECTION_HEADER: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'baseline',
-  justifyContent: 'space-between',
-  gap: 12,
-  padding: '16px 20px',
-  borderBottom: '0.5px solid var(--border)',
-}
-const SECTION_TITLE: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 500,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--text2)',
-}
-const SECTION_META: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--text3)',
-  whiteSpace: 'nowrap',
-  fontVariantNumeric: 'tabular-nums',
-}
-const STEP_PILL: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 700,
-  color: '#fff',
-  background: '#1a1917',
-  borderRadius: 5,
-  padding: '3px 7px',
-  whiteSpace: 'nowrap',
-  fontVariantNumeric: 'tabular-nums',
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, '0')
-}
-
-// One Project Timeline row. Shared by the pre-con list (its original markup, moved
-// here verbatim) and the Construction list, so both journeys highlight done/current
-// steps identically. `badge` renders for done/current rows only, exactly as the
-// pre-con TypeBadge always did; Construction passes null (see the call site).
-function timelineRow({ stepNumber, title, done, isCurrent, last, badge }: {
-  stepNumber: number
-  title: string
-  done: boolean
-  isCurrent: boolean
-  last: boolean
-  badge: React.ReactNode
-}) {
-  return (
-    <div
-      key={stepNumber}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 11,
-        padding: '9px 20px',
-        borderBottom: last ? undefined : '0.5px solid var(--border)',
-        background: isCurrent ? 'var(--surface2)' : 'transparent',
-      }}
-    >
-      {/* Dot indicator */}
-      {done ? (
-        <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#22c55e', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-        </span>
-      ) : isCurrent ? (
-        <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#1a1917', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-        </span>
-      ) : (
-        <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid var(--border2)', flexShrink: 0 }} />
-      )}
-
-      {/* Step number */}
-      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', width: 20, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-        {pad2(stepNumber)}
-      </span>
-
-      {/* Title */}
-      <span
-        style={{
-          flex: 1,
-          minWidth: 0,
-          fontSize: 13,
-          fontWeight: isCurrent ? 600 : 400,
-          color: done ? 'var(--text3)' : 'var(--text)',
-          textDecoration: done ? 'line-through' : 'none',
-        }}
-      >
-        {title}
-      </span>
-
-      {/* Badge: type for done/current, "You are here" for current; nothing for future */}
-      {isCurrent && (
-        <span style={{ ...STEP_PILL, fontSize: 9.5 }}>You are here</span>
-      )}
-      {(done || isCurrent) && badge}
-    </div>
-  )
 }
 
 export default function MyProjectPage() {
@@ -639,81 +229,31 @@ export default function MyProjectPage() {
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const firstName = client?.name?.trim().split(' ')[0] ?? ''
-  const completedCount = WORKFLOW_STEPS.filter(s => completedSteps.has(s.step)).length
-  const pct = TOTAL_WORKFLOW_STEPS > 0 ? Math.round((completedCount / TOTAL_WORKFLOW_STEPS) * 100) : 0
-  const currentStep = WORKFLOW_STEPS.find(s => !completedSteps.has(s.step)) ?? null
 
-  // ── Journey phase ───────────────────────────────────────────────────────────
-  // Only matters once pre-con is done (currentStep === null); for every pre-con
-  // client getClientPhase returns 'precon' and nothing below changes the render.
-  // Mirrors the Construction panel / internal Overview exactly: done count is the
-  // INTERSECTION of marks with the definitions, and the current step is the
-  // LOWEST-numbered unmarked step (not "highest marked + 1").
-  // cjAvailable false (read failed / no definitions) → phase is left null past
-  // pre-con, and the page says progress is unavailable instead of guessing.
-  const cjAvailable = cjSteps !== null
-  const cjTotal = cjSteps?.length ?? 0
-  const cjDoneCount = cjSteps ? cjSteps.filter(s => cjMarks.has(s.n)).length : 0
-  const cjCurrentStep = cjSteps ? cjSteps.find(s => !cjMarks.has(s.n)) ?? null : null
-  // getClientPhase is the sole decider. Mid-pre-con it returns 'precon' whatever the
-  // construction values are (completedCount !== 37), so it is safe to call even when
-  // the construction read failed; only past pre-con does an unavailable read matter.
-  const phase = currentStep !== null || cjAvailable
-    ? getClientPhase(completedCount, cjDoneCount, cjTotal)
-    : null
-  const cjPct = cjTotal > 0 ? Math.round((cjDoneCount / cjTotal) * 100) : 0
-  // The progress headline/bar switch to the Construction count only in the two
-  // past-pre-con phases with real data; pre-con (and "unavailable") keep 37-step.
-  const showCjProgress = phase === 'construction' || phase === 'completed'
-  // Replaces the tracker's cosmetic "Construction" entry (which is really pre-con
-  // step 37) once pre-con is done. undefined for pre-con → original tracker render.
-  const constructionOverride: { state: PhaseState; description: string } | undefined =
-    phase === 'precon'
-      ? undefined
-      : phase === 'completed'
-        ? { state: 'done', description: 'Your home is complete' }
-        : phase === 'construction' && cjCurrentStep
-          ? { state: 'active', description: `Step ${cjCurrentStep.n} of ${cjTotal} · ${cjCurrentStep.title}` }
-          // Past pre-con but construction progress could not be read.
-          : { state: 'active', description: 'Progress details unavailable right now' }
-
-  // ── Your team / Project details ─────────────────────────────────────────────
-  // Every value is a real column or ''. `text()` is the fetch-boundary guard: a
-  // non-string (or whitespace-only) value reads as absent rather than being rendered.
-  const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
-
-  // Team — client_agenda_header only. No fallback: the clients table has no column
-  // for these roles (clients.owner is the Client Solution Manager, a different role).
-  const team: { role: string; name: string }[] = [
-    { role: 'Architect', name: text(agendaHeader?.architect) },
-    { role: 'Project Specialist', name: text(agendaHeader?.project_specialist) },
-    { role: 'Estimator', name: text(agendaHeader?.estimator) },
-  ]
-  const teamHasAnyone = team.some(m => m.name !== '')
-  // Footer CTA reuses the Team card's own value ('' when not assigned).
-  const specialistName = team.find(m => m.role === 'Project Specialist')?.name ?? ''
-
-  // Project details. Name / address / homeowners use the SAME fallback as the staff
-  // Standing Agenda (customers/[id]/page.tsx:1947-1953): header value, else the
-  // clients row (`h?.project_name || clientName`, `h?.project_address ||
-  // client.project_address`, `h?.homeowners || clientName`). Permit date and zoning
-  // exist only on client_agenda_header, so they have no fallback.
-  const details: { label: string; value: string }[] = [
-    { label: 'Project name', value: text(agendaHeader?.project_name) || text(client?.name) },
-    { label: 'Address', value: text(agendaHeader?.project_address) || text(client?.project_address) },
-    { label: 'Homeowners', value: text(agendaHeader?.homeowners) || text(client?.name) },
-    { label: 'Target permit date', value: fmtMaybeDate(text(agendaHeader?.target_permit_date)) },
-    { label: 'Zoning', value: text(agendaHeader?.zoning) },
-  ]
-
-  // Special conditions — rendered only when a header row exists AND its array holds
-  // at least one real value. 'None of these' is an explicit answer, not an empty one,
-  // so it renders as "No special conditions" rather than being dropped.
-  const conditionValues = Array.isArray(agendaHeader?.special_conditions)
-    ? (agendaHeader.special_conditions as unknown[]).map(text).filter(v => v !== '')
-    : []
-  const realConditions = conditionValues.filter(v => v !== 'None of these')
-  const showConditions = agendaHeader !== null && conditionValues.length > 0
+  // ── Journey phase / team / details ──────────────────────────────────────────
+  // The whole pure calculation lives in src/lib/project-progress.ts, shared with
+  // the token-validated client-view route so both compute identical results.
+  // cjSteps stays null (not []) when the Construction reads failed — that is what
+  // produces the "Unavailable" state. Names are destructured unchanged, so every
+  // render site below reads exactly the values it read before the extraction.
+  const {
+    completedCount,
+    pct,
+    currentStep,
+    cjTotal,
+    cjDoneCount,
+    cjCurrentStep,
+    phase,
+    cjPct,
+    showCjProgress,
+    constructionOverride,
+    team,
+    teamHasAnyone,
+    specialistName,
+    details,
+    realConditions,
+    showConditions,
+  } = computeProjectProgress({ completedSteps, cjSteps, cjMarks, client, agendaHeader })
 
   // NEW (additive): open a shared file via a short-lived signed URL.
   async function handleFileDownload(file: ProjectFile) {
@@ -839,7 +379,7 @@ export default function MyProjectPage() {
 
   return (
     <div className={`${dmSans.className} mp-root`} style={{ ...overlay, background: 'var(--mp-bg)', fontFamily: dmSans.style.fontFamily }}>
-      <style>{MP_TOKENS}</style>
+      <style dangerouslySetInnerHTML={{ __html: MP_TOKENS }} />
       {/* ── SECTION 1 — Top bar ─────────────────────────────────────────────── */}
       <div
         style={{
